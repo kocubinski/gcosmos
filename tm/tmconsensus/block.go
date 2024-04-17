@@ -1,0 +1,102 @@
+package tmconsensus
+
+import "github.com/rollchains/gordian/gcrypto"
+
+// Block is the logical representation of a full block.
+// The block may go through transformations,
+// such as storing only hashes of validator sets rather than the longhand raw validator data,
+// before writing to disk or writing to the network.
+type Block struct {
+	// Determined based on all the other fields.
+	// Typically derived through a [HashScheme] method.
+	Hash []byte
+
+	// Hash of the previous block.
+	PrevBlockHash []byte
+
+	// Height of this block.
+	Height uint64
+
+	// PrevCommitProof is proof for the previous committed block,
+	// where there may be precommits for other blocks
+	// besides the committed one and nil.
+	PrevCommitProof CommitProof
+
+	// The validators for this block.
+	Validators []Validator
+
+	// The validators for the next block.
+	NextValidators []Validator
+
+	// Hash of the data for this block.
+	DataHash []byte
+
+	// The hash of the app state as a result of executing the previous block.
+	// Deriving this hash is an application-level concern.
+	PrevAppStateHash []byte
+}
+
+// CommitProof is the commit proof for a block.
+type CommitProof struct {
+	Round uint32 // Necessary to derive signature content.
+
+	PubKeyHash string // Required to validate sparse signatures.
+
+	// Keyed by block hash, or an empty string for nil block.
+	Proofs map[string][]gcrypto.SparseSignature
+}
+
+// CommittedBlock is a block and the proof that it was committed.
+type CommittedBlock struct {
+	Block Block
+	Proof CommitProof
+}
+
+// ProposedBlock is the data sent by a proposer at the beginning of a round.
+type ProposedBlock struct {
+	// The block to consider committing.
+	Block Block
+
+	// The round in which this block was proposed.
+	Round uint32
+
+	// The public key of the proposer.
+	// While we can infer this from the proposer strategy when the engine is up to date,
+	// we may receive this message out of order.
+	//
+	// Stored as a string to indicate immutability.
+	// TODO: this should probably be gcrypto.PubKey,
+	// so we don't lose the key type.
+	ProposerPubKey string
+
+	// Signature of the proposer.
+	// The signing content is determined by the engine's [SignatureScheme].
+	Signature []byte
+}
+
+// BlockFinalization is the set of data resulting from finalizing (read: evaluating) a block.
+type BlockFinalization struct {
+	// The block hash, for an unambiguous reference to which block is in consideration.
+	BlockHash []byte
+
+	// The round in which the block was finalized -- not necessarily the same round
+	// in which it was proposed, if a validator was locked to a specific proposal.
+	//
+	// This is helpful when proposing a block,
+	// to look up the corresponding RoundState and set up the proposed block's PrevCommitProof.
+	Round uint32
+
+	// The hash of the app state after finalizing the block.
+	AppStateHash []byte
+
+	// The next validators after evaluating the block.
+	// If this is the finalization for height H,
+	// this will be the NextValidators field for height H+1.
+	NextNextValidators []Validator
+
+	// The original NextValidators field on the block matching BlockHash.
+	// Not overridable.
+	// Offered as convenience for populating Validators and NextValidators
+	// on the subsequent block.
+	NextValidators []Validator
+}

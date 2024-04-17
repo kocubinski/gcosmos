@@ -1,0 +1,14 @@
+#   _____   _______    ____    _____    _
+#  / ____| |__   __|  / __ \  |  __ \  | |
+# | (___      | |    | |  | | | |__) | | |
+#  \___ \     | |    | |  | | |  ___/  | |
+#  ____) |    | |    | |__| | | |      |_|
+# |_____/     |_|     \____/  |_|      (_)
+
+# Before updating this repository's .gitignore,
+# do your changes belong in the global gitignore?
+# https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files#configuring-ignored-files-for-all-repositories-on-your-computer
+
+demo/
+**/bin
+**/.DS_Store
