@@ -29,10 +29,17 @@ func (jpb jsonProposedBlock) ToProposedBlock(
 		)
 	}
 
+	pubKey, err := reg.Unmarshal(jpb.ProposerPubKey)
+	if err != nil {
+		return tmconsensus.ProposedBlock{}, fmt.Errorf(
+			"failed to unmarshal proposer pubkey: %w", err,
+		)
+	}
+
 	return tmconsensus.ProposedBlock{
 		Block:          b,
 		Round:          jpb.Round,
-		ProposerPubKey: string(jpb.ProposerPubKey),
+		ProposerPubKey: pubKey,
 		Signature:      jpb.Signature,
 	}, nil
 }
@@ -41,7 +48,7 @@ func toJSONProposedBlock(pb tmconsensus.ProposedBlock, reg *gcrypto.Registry) js
 	return jsonProposedBlock{
 		Block:          toJSONBlock(pb.Block, reg),
 		Round:          pb.Round,
-		ProposerPubKey: []byte(pb.ProposerPubKey),
+		ProposerPubKey: reg.Marshal(pb.ProposerPubKey),
 		Signature:      pb.Signature,
 	}
 }

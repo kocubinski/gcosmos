@@ -1403,9 +1403,8 @@ func (k *Kernel) setPBCheckStatus(
 		// We are currently assuming that it is cheaper for the kernel to block on seeking through the validators
 		// than it is to copy over the entire validator block and hand it off to the mirror's calling goroutine.
 		var proposerPubKey gcrypto.PubKey
-		incomingPubKeyBytes := []byte(req.PB.ProposerPubKey)
 		for _, val := range vrv.Validators {
-			if bytes.Equal(val.PubKey.PubKeyBytes(), incomingPubKeyBytes) {
+			if req.PB.ProposerPubKey.Equal(val.PubKey) {
 				proposerPubKey = val.PubKey
 				break
 			}

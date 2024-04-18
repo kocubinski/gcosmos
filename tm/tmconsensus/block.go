@@ -66,13 +66,8 @@ type ProposedBlock struct {
 	Round uint32
 
 	// The public key of the proposer.
-	// While we can infer this from the proposer strategy when the engine is up to date,
-	// we may receive this message out of order.
-	//
-	// Stored as a string to indicate immutability.
-	// TODO: this should probably be gcrypto.PubKey,
-	// so we don't lose the key type.
-	ProposerPubKey string
+	// Used to verify the signature.
+	ProposerPubKey gcrypto.PubKey
 
 	// Signature of the proposer.
 	// The signing content is determined by the engine's [SignatureScheme].

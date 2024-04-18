@@ -160,8 +160,7 @@ func (s *echoConsensusStrategy) ConsiderProposedBlocks(ctx context.Context, pbs 
 	defer s.mu.Unlock()
 
 	for _, pb := range pbs {
-		// See TODO in tmconsensus.ProposedBlock about this being a typed public key instead of the byte string.
-		if pb.ProposerPubKey != string(s.expProposerPubKey.PubKeyBytes()) {
+		if !s.expProposerPubKey.Equal(pb.ProposerPubKey) {
 			continue
 		}
 
@@ -177,7 +176,7 @@ func (s *echoConsensusStrategy) ConsiderProposedBlocks(ctx context.Context, pbs 
 			return "", nil
 		}
 
-		if s.PubKey != nil && pb.ProposerPubKey == string(s.PubKey.PubKeyBytes()) {
+		if s.PubKey != nil && s.PubKey.Equal(pb.ProposerPubKey) {
 			s.Log.Info("Voting on a block that we proposed",
 				"h", s.curH, "r", s.curR,
 				"block_hash", glog.Hex(pb.Block.Hash),

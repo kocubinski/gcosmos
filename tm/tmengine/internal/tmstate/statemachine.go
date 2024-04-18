@@ -772,7 +772,7 @@ func (m *StateMachine) recordProposedBlock(
 
 		Round: r,
 
-		ProposerPubKey: string(m.signer.PubKey().PubKeyBytes()),
+		ProposerPubKey: m.signer.PubKey(),
 	}
 
 	hash, err := m.hashScheme.Block(pb.Block)

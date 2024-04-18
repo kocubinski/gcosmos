@@ -157,7 +157,7 @@ func (s *identityConsensusStrategy) ConsiderProposedBlocks(ctx context.Context, 
 
 	for _, pb := range pbs {
 		// See TODO in tmconsensus.ProposedBlock about this being a typed public key instead of the byte string.
-		if pb.ProposerPubKey != string(s.expProposerPubKey.PubKeyBytes()) {
+		if !s.expProposerPubKey.Equal(pb.ProposerPubKey) {
 			continue
 		}
 

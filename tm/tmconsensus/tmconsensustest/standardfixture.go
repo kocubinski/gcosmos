@@ -165,7 +165,7 @@ func (f *StandardFixture) SignProposal(ctx context.Context, pb *tmconsensus.Prop
 		panic(fmt.Errorf("failed to sign proposal: %w", err))
 	}
 
-	pb.ProposerPubKey = string(v.CVal.PubKey.PubKeyBytes())
+	pb.ProposerPubKey = v.CVal.PubKey
 }
 
 // PrevoteSignature returns the signature for the validator at valIdx
