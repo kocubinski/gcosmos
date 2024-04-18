@@ -97,7 +97,8 @@ func (a *identityApp) kernel(
 
 				Validators: vals,
 
-				AppStateHash: req.Block.DataHash,
+				// TODO: this would be more meaningful if it were a more properly calculated hash.
+				AppStateHash: req.Block.DataID,
 			}
 
 			// The response channel is guaranteed to be 1-buffered.
@@ -143,7 +144,7 @@ func (s *identityConsensusStrategy) EnterRound(ctx context.Context, rv tmconsens
 		appData := fmt.Sprintf("Height: %d; Round: %d", s.curH, s.curR)
 		dataHash := sha256.Sum256([]byte(appData))
 		proposalOut <- tmconsensus.Proposal{
-			AppDataHash: string(dataHash[:]),
+			AppDataID: string(dataHash[:]),
 		}
 	}
 
@@ -162,9 +163,9 @@ func (s *identityConsensusStrategy) ConsiderProposedBlocks(ctx context.Context, 
 
 		// Found a proposed block from the expected proposer.
 		expBlockData := fmt.Sprintf("Height: %d; Round: %d", s.curH, s.curR)
-		expDataHash := sha256.Sum256([]byte(expBlockData))
+		expDataID := sha256.Sum256([]byte(expBlockData))
 
-		if !bytes.Equal(pb.Block.DataHash, expDataHash[:]) {
+		if !bytes.Equal(pb.Block.DataID, expDataID[:]) {
 			return "", nil
 		}
 

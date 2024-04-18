@@ -39,7 +39,7 @@ func TestFixture_CommitInitialHeight(t *testing.T) {
 			require.Len(t, pbs, 1)
 
 			pb := pbs[0]
-			require.Equal(t, []byte("initial_height"), pb.Block.DataHash)
+			require.Equal(t, []byte("initial_height"), pb.Block.DataID)
 
 			require.Len(t, precommits, 1)
 			precommitProof := precommits[string(pb.Block.Hash)]

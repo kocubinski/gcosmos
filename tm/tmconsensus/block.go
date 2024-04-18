@@ -5,10 +5,10 @@ import "github.com/rollchains/gordian/gcrypto"
 // Block is the logical representation of a full block.
 // The block may go through transformations,
 // such as storing only hashes of validator sets rather than the longhand raw validator data,
-// before writing to disk or writing to the network.
+// before writing to disk or sending across the network.
 type Block struct {
 	// Determined based on all the other fields.
-	// Typically derived through a [HashScheme] method.
+	// Derived through a [HashScheme] method.
 	Hash []byte
 
 	// Hash of the previous block.
@@ -17,7 +17,7 @@ type Block struct {
 	// Height of this block.
 	Height uint64
 
-	// PrevCommitProof is proof for the previous committed block,
+	// PrevCommitProof is the proof for the previous committed block,
 	// where there may be precommits for other blocks
 	// besides the committed one and nil.
 	PrevCommitProof CommitProof
@@ -28,8 +28,13 @@ type Block struct {
 	// The validators for the next block.
 	NextValidators []Validator
 
-	// Hash of the data for this block.
-	DataHash []byte
+	// ID of the data for this block.
+	// The user-defined consensus strategy provides this ID,
+	// and the application is responsible for retrieving the raw data belonging to the ID.
+	//
+	// The ID is typically, but not necessarily,
+	// a cryptographic hash of the application data for the block
+	DataID []byte
 
 	// The hash of the app state as a result of executing the previous block.
 	// Deriving this hash is an application-level concern.

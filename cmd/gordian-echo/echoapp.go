@@ -147,7 +147,7 @@ func (s *echoConsensusStrategy) EnterRound(ctx context.Context, rv tmconsensus.R
 		appData := fmt.Sprintf("Height: %d; Round: %d", s.curH, s.curR)
 		dataHash := sha256.Sum256([]byte(appData))
 		proposalOut <- tmconsensus.Proposal{
-			AppDataHash: string(dataHash[:]),
+			AppDataID: string(dataHash[:]),
 		}
 		s.Log.Info("Proposing block", "h", s.curH, "r", s.curR)
 	}
@@ -169,10 +169,10 @@ func (s *echoConsensusStrategy) ConsiderProposedBlocks(ctx context.Context, pbs 
 		expBlockData := fmt.Sprintf("Height: %d; Round: %d", s.curH, s.curR)
 		expDataHash := sha256.Sum256([]byte(expBlockData))
 
-		if !bytes.Equal(pb.Block.DataHash, expDataHash[:]) {
+		if !bytes.Equal(pb.Block.DataID, expDataHash[:]) {
 			s.Log.Info("Rejecting proposed block from expected proposer",
-				"exp_hash", glog.Hex(expDataHash[:]),
-				"got_hash", glog.Hex(pb.Block.DataHash),
+				"exp_id", glog.Hex(expDataHash[:]),
+				"got_id", glog.Hex(pb.Block.DataID),
 			)
 			return "", nil
 		}

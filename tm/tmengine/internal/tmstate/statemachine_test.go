@@ -74,7 +74,7 @@ func TestStateMachine_initialization(t *testing.T) {
 		// Now, if the consensus strategy were to send a proposed block,
 		// the state machine would pass it on to the mirror.
 		p := tmconsensus.Proposal{
-			AppDataHash: "foobar",
+			AppDataID: "foobar",
 		}
 		gtest.SendSoon(t, erc.ProposalOut, p)
 

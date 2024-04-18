@@ -27,8 +27,8 @@ Height=%d
 Round=%d
 PrevBlockHash=%x
 PrevAppStateHash=%x
-DataHash=%x
-`, b.Height, round, b.PrevBlockHash, b.PrevAppStateHash, b.DataHash)
+DataID=%x
+`, b.Height, round, b.PrevBlockHash, b.PrevAppStateHash, b.DataID)
 }
 
 func (s SimpleSignatureScheme) WritePrevoteSigningContent(w io.Writer, vt tmconsensus.VoteTarget) (int, error) {

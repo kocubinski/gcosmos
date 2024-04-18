@@ -11,7 +11,7 @@ import (
 // The type only contains a single field currently,
 // but this type will be expanded in the future.
 type Proposal struct {
-	AppDataHash string
+	AppDataID string
 }
 
 // ConsensusStrategy determines how a state machine proposes blocks

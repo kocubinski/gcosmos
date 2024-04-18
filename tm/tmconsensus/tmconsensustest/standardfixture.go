@@ -127,7 +127,7 @@ func (f *StandardFixture) DefaultGenesis() tmconsensus.Genesis {
 // Both Validators and NextValidators are set to f.Vals().
 // These and other fields may be overridden,
 // in which case you should call f.RecalculateHash and f.SignProposal again.
-func (f *StandardFixture) NextProposedBlock(appDataHash []byte, valIdx int) tmconsensus.ProposedBlock {
+func (f *StandardFixture) NextProposedBlock(appDataID []byte, valIdx int) tmconsensus.ProposedBlock {
 	vals := f.Vals()
 	b := tmconsensus.Block{
 		Height: f.prevBlockHeight + 1,
@@ -139,7 +139,7 @@ func (f *StandardFixture) NextProposedBlock(appDataHash []byte, valIdx int) tmco
 		Validators:     vals,
 		NextValidators: vals,
 
-		DataHash: appDataHash,
+		DataID: appDataID,
 
 		PrevAppStateHash: f.prevAppStateHash,
 	}

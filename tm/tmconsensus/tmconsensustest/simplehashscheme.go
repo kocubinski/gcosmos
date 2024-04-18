@@ -87,7 +87,7 @@ PrevCommitProof:
   Signatures: %s
 Validators: %s
 NextValidators: %s
-DataHash: %x
+DataID: %x
 PrevAppStateHash: %x`,
 		b.PrevBlockHash,
 		b.Height,
@@ -96,7 +96,7 @@ PrevAppStateHash: %x`,
 		prevCommitSignatures,
 		valData,
 		nextValData,
-		b.DataHash,
+		b.DataID,
 		b.PrevAppStateHash,
 	)
 

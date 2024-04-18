@@ -35,8 +35,8 @@ func TestHashSchemeCompliance(
 			if len(b.PrevBlockHash) == 0 {
 				t.Errorf("PrevBlockHash must not be empty")
 			}
-			if len(b.DataHash) == 0 {
-				t.Errorf("DataHash must not be empty")
+			if len(b.DataID) == 0 {
+				t.Errorf("DataID must not be empty")
 			}
 
 			// TODO: assert some details of PrevCommitProof.
@@ -104,9 +104,9 @@ func TestHashSchemeCompliance(
 					},
 				},
 				{
-					name: "DataHash",
+					name: "DataID",
 					fn: func(b *tmconsensus.Block) {
-						b.DataHash[0]++
+						b.DataID[0]++
 					},
 				},
 
@@ -261,7 +261,7 @@ func defaultHashSchemeBlock(p gcrypto.CommonMessageSignatureProofScheme) tmconse
 
 		Height: 3,
 
-		DataHash: []byte("data_hash"),
+		DataID: []byte("data_id"),
 
 		Validators:     blockValidators,
 		NextValidators: vals.Vals(), // One more next validator than current.

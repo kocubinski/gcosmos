@@ -59,7 +59,7 @@ type jsonBlock struct {
 	Validators     []jsonValidator
 	NextValidators []jsonValidator
 
-	DataHash         []byte
+	DataID           []byte
 	PrevAppStateHash []byte
 }
 
@@ -117,7 +117,7 @@ func (jb jsonBlock) ToBlock(
 		Validators:     validators,
 		NextValidators: nextValidators,
 
-		DataHash:         jb.DataHash,
+		DataID:           jb.DataID,
 		PrevAppStateHash: jb.PrevAppStateHash,
 	}, nil
 }
@@ -144,7 +144,7 @@ func toJSONBlock(b tmconsensus.Block, reg *gcrypto.Registry) jsonBlock {
 		Validators:     jValidators,
 		NextValidators: jNextValidators,
 
-		DataHash:         b.DataHash,
+		DataID:           b.DataID,
 		PrevAppStateHash: b.PrevAppStateHash,
 	}
 }

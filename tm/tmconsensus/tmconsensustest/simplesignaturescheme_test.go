@@ -21,7 +21,7 @@ func TestSimpleSignatureScheme(t *testing.T) {
 			Height:           10,
 			PrevBlockHash:    []byte("proposal"),
 			PrevAppStateHash: []byte("state"),
-			DataHash:         []byte("app"),
+			DataID:           []byte("app"),
 		}
 
 		// Get original content.
@@ -57,7 +57,7 @@ func TestSimpleSignatureScheme(t *testing.T) {
 				},
 				func(b tmconsensus.Block) tmconsensus.Block {
 					out := b
-					out.DataHash = []byte("different app data hash")
+					out.DataID = []byte("different app data ID")
 					return out
 				},
 			} {
