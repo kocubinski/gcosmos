@@ -54,40 +54,56 @@ func TestMarshalCodecCompliance(t *testing.T, mcf MarshalCodecFactory) {
 					mc := mcf()
 
 					t.Run("proposed block", func(t *testing.T) {
-						if !useInitialHeight {
-							activePrecommit := fx.PrecommitSignatureProof(
-								ctx,
-								tmconsensus.VoteTarget{Height: 1, Round: 0, BlockHash: string(prevBlock.Hash)},
-								nil,
-								[]int{0, 1, 2},
-							)
-							nilPrecommit := fx.PrecommitSignatureProof(
-								ctx,
-								tmconsensus.VoteTarget{Height: 1, Round: 0},
-								nil,
-								[]int{3},
-							)
+						for _, ac := range []struct {
+							name string
+							a    tmconsensus.Annotations
+						}{
+							{name: "no annotations"},
+							{name: "only app annotation", a: tmconsensus.Annotations{App: []byte("app")}},
+							{name: "only engine annotation", a: tmconsensus.Annotations{Engine: []byte("engine")}},
+							{name: "both annotations set", a: tmconsensus.Annotations{App: []byte("both:app"), Engine: []byte("both:engine")}},
+							{name: "both annotations empty but not nil", a: tmconsensus.Annotations{App: []byte{}, Engine: []byte{}}},
+						} {
+							ac := ac
+							t.Run(ac.name, func(t *testing.T) {
+								if !useInitialHeight {
+									activePrecommit := fx.PrecommitSignatureProof(
+										ctx,
+										tmconsensus.VoteTarget{Height: 1, Round: 0, BlockHash: string(prevBlock.Hash)},
+										nil,
+										[]int{0, 1, 2},
+									)
+									nilPrecommit := fx.PrecommitSignatureProof(
+										ctx,
+										tmconsensus.VoteTarget{Height: 1, Round: 0},
+										nil,
+										[]int{3},
+									)
 
-							proof := tmconsensus.CommitProof{
-								Round: 0,
+									proof := tmconsensus.CommitProof{
+										Round: 0,
 
-								PubKeyHash: nilPrecommit.AsSparse().PubKeyHash,
+										PubKeyHash: nilPrecommit.AsSparse().PubKeyHash,
 
-								Proofs: map[string][]gcrypto.SparseSignature{
-									string(prevBlock.Hash): activePrecommit.AsSparse().Signatures,
-									"":                     nilPrecommit.AsSparse().Signatures,
-								},
-							}
-							pb.Block.PrevCommitProof = proof
+										Proofs: map[string][]gcrypto.SparseSignature{
+											string(prevBlock.Hash): activePrecommit.AsSparse().Signatures,
+											"":                     nilPrecommit.AsSparse().Signatures,
+										},
+									}
+									pb.Block.PrevCommitProof = proof
+
+									pb.Annotations = ac.a
+								}
+
+								b, err := mc.MarshalProposedBlock(pb)
+								require.NoError(t, err)
+
+								var got tmconsensus.ProposedBlock
+								require.NoError(t, mc.UnmarshalProposedBlock(b, &got))
+
+								require.Equal(t, pb, got)
+							})
 						}
-
-						b, err := mc.MarshalProposedBlock(pb)
-						require.NoError(t, err)
-
-						var got tmconsensus.ProposedBlock
-						require.NoError(t, mc.UnmarshalProposedBlock(b, &got))
-
-						require.Equal(t, pb, got)
 					})
 
 					t.Run("plain block", func(t *testing.T) {

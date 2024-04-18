@@ -241,7 +241,7 @@ RESTART:
 	}
 
 	// Validate the signature based on the public key the kernel reported.
-	signContent, err := tmconsensus.ProposalSignBytes(pb.Block, pb.Round, m.sigScheme)
+	signContent, err := tmconsensus.ProposalSignBytes(pb.Block, pb.Round, pb.Annotations, m.sigScheme)
 	if err != nil {
 		return tmconsensus.HandleProposedBlockInternalError
 	}

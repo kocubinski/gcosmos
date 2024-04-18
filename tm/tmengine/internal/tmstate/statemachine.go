@@ -773,6 +773,12 @@ func (m *StateMachine) recordProposedBlock(
 		Round: r,
 
 		ProposerPubKey: m.signer.PubKey(),
+
+		Annotations: tmconsensus.Annotations{
+			App: p.Annotation,
+
+			// TODO: where will the engine annotations come from?
+		},
 	}
 
 	hash, err := m.hashScheme.Block(pb.Block)
@@ -782,7 +788,7 @@ func (m *StateMachine) recordProposedBlock(
 	}
 	pb.Block.Hash = hash
 
-	signContent, err := tmconsensus.ProposalSignBytes(pb.Block, r, m.sigScheme)
+	signContent, err := tmconsensus.ProposalSignBytes(pb.Block, r, pb.Annotations, m.sigScheme)
 	if err != nil {
 		glog.HRE(m.log, h, r, err).Error("Failed to produce signing content for proposed block")
 		return false

@@ -7,11 +7,11 @@ import (
 
 // Proposal is the data an application needs to provide,
 // for the engine to compose a [ProposedBlock].
-//
-// The type only contains a single field currently,
-// but this type will be expanded in the future.
 type Proposal struct {
-	AppDataID string
+	AppDataID string // TODO: this should switch back to []byte.
+
+	// If set, this will populate the [ProposedBlock.AppAnnotation] field.
+	Annotation []byte
 }
 
 // ConsensusStrategy determines how a state machine proposes blocks

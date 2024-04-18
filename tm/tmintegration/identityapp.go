@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"sync"
 
 	"github.com/rollchains/gordian/gcrypto"
@@ -122,6 +123,7 @@ type identityConsensusStrategy struct {
 	// Round-specific values.
 	mu                sync.Mutex
 	expProposerPubKey gcrypto.PubKey
+	expProposerIndex  int
 	curH              uint64
 	curR              uint32
 }
@@ -135,16 +137,18 @@ func (s *identityConsensusStrategy) EnterRound(ctx context.Context, rv tmconsens
 
 	s.Log.Info("Entering round", "h", s.curH, "r", s.curR)
 
-	// Pseudo-copy of the modulo round robin proposer selection strategy that the v0.2 code uses.
-
-	expProposerIndex := (int(rv.Height) + int(rv.Round)) % len(rv.Validators)
-	s.expProposerPubKey = rv.Validators[expProposerIndex].PubKey
+	// Pseudo-copy of the modulo round robin proposer selection strategy that the v0.2 code used.
+	s.expProposerIndex = (int(rv.Height) + int(rv.Round)) % len(rv.Validators)
+	s.expProposerPubKey = rv.Validators[s.expProposerIndex].PubKey
 
 	if s.expProposerPubKey.Equal(s.PubKey) {
 		appData := fmt.Sprintf("Height: %d; Round: %d", s.curH, s.curR)
 		dataHash := sha256.Sum256([]byte(appData))
 		proposalOut <- tmconsensus.Proposal{
 			AppDataID: string(dataHash[:]),
+
+			// Just to exercise the annotation, set it to the ascii value of the proposer index.
+			Annotation: strconv.AppendInt(nil, int64(s.expProposerIndex), 10),
 		}
 	}
 
@@ -156,9 +160,13 @@ func (s *identityConsensusStrategy) ConsiderProposedBlocks(ctx context.Context, 
 	defer s.mu.Unlock()
 
 	for _, pb := range pbs {
-		// See TODO in tmconsensus.ProposedBlock about this being a typed public key instead of the byte string.
 		if !s.expProposerPubKey.Equal(pb.ProposerPubKey) {
 			continue
+		}
+
+		expIndexA := strconv.AppendInt(nil, int64(s.expProposerIndex), 10)
+		if !bytes.Equal(pb.Annotations.App, expIndexA) {
+			return "", nil
 		}
 
 		// Found a proposed block from the expected proposer.

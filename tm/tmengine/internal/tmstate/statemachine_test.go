@@ -298,6 +298,63 @@ func TestStateMachine_initialization(t *testing.T) {
 	})
 }
 
+func TestStateMachine_enterRoundProposal(t *testing.T) {
+	t.Run("app annotations on proposal", func(t *testing.T) {
+		for _, tc := range []struct {
+			name       string
+			annotation []byte
+		}{
+			{name: "no annotation", annotation: nil},
+			{name: "empty but non-nil annotation", annotation: []byte{}},
+			{name: "populated annotation", annotation: []byte("app_annotation")},
+		} {
+			tc := tc
+			t.Run(tc.name, func(t *testing.T) {
+				t.Parallel()
+
+				ctx, cancel := context.WithCancel(context.Background())
+				defer cancel()
+
+				sfx := tmstatetest.NewFixture(t, 4)
+
+				sm := sfx.NewStateMachine(ctx)
+				defer sm.Wait()
+				defer cancel()
+
+				as := gtest.ReceiveSoon(t, sfx.ToMirrorCh)
+
+				vrv := sfx.EmptyVRV(1, 0)
+
+				// Set up consensus strategy expectation before mocking the response.
+				cStrat := sfx.CStrat
+				ercCh := cStrat.ExpectEnterRound(1, 0, nil)
+
+				// Channel is 1-buffered, don't have to select.
+				as.StateResponse <- tmeil.StateUpdate{VRV: vrv}
+
+				erc := gtest.ReceiveSoon(t, ercCh)
+
+				require.Equal(t, 1, cap(erc.ProposalOut))
+				erc.ProposalOut <- tmconsensus.Proposal{
+					AppDataID:  "app_data",
+					Annotation: tc.annotation,
+				}
+
+				// Synchronize on the action output.
+				sentPB := gtest.ReceiveSoon(t, as.Actions).PB
+
+				// Now the proposed block should be in the action store.
+				ra, err := sfx.Cfg.ActionStore.Load(ctx, 1, 0)
+				require.NoError(t, err)
+
+				gotPB := ra.ProposedBlock
+				require.Equal(t, sentPB, gotPB)
+				require.Equal(t, tc.annotation, gotPB.Annotations.App)
+			})
+		}
+	})
+}
+
 func TestStateMachine_decidePrecommit(t *testing.T) {
 	t.Run("majority prevotes at initialization", func(t *testing.T) {
 		t.Parallel()

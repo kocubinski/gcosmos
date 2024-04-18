@@ -17,6 +17,8 @@ type jsonProposedBlock struct {
 	ProposerPubKey []byte
 
 	Signature []byte
+
+	AppAnnotation, EngineAnnotation []byte
 }
 
 func (jpb jsonProposedBlock) ToProposedBlock(
@@ -41,6 +43,10 @@ func (jpb jsonProposedBlock) ToProposedBlock(
 		Round:          jpb.Round,
 		ProposerPubKey: pubKey,
 		Signature:      jpb.Signature,
+		Annotations: tmconsensus.Annotations{
+			App:    jpb.AppAnnotation,
+			Engine: jpb.EngineAnnotation,
+		},
 	}, nil
 }
 
@@ -50,6 +56,9 @@ func toJSONProposedBlock(pb tmconsensus.ProposedBlock, reg *gcrypto.Registry) js
 		Round:          pb.Round,
 		ProposerPubKey: reg.Marshal(pb.ProposerPubKey),
 		Signature:      pb.Signature,
+
+		AppAnnotation:    pb.Annotations.App,
+		EngineAnnotation: pb.Annotations.Engine,
 	}
 }
 

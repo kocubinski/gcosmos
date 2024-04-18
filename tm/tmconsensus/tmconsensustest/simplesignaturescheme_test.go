@@ -26,14 +26,14 @@ func TestSimpleSignatureScheme(t *testing.T) {
 
 		// Get original content.
 		buf.Reset()
-		_, err := s.WriteProposalSigningContent(&buf, orig, 20)
+		_, err := s.WriteProposalSigningContent(&buf, orig, 20, tmconsensus.Annotations{})
 		require.NoError(t, err)
 		origBytes := bytes.Clone(buf.Bytes())
 
 		// Getting the original content again must match.
 		t.Run("sign bytes should be consistent for same input", func(t *testing.T) {
 			buf.Reset()
-			_, err = s.WriteProposalSigningContent(&buf, orig, 20)
+			_, err = s.WriteProposalSigningContent(&buf, orig, 20, tmconsensus.Annotations{})
 			require.NoError(t, err)
 			require.Equal(t, origBytes, buf.Bytes())
 		})
@@ -63,7 +63,7 @@ func TestSimpleSignatureScheme(t *testing.T) {
 			} {
 				modified := fn(orig)
 				buf.Reset()
-				_, err := s.WriteProposalSigningContent(&buf, modified, 20)
+				_, err := s.WriteProposalSigningContent(&buf, modified, 20, tmconsensus.Annotations{})
 				require.NoError(t, err)
 
 				require.NotEqualf(t, origBytes, buf.Bytes(), "sign bytes should have differed for %#v and %#v", orig, modified)
@@ -72,10 +72,38 @@ func TestSimpleSignatureScheme(t *testing.T) {
 
 		t.Run("sign bytes change after modifying round", func(t *testing.T) {
 			buf.Reset()
-			_, err := s.WriteProposalSigningContent(&buf, orig, 21)
+			_, err := s.WriteProposalSigningContent(&buf, orig, 21, tmconsensus.Annotations{})
 			require.NoError(t, err)
 
 			require.NotEqual(t, origBytes, buf.Bytes(), "sign bytes should have differed after changing proposal round")
+		})
+
+		t.Run("sign bytes change after modifying annotations", func(t *testing.T) {
+			var seen [][]byte
+
+			for _, tc := range []struct {
+				name string
+				a    tmconsensus.Annotations
+			}{
+				{name: "empty but non-nil app annotation", a: tmconsensus.Annotations{App: []byte{}}},
+				{name: "populated app annotation", a: tmconsensus.Annotations{App: []byte("app")}},
+				{name: "empty but non-nil engine annotation", a: tmconsensus.Annotations{Engine: []byte{}}},
+				{name: "populated engine annotation", a: tmconsensus.Annotations{Engine: []byte("engine")}},
+				{name: "both engine and app populated", a: tmconsensus.Annotations{App: []byte("app"), Engine: []byte("engine")}},
+			} {
+				tc := tc
+				t.Run(tc.name, func(t *testing.T) {
+					buf.Reset()
+					_, err := s.WriteProposalSigningContent(&buf, orig, 20, tc.a)
+					require.NoError(t, err)
+
+					got := bytes.Clone(buf.Bytes())
+					require.NotEqual(t, origBytes, got, "sign bytes should have differed after modifying annotation")
+
+					require.NotContains(t, seen, got)
+					seen = append(seen, got)
+				})
+			}
 		})
 	})
 

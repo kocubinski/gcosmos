@@ -69,6 +69,21 @@ type ProposedBlock struct {
 	// Used to verify the signature.
 	ProposerPubKey gcrypto.PubKey
 
+	// Arbitrary data to associate with the proposed block.
+	// The annotations are considered when producing the proposed block's signature,
+	// but they are otherwise not persisted to chain.
+	//
+	// Components of the consensus engine may modify the Annotations.Engine,
+	// and the Annotations.App may be set by populating the [Proposal.AppAnnotation] field
+	// when the Consensus Strategy provides a proposal.
+	//
+	// One example of a use case for a proposed block annotation
+	// would be for the engine to include its network address or p2p ID
+	// as proof that the particular validator is associated with a particular peer.
+	// There would be no need for that to be stored on chain,
+	// but it would be potentially relevant to other live validators on the network.
+	Annotations Annotations
+
 	// Signature of the proposer.
 	// The signing content is determined by the engine's [SignatureScheme].
 	Signature []byte
@@ -99,4 +114,12 @@ type BlockFinalization struct {
 	// Offered as convenience for populating Validators and NextValidators
 	// on the subsequent block.
 	NextValidators []Validator
+}
+
+// Annotations are arbitrary data to associate with a Block or ProposedBlock.
+//
+// The App annotations are determined by the application associated with Gordian,
+// while the Engine annotations may be populated by components internal to Gordian.
+type Annotations struct {
+	App, Engine []byte
 }

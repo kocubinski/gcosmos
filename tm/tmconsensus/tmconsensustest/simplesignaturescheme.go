@@ -21,17 +21,47 @@ type SimpleSignatureScheme struct{}
 
 var _ tmconsensus.SignatureScheme = SimpleSignatureScheme{}
 
-func (s SimpleSignatureScheme) WriteProposalSigningContent(w io.Writer, b tmconsensus.Block, round uint32) (int, error) {
-	return fmt.Fprintf(w, `PROPOSAL:
+func (s SimpleSignatureScheme) WriteProposalSigningContent(
+	w io.Writer, b tmconsensus.Block, round uint32, pbAnnotations tmconsensus.Annotations,
+) (int, error) {
+	n, err := fmt.Fprintf(w, `PROPOSAL:
 Height=%d
 Round=%d
 PrevBlockHash=%x
 PrevAppStateHash=%x
 DataID=%x
 `, b.Height, round, b.PrevBlockHash, b.PrevAppStateHash, b.DataID)
+	if err != nil {
+		return n, err
+	}
+
+	if pbAnnotations.App != nil {
+		m, err := fmt.Fprintf(w, "AppAnnotation=%x\n", pbAnnotations.App)
+		n += m
+		if err != nil {
+			return n, err
+		}
+	}
+
+	if pbAnnotations.Engine != nil {
+		m, err := fmt.Fprintf(w, "EngineAnnotation=%x\n", pbAnnotations.Engine)
+		n += m
+		if err != nil {
+			return n, err
+		}
+	}
+
+	return n, nil
 }
 
 func (s SimpleSignatureScheme) WritePrevoteSigningContent(w io.Writer, vt tmconsensus.VoteTarget) (int, error) {
+	if vt.BlockHash == "" {
+		return fmt.Fprintf(w, `NIL PREVOTE:
+Height=%d
+Round=%d
+`, vt.Height, vt.Round)
+	}
+
 	return fmt.Fprintf(w, `PREVOTE:
 Height=%d
 Round=%d
@@ -39,24 +69,17 @@ BlockHash=%x
 `, vt.Height, vt.Round, vt.BlockHash)
 }
 
-func (s SimpleSignatureScheme) WriteNilPrevoteSigningContent(w io.Writer, vt tmconsensus.VoteTarget) (int, error) {
-	return fmt.Fprintf(w, `NIL PREVOTE:
+func (s SimpleSignatureScheme) WritePrecommitSigningContent(w io.Writer, vt tmconsensus.VoteTarget) (int, error) {
+	if vt.BlockHash == "" {
+		return fmt.Fprintf(w, `NIL PRECOMMIT:
 Height=%d
 Round=%d
 `, vt.Height, vt.Round)
-}
+	}
 
-func (s SimpleSignatureScheme) WritePrecommitSigningContent(w io.Writer, vt tmconsensus.VoteTarget) (int, error) {
 	return fmt.Fprintf(w, `PRECOMMIT:
 Height=%d
 Round=%d
 BlockHash=%x
 `, vt.Height, vt.Round, vt.BlockHash)
-}
-
-func (s SimpleSignatureScheme) WriteNilPrecommitSigningContent(w io.Writer, vt tmconsensus.VoteTarget) (int, error) {
-	return fmt.Fprintf(w, `NIL PRECOMMIT:
-Height=%d
-Round=%d
-`, vt.Height, vt.Round)
 }

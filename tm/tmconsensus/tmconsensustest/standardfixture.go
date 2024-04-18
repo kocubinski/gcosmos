@@ -155,7 +155,7 @@ func (f *StandardFixture) NextProposedBlock(appDataID []byte, valIdx int) tmcons
 func (f *StandardFixture) SignProposal(ctx context.Context, pb *tmconsensus.ProposedBlock, valIdx int) {
 	v := f.PrivVals[valIdx]
 
-	b, err := tmconsensus.ProposalSignBytes(pb.Block, pb.Round, f.SignatureScheme)
+	b, err := tmconsensus.ProposalSignBytes(pb.Block, pb.Round, pb.Annotations, f.SignatureScheme)
 	if err != nil {
 		panic(fmt.Errorf("failed to get sign bytes for proposal %#v: %w", pb, err))
 	}
