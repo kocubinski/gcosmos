@@ -561,10 +561,12 @@ func TestEngine_plumbing_GossipStrategy(t *testing.T) {
 		require.Equal(t, tmconsensus.HandleVoteProofsAccepted, engine.HandlePrevoteProofs(ctx, prevoteSparseProof))
 
 		// Everyone else voted for 103, so the state machine precommits it here too.
+		_ = gtest.ReceiveSoon(t, gs.Updates) // Drain before state machine precommit.
 		req := gtest.ReceiveSoon(t, cs.DecidePrecommitRequests)
 		gtest.SendSoon(t, req.ChoiceHash, blockHash103)
 
 		// And one more precommit arrives, so that we don't have to synchonize on the state machine precommit.
+		_ = gtest.ReceiveSoon(t, gs.Updates) // Drain the updates first so we can be sure the next read is up to date.
 		precommit3 := efx.Fx.SparsePrecommitProofMap(ctx, 1, 0, map[string][]int{
 			blockHash103: {3},
 		})
