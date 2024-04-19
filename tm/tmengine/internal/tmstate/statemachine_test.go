@@ -4,6 +4,7 @@ import (
 	"context"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/rollchains/gordian/gcrypto"
 	"github.com/rollchains/gordian/internal/gtest"
@@ -1433,6 +1434,13 @@ func TestStateMachine_followerMode(t *testing.T) {
 		// The proposal timer is active before we make a decision.
 		sfx.RoundTimer.RequireActiveProposalTimer(t, 1, 0)
 		gtest.SendSoon(t, considerReq.ChoiceHash, string(pb.Block.Hash))
+
+		// If this was not in follower mode, we could watch the mirror output channel.
+		// So to ensure the prevote is complete, we will poll for the proposal timer to be inactive.
+		require.Eventually(t, func() bool {
+			tName, _, _ := sfx.RoundTimer.ActiveTimer()
+			return tName == ""
+		}, time.Duration(gtest.ScaleMs(100)), 2*time.Millisecond)
 
 		// The majority of the network also prevotes for the block.
 		vrv = sfx.Fx.UpdateVRVPrevotes(ctx, vrv, map[string][]int{string(pb.Block.Hash): {0, 1, 2}})
