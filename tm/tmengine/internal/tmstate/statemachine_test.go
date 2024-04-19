@@ -317,7 +317,62 @@ func TestStateMachine_initialization(t *testing.T) {
 func TestStateMachine_firstUpdate(t *testing.T) {
 	t.Run("initially awaiting proposal", func(t *testing.T) {
 		t.Run("prevotes arrive", func(t *testing.T) {
-			t.Run("below minority threshold", func(t *testing.T) {
+			for _, tc := range []struct {
+				name                  string
+				externalPrevotingVals []int
+			}{
+				// These two cases behave the same (they don't trigger any changes).
+				{name: "below minority threshold", externalPrevotingVals: []int{3}},
+				{name: "above minority but below majority threshold", externalPrevotingVals: []int{2, 3}},
+			} {
+				tc := tc
+				t.Run(tc.name, func(t *testing.T) {
+					t.Parallel()
+
+					ctx, cancel := context.WithCancel(context.Background())
+					defer cancel()
+
+					sfx := tmstatetest.NewFixture(t, 4)
+
+					sm := sfx.NewStateMachine(ctx)
+					defer sm.Wait()
+					defer cancel()
+
+					as := gtest.ReceiveSoon(t, sfx.ToMirrorCh)
+
+					vrv := sfx.EmptyVRV(1, 0)
+
+					// Set up consensus strategy expectation before mocking the response.
+					cStrat := sfx.CStrat
+					_ = cStrat.ExpectEnterRound(1, 0, nil)
+
+					// Channel is 1-buffered, don't have to select.
+					as.StateResponse <- tmeil.StateUpdate{VRV: vrv}
+
+					// We are awaiting a proposal because we started with empty state.
+					// We receive one prevote for nil, only 25% so below minority threshold.
+					vrv = sfx.Fx.UpdateVRVPrevotes(ctx, vrv, map[string][]int{
+						"": tc.externalPrevotingVals,
+					})
+					gtest.SendSoon(t, sfx.RoundViewInCh, vrv)
+
+					// Then if we receive another proposed block we will consider it,
+					// because we are still considered to be awaiting a proposal.
+					pb := sfx.Fx.NextProposedBlock([]byte("app_data_1"), 1)
+					sfx.Fx.SignProposal(ctx, &pb, 1)
+					vrv = vrv.Clone()
+					vrv.ProposedBlocks = []tmconsensus.ProposedBlock{pb}
+					vrv.Version++
+					gtest.SendSoon(t, sfx.RoundViewInCh, vrv)
+
+					considerReq := gtest.ReceiveSoon(t, cStrat.ConsiderProposedBlockRequests)
+					require.Equal(t, vrv.ProposedBlocks, considerReq.Input)
+				})
+			}
+		})
+
+		t.Run("majority prevotes arrive", func(t *testing.T) {
+			t.Run("for nil", func(t *testing.T) {
 				t.Parallel()
 
 				ctx, cancel := context.WithCancel(context.Background())
@@ -335,31 +390,61 @@ func TestStateMachine_firstUpdate(t *testing.T) {
 
 				// Set up consensus strategy expectation before mocking the response.
 				cStrat := sfx.CStrat
-				ercCh := cStrat.ExpectEnterRound(1, 0, nil)
+				_ = cStrat.ExpectEnterRound(1, 0, nil)
 
 				// Channel is 1-buffered, don't have to select.
 				as.StateResponse <- tmeil.StateUpdate{VRV: vrv}
 
-				_ = gtest.ReceiveSoon(t, ercCh)
-
 				// We are awaiting a proposal because we started with empty state.
 				// We receive one prevote for nil, only 25% so below minority threshold.
 				vrv = sfx.Fx.UpdateVRVPrevotes(ctx, vrv, map[string][]int{
-					"": {3},
+					"": {1, 2, 3}, // 75% in favor of nil.
 				})
 				gtest.SendSoon(t, sfx.RoundViewInCh, vrv)
 
-				// Then if we receive another proposed block we will consider it,
-				// because we are still considered to be awaiting a proposal.
-				pb := sfx.Fx.NextProposedBlock([]byte("app_data_1"), 2)
-				sfx.Fx.SignProposal(ctx, &pb, 2)
-				vrv = vrv.Clone()
+				// With 75% prevotes, we are going to immediately choose a proposed block.
+
+				_ = gtest.ReceiveSoon(t, cStrat.ChooseProposedBlockRequests)
+			})
+
+			t.Run("but not all for one block or nil", func(t *testing.T) {
+				t.Parallel()
+
+				ctx, cancel := context.WithCancel(context.Background())
+				defer cancel()
+
+				sfx := tmstatetest.NewFixture(t, 4)
+
+				sm := sfx.NewStateMachine(ctx)
+				defer sm.Wait()
+				defer cancel()
+
+				as := gtest.ReceiveSoon(t, sfx.ToMirrorCh)
+
+				vrv := sfx.EmptyVRV(1, 0)
+
+				// Set up consensus strategy expectation before mocking the response.
+				cStrat := sfx.CStrat
+				_ = cStrat.ExpectEnterRound(1, 0, nil)
+
+				// Channel is 1-buffered, don't have to select.
+				as.StateResponse <- tmeil.StateUpdate{VRV: vrv}
+
+				prevoteDelayStarted := sfx.RoundTimer.PrevoteDelayStartNotification(1, 0)
+				// We are awaiting a proposal because we started with empty state.
+				// We receive one prevote for nil, only 25% so below minority threshold.
+				pb := sfx.Fx.NextProposedBlock([]byte("app_data_1"), 1)
+				sfx.Fx.SignProposal(ctx, &pb, 1)
+				vrv = sfx.Fx.UpdateVRVPrevotes(ctx, vrv, map[string][]int{
+					string(pb.Block.Hash): {1},
+					"":                    {2, 3},
+				})
 				vrv.ProposedBlocks = []tmconsensus.ProposedBlock{pb}
-				vrv.Version++
 				gtest.SendSoon(t, sfx.RoundViewInCh, vrv)
 
-				considerReq := gtest.ReceiveSoon(t, cStrat.ConsiderProposedBlockRequests)
-				require.Equal(t, vrv.ProposedBlocks, considerReq.Input)
+				// With 75% prevotes, but not consensus, we consider the proposed block and start prevote delay.
+				_ = gtest.ReceiveSoon(t, prevoteDelayStarted)
+				_ = gtest.ReceiveSoon(t, cStrat.ConsiderProposedBlockRequests)
 			})
 		})
 	})
