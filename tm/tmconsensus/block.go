@@ -39,6 +39,18 @@ type Block struct {
 	// The hash of the app state as a result of executing the previous block.
 	// Deriving this hash is an application-level concern.
 	PrevAppStateHash []byte
+
+	// Arbitrary data to associate with the block.
+	// Unlike the annotations on a proposed block, these values are persisted to chain.
+	// The values must be respected in the block's hash.
+	//
+	// Components of the consensus engine may modify the Annotations.Engine field.
+	//
+	// One example of a use case for a block annotation from the engine
+	// could be to include a timestamp with the block.
+	// One contrived example for the application annotation could be
+	// including the version of the application, and rejecting blocks that don't match the version.
+	Annotations Annotations
 }
 
 // CommitProof is the commit proof for a block.
@@ -73,8 +85,8 @@ type ProposedBlock struct {
 	// The annotations are considered when producing the proposed block's signature,
 	// but they are otherwise not persisted to chain.
 	//
-	// Components of the consensus engine may modify the Annotations.Engine,
-	// and the Annotations.App may be set by populating the [Proposal.AppAnnotation] field
+	// Components of the consensus engine may modify the Annotations.Engine field,
+	// and the Annotations.App field may be set by populating the [Proposal.AppAnnotation] field
 	// when the Consensus Strategy provides a proposal.
 	//
 	// One example of a use case for a proposed block annotation

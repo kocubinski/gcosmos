@@ -147,8 +147,10 @@ func (s *identityConsensusStrategy) EnterRound(ctx context.Context, rv tmconsens
 		proposalOut <- tmconsensus.Proposal{
 			AppDataID: string(dataHash[:]),
 
-			// Just to exercise the annotation, set it to the ascii value of the proposer index.
-			Annotation: strconv.AppendInt(nil, int64(s.expProposerIndex), 10),
+			// Just to exercise the annotations, set them to the ascii value of the proposer index,
+			// prefixed with a "p" or "b" for proposal or block.
+			ProposalAnnotation: strconv.AppendInt([]byte("p"), int64(s.expProposerIndex), 10),
+			BlockAnnotation:    strconv.AppendInt([]byte("b"), int64(s.expProposerIndex), 10),
 		}
 	}
 
@@ -164,8 +166,13 @@ func (s *identityConsensusStrategy) ConsiderProposedBlocks(ctx context.Context, 
 			continue
 		}
 
-		expIndexA := strconv.AppendInt(nil, int64(s.expProposerIndex), 10)
-		if !bytes.Equal(pb.Annotations.App, expIndexA) {
+		expPA := strconv.AppendInt([]byte("p"), int64(s.expProposerIndex), 10)
+		if !bytes.Equal(pb.Annotations.App, expPA) {
+			return "", nil
+		}
+
+		expBA := strconv.AppendInt([]byte("b"), int64(s.expProposerIndex), 10)
+		if !bytes.Equal(pb.Block.Annotations.App, expBA) {
 			return "", nil
 		}
 

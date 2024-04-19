@@ -112,8 +112,6 @@ func TestHashSchemeCompliance(
 
 				// TODO: manipulate PrevCommitProof.
 
-				// TODO: manipulate vote extension data.
-
 				{
 					name: "Validators (drop element)",
 					fn: func(b *tmconsensus.Block) {
@@ -139,8 +137,49 @@ func TestHashSchemeCompliance(
 					},
 				},
 				// TODO: change just the ID of one in Validators, NextValidators
+
+				{
+					name: "Annotations (empty but non-nil App)",
+					fn: func(b *tmconsensus.Block) {
+						b.Annotations.App = []byte{}
+					},
+				},
+				{
+					name: "Annotations (empty but non-nil Engine)",
+					fn: func(b *tmconsensus.Block) {
+						b.Annotations.Engine = []byte{}
+					},
+				},
+				{
+					name: "Annotations (empty but non-nil for both)",
+					fn: func(b *tmconsensus.Block) {
+						b.Annotations.App = []byte{}
+						b.Annotations.Engine = []byte{}
+					},
+				},
+
+				{
+					name: "Annotations (populated App)",
+					fn: func(b *tmconsensus.Block) {
+						b.Annotations.App = []byte("app_annotation")
+					},
+				},
+				{
+					name: "Annotations (populated Engine)",
+					fn: func(b *tmconsensus.Block) {
+						b.Annotations.Engine = []byte("engine_annotation")
+					},
+				},
+				{
+					name: "Annotations (populated for both)",
+					fn: func(b *tmconsensus.Block) {
+						b.Annotations.App = []byte("app_annotation")
+						b.Annotations.Engine = []byte("engine_annotation")
+					},
+				},
 			} {
 				tc := tc
+				var seenHashes [][]byte
 				t.Run(tc.name, func(t *testing.T) {
 					b := makeDefaultBlock(p)
 					tc.fn(&b)
@@ -148,6 +187,9 @@ func TestHashSchemeCompliance(
 					require.NoError(t, err)
 
 					require.NotEqualf(t, origHash, bh, "same hash calculated after changing block field %s", tc.name)
+
+					require.NotContainsf(t, seenHashes, bh, "hash for case %q duplicated with some earlier case", tc.name)
+					seenHashes = append(seenHashes, bh)
 				})
 			}
 		})

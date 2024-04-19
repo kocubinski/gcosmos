@@ -808,6 +808,12 @@ func (m *StateMachine) recordProposedBlock(
 			DataID: []byte(p.AppDataID),
 
 			PrevAppStateHash: []byte(rlc.PrevFinAppStateHash),
+
+			Annotations: tmconsensus.Annotations{
+				App: p.BlockAnnotation,
+
+				// TODO: where will the engine annotations come from?
+			},
 		},
 
 		Round: r,
@@ -815,7 +821,7 @@ func (m *StateMachine) recordProposedBlock(
 		ProposerPubKey: m.signer.PubKey(),
 
 		Annotations: tmconsensus.Annotations{
-			App: p.Annotation,
+			App: p.ProposalAnnotation,
 
 			// TODO: where will the engine annotations come from?
 		},

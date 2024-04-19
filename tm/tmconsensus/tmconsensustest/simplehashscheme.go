@@ -88,7 +88,8 @@ PrevCommitProof:
 Validators: %s
 NextValidators: %s
 DataID: %x
-PrevAppStateHash: %x`,
+PrevAppStateHash: %x
+`,
 		b.PrevBlockHash,
 		b.Height,
 		b.PrevCommitProof.Round,
@@ -99,6 +100,13 @@ PrevAppStateHash: %x`,
 		b.DataID,
 		b.PrevAppStateHash,
 	)
+
+	if b.Annotations.App != nil {
+		fmt.Fprintf(hasher, "AppAnnotation: %x\n", b.Annotations.App)
+	}
+	if b.Annotations.Engine != nil {
+		fmt.Fprintf(hasher, "EngineAnnotation: %x\n", b.Annotations.Engine)
+	}
 
 	return hasher.Sum(nil), nil
 }

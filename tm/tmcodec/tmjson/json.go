@@ -77,6 +77,8 @@ type jsonBlock struct {
 
 	DataID           []byte
 	PrevAppStateHash []byte
+
+	AppAnnotation, EngineAnnotation []byte
 }
 
 func (jb jsonBlock) ToBlock(
@@ -135,6 +137,11 @@ func (jb jsonBlock) ToBlock(
 
 		DataID:           jb.DataID,
 		PrevAppStateHash: jb.PrevAppStateHash,
+
+		Annotations: tmconsensus.Annotations{
+			App:    jb.AppAnnotation,
+			Engine: jb.EngineAnnotation,
+		},
 	}, nil
 }
 
@@ -162,6 +169,9 @@ func toJSONBlock(b tmconsensus.Block, reg *gcrypto.Registry) jsonBlock {
 
 		DataID:           b.DataID,
 		PrevAppStateHash: b.PrevAppStateHash,
+
+		AppAnnotation:    b.Annotations.App,
+		EngineAnnotation: b.Annotations.Engine,
 	}
 }
 
