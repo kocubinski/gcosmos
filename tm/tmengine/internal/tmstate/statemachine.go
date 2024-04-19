@@ -242,11 +242,11 @@ func (m *StateMachine) beginRoundLive(
 	case tsi.StepAwaitingPrevotes:
 		if !gchan.SendC(
 			ctx, m.log,
-			m.cm.ChooseProposedBlockRequests, tsi.ChooseProposedBlockRequest{
+			m.cm.ConsiderProposedBlocksRequests, tsi.ChooseProposedBlockRequest{
 				PBs:    initVRV.ProposedBlocks,
 				Result: rlc.PrevoteHashCh,
 			},
-			"making choose proposed block request from initial state",
+			"making consider proposed blocks request from initial state",
 		) {
 			// Context cancelled and logged. Quit.
 			return false
@@ -484,6 +484,8 @@ func (m *StateMachine) handleViewUpdate(
 	}
 }
 
+// handleProposalViewUpdate is called when we receive an update from the mirror
+// and the current step is awaiting proposal.
 func (m *StateMachine) handleProposalViewUpdate(
 	ctx context.Context,
 	rlc *tsi.RoundLifecycle,
@@ -491,27 +493,63 @@ func (m *StateMachine) handleProposalViewUpdate(
 ) {
 	defer trace.StartRegion(ctx, "handleProposalViewUpdate").End()
 
-	if vrv.VoteSummary.TotalPrevotePower >= tmconsensus.ByzantineMinority(vrv.VoteSummary.AvailablePower) {
-		// We've crossed the minority threshold and we need to submit a prevote now.
+	min := tmconsensus.ByzantineMinority(vrv.VoteSummary.AvailablePower)
+	maj := tmconsensus.ByzantineMajority(vrv.VoteSummary.AvailablePower)
 
-		// Update the step first.
-		rlc.S = tsi.StepAwaitingPrevotes
+	if vrv.VoteSummary.TotalPrecommitPower >= min {
+		panic("TODO: handle jumping to precommit when expecting proposed blocks")
+	}
+
+	if vrv.VoteSummary.TotalPrevotePower >= maj {
+		// Everyone else has made their prevote.
+
+		// We are switching to either awaiting precommits or prevote delay.
+		// Either way, when we entered this method, we had a proposal timer,
+		// so an unconditional cancel should be safe.
 		rlc.CancelTimer()
 		rlc.StepTimer = nil
 		rlc.CancelTimer = nil
 
+		// And we are making a request to choose or consider in either case too.
 		req := tsi.ChooseProposedBlockRequest{
 			PBs: vrv.ProposedBlocks,
 
 			Result: rlc.PrevoteHashCh,
 		}
+
+		vs := vrv.VoteSummary
+		maxBlockPow := vs.PrevoteBlockPower[vs.MostVotedPrevoteHash]
+		if maxBlockPow >= maj {
+			// If the majority power is at consensus, we submit our prevote immediately.
+			rlc.S = tsi.StepAwaitingPrecommits
+
+			select {
+			case m.cm.ChooseProposedBlockRequests <- req:
+				// Okay.
+			default:
+				panic("TODO: handle blocked send to ChooseProposedBlocksRequests")
+			}
+			return
+		}
+
+		// Otherwise, the majority power is present but there is not yet consensus.
+		// Consider the proposed blocks and start the prevote delay.
+
+		rlc.S = tsi.StepPrevoteDelay
+		rlc.StepTimer, rlc.CancelTimer = m.rt.PrevoteDelayTimer(ctx, rlc.H, rlc.R)
+
 		select {
-		case m.cm.ChooseProposedBlockRequests <- req:
+		case m.cm.ConsiderProposedBlocksRequests <- req:
 			// Okay.
 		default:
-			panic("TODO: handle blocked send to ChooseProposedBlocksRequests")
+			panic("TODO: handle blocked send to ConsiderProposedBlocksRequests")
 		}
-	} else if len(vrv.ProposedBlocks) > len(rlc.PrevVRV.ProposedBlocks) {
+		return
+	}
+
+	// If we have only exceeded minority prevote power, we will continue waiting for proposed blocks.
+
+	if len(vrv.ProposedBlocks) > len(rlc.PrevVRV.ProposedBlocks) {
 		// At least one new proposed block.
 		// The timer hasn't elapsed yet so it is only a Consider call at this point.
 		req := tsi.ChooseProposedBlockRequest{
@@ -528,6 +566,8 @@ func (m *StateMachine) handleProposalViewUpdate(
 	}
 }
 
+// handlePrevoteViewUpdate is called when we receive an update from the mirror
+// and the current step is awaiting prevotes or prevote delay.
 func (m *StateMachine) handlePrevoteViewUpdate(
 	ctx context.Context,
 	rlc *tsi.RoundLifecycle,

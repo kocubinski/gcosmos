@@ -123,7 +123,7 @@ func TestStateMachine_initialization(t *testing.T) {
 		// Sending an updated set of proposed blocks...
 		gtest.SendSoon(t, sfx.RoundViewInCh, vrv)
 
-		// ... forces the consensus strategy to choose from the available proposed blocks.
+		// ... forces the consensus strategy to consider the available proposed blocks.
 		pbReq := gtest.ReceiveSoon(t, cStrat.ConsiderProposedBlockRequests)
 		require.Equal(t, []tmconsensus.ProposedBlock{pb1}, pbReq.Input)
 	})
@@ -161,12 +161,16 @@ func TestStateMachine_initialization(t *testing.T) {
 		erc := gtest.ReceiveSoon(t, enterCh)
 		require.Equal(t, vrv.RoundView, erc.RV)
 
-		// And it forces the consensus strategy to choose from the available proposed blocks.
-		pbReq := gtest.ReceiveSoon(t, cStrat.ChooseProposedBlockRequests)
+		// And it forces the consensus strategy to consider the available proposed blocks.
+		pbReq := gtest.ReceiveSoon(t, cStrat.ConsiderProposedBlockRequests)
 		require.Equal(t, []tmconsensus.ProposedBlock{pb1}, pbReq.Input)
 
 		// Once the consensus strategy chooses a hash...
 		gtest.SendSoon(t, pbReq.ChoiceHash, string(pb1.Block.Hash))
+
+		// And we are still in minority prevote until the mirror confirms receipt
+		// of the prevote, so there is no timer active.
+		sfx.RoundTimer.RequireNoActiveTimer(t)
 
 		// The state machine constructs a valid vote, saves it to the action store,
 		// and sends it to the mirror.
@@ -186,6 +190,17 @@ func TestStateMachine_initialization(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, signContent, action.Prevote.SignContent)
 		require.True(t, sfx.Cfg.Signer.PubKey().Verify(signContent, action.Prevote.Sig))
+
+		// Once the mirror responds with the state machine's prevote,
+		// we will be at 75% prevotes in favor of one block.
+		vrv = sfx.Fx.UpdateVRVPrevotes(ctx, vrv, map[string][]int{
+			string(pb1.Block.Hash): {0, 1, 2},
+		})
+		gtest.SendSoon(t, sfx.RoundViewInCh, vrv)
+
+		// That is majority prevote for one block,
+		// so the state machine expects a precommit.
+		_ = gtest.ReceiveSoon(t, cStrat.DecidePrecommitRequests)
 	})
 
 	t.Run("as follower, ready to commit nil", func(t *testing.T) {
@@ -295,6 +310,57 @@ func TestStateMachine_initialization(t *testing.T) {
 		gtest.SendSoon(t, req.Resp, resp)
 
 		t.Skip("TODO: assert entry in finalization store, updated round action set sent to mirror")
+	})
+}
+
+func TestStateMachine_firstUpdate(t *testing.T) {
+	t.Run("initially awaiting proposal", func(t *testing.T) {
+		t.Run("prevotes arrive", func(t *testing.T) {
+			t.Run("below minority threshold", func(t *testing.T) {
+				t.Parallel()
+
+				ctx, cancel := context.WithCancel(context.Background())
+				defer cancel()
+
+				sfx := tmstatetest.NewFixture(t, 4)
+
+				sm := sfx.NewStateMachine(ctx)
+				defer sm.Wait()
+				defer cancel()
+
+				as := gtest.ReceiveSoon(t, sfx.ToMirrorCh)
+
+				vrv := sfx.EmptyVRV(1, 0)
+
+				// Set up consensus strategy expectation before mocking the response.
+				cStrat := sfx.CStrat
+				ercCh := cStrat.ExpectEnterRound(1, 0, nil)
+
+				// Channel is 1-buffered, don't have to select.
+				as.StateResponse <- tmeil.StateUpdate{VRV: vrv}
+
+				_ = gtest.ReceiveSoon(t, ercCh)
+
+				// We are awaiting a proposal because we started with empty state.
+				// We receive one prevote for nil, only 25% so below minority threshold.
+				vrv = sfx.Fx.UpdateVRVPrevotes(ctx, vrv, map[string][]int{
+					"": {3},
+				})
+				gtest.SendSoon(t, sfx.RoundViewInCh, vrv)
+
+				// Then if we receive another proposed block we will consider it,
+				// because we are still considered to be awaiting a proposal.
+				pb := sfx.Fx.NextProposedBlock([]byte("app_data_1"), 2)
+				sfx.Fx.SignProposal(ctx, &pb, 2)
+				vrv = vrv.Clone()
+				vrv.ProposedBlocks = []tmconsensus.ProposedBlock{pb}
+				vrv.Version++
+				gtest.SendSoon(t, sfx.RoundViewInCh, vrv)
+
+				considerReq := gtest.ReceiveSoon(t, cStrat.ConsiderProposedBlockRequests)
+				require.Equal(t, vrv.ProposedBlocks, considerReq.Input)
+			})
+		})
 	})
 }
 
@@ -1511,7 +1577,7 @@ func TestStateMachine_timers(t *testing.T) {
 			sfx.RoundTimer.RequireNoActiveTimer(t)
 		})
 
-		t.Run("crossing minority prevotes cancels the timer", func(t *testing.T) {
+		t.Run("crossing majority prevotes cancels the timer", func(t *testing.T) {
 			t.Parallel()
 
 			ctx, cancel := context.WithCancel(context.Background())
@@ -1543,10 +1609,9 @@ func TestStateMachine_timers(t *testing.T) {
 			gtest.NotSending(t, cStrat.ConsiderProposedBlockRequests)
 			gtest.NotSending(t, cStrat.ChooseProposedBlockRequests)
 
-			// Now a second nil prevote arrives, which tells the state machine that
+			// Now more nil prevotes arrive, which tells the state machine that
 			// it is time to prevote.
-			vrv = sfx.Fx.UpdateVRVPrevotes(ctx, vrv, map[string][]int{"": {1, 2}})
-
+			vrv = sfx.Fx.UpdateVRVPrevotes(ctx, vrv, map[string][]int{"": {1, 2, 3}})
 			gtest.SendSoon(t, sfx.RoundViewInCh, vrv)
 
 			// Seeing the >1/3 prevotes causes a ChooseProposedBlock request
@@ -1556,6 +1621,50 @@ func TestStateMachine_timers(t *testing.T) {
 
 			// The timer is cancelled even before the choose response.
 			sfx.RoundTimer.RequireNoActiveTimer(t)
+		})
+
+		t.Run("crossing minority prevotes remains in awaiting proposal", func(t *testing.T) {
+			t.Parallel()
+
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			sfx := tmstatetest.NewFixture(t, 4)
+
+			sm := sfx.NewStateMachine(ctx)
+			defer sm.Wait()
+			defer cancel()
+
+			as := gtest.ReceiveSoon(t, sfx.ToMirrorCh)
+
+			// Set up consensus strategy expectation before mocking the response.
+			cStrat := sfx.CStrat
+			_ = cStrat.ExpectEnterRound(1, 0, nil)
+
+			// Channel is 1-buffered, don't have to select.
+			vrv := sfx.EmptyVRV(1, 0)
+			as.StateResponse <- tmeil.StateUpdate{VRV: vrv} // No PrevBlockHash at initial height.
+
+			vrv = sfx.Fx.UpdateVRVPrevotes(ctx, vrv, map[string][]int{"": {1}}) // A quarter of the votes.
+
+			gtest.SendSoon(t, sfx.RoundViewInCh, vrv)
+
+			// After the first prevote, the proposal timer is still active,
+			// and no PB requests have started.
+			sfx.RoundTimer.RequireActiveProposalTimer(t, 1, 0)
+			gtest.NotSending(t, cStrat.ConsiderProposedBlockRequests)
+			gtest.NotSending(t, cStrat.ChooseProposedBlockRequests)
+
+			// Now another prevote arrives and we are at 50% prevotes,
+			// above the minority threshold but below majority.
+			vrv = sfx.Fx.UpdateVRVPrevotes(ctx, vrv, map[string][]int{"": {1, 2}})
+			gtest.SendSoon(t, sfx.RoundViewInCh, vrv)
+
+			// We are still waiting for proposals,
+			// and there is no new consider or choose request.
+			sfx.RoundTimer.RequireActiveProposalTimer(t, 1, 0)
+			gtest.NotSending(t, cStrat.ConsiderProposedBlockRequests)
+			gtest.NotSending(t, cStrat.ChooseProposedBlockRequests)
 		})
 	})
 
