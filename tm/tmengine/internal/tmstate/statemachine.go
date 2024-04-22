@@ -529,7 +529,7 @@ func (m *StateMachine) handleProposalViewUpdate(
 			// Otherwise it must be a particular block.
 			// Just like the nil precommit case,
 			// we are currently not consulting the consensus strategy.
-			_ = m.advanceHeight(ctx, rlc)
+			_ = m.beginCommit(ctx, rlc, vrv)
 			return
 		}
 
@@ -653,6 +653,52 @@ func (m *StateMachine) handlePrevoteViewUpdate(
 
 	vs := vrv.VoteSummary
 	maj := tmconsensus.ByzantineMajority(vs.AvailablePower)
+
+	if vs.TotalPrecommitPower >= maj {
+		// We are going to transition out of the current step, so clear timers now.
+		if rlc.S == tsi.StepPrevoteDelay {
+			rlc.CancelTimer()
+			rlc.StepTimer = nil
+			rlc.CancelTimer = nil
+		}
+
+		// There is sufficient power for a commit -- is there a chosen block?
+		maxBlockPow := vs.PrecommitBlockPower[vs.MostVotedPrecommitHash]
+		if maxBlockPow >= maj {
+			if vs.MostVotedPrecommitHash == "" {
+				// If the consensus is for nil, advance the round.
+				// Currently we do not submit our own precommit,
+				// but we probably should in the future.
+				_ = m.advanceRound(ctx, rlc)
+				return
+			}
+
+			// Otherwise it must be a particular block.
+			// Just like the nil precommit case,
+			// we are currently not consulting the consensus strategy.
+			_ = m.beginCommit(ctx, rlc, vrv)
+			return
+		}
+
+		// Not for a block, so we need to just submit our own precommit.
+		rlc.S = tsi.StepPrecommitDelay
+		rlc.StepTimer, rlc.CancelTimer = m.rt.PrecommitDelayTimer(ctx, rlc.H, rlc.R)
+
+		_ = gchan.SendC(
+			ctx, m.log,
+			m.cm.DecidePrecommitRequests, tsi.DecidePrecommitRequest{
+				VS:     vrv.VoteSummary.Clone(), // Clone under assumption to avoid data race.
+				Result: rlc.PrecommitHashCh,     // Is it ever possible this channel is nil?
+			},
+			"choosing precommit after observing majority precommit while expecting prevotes",
+		)
+
+		return
+	}
+
+	// If the total precommit power only exceeded the minority threshold,
+	// we don't need to do anything special; continue handling prevotes as normal.
+
 	if vs.TotalPrevotePower >= maj {
 		// We have majority vote power present;
 		// do we have majority vote power on a single block?
@@ -667,24 +713,23 @@ func (m *StateMachine) handlePrevoteViewUpdate(
 
 			rlc.S = tsi.StepAwaitingPrecommits
 
-			if !gchan.SendC(
+			_ = gchan.SendC(
 				ctx, m.log,
 				m.cm.DecidePrecommitRequests, tsi.DecidePrecommitRequest{
 					VS:     vrv.VoteSummary.Clone(), // Clone under assumption to avoid data race.
 					Result: rlc.PrecommitHashCh,     // Is it ever possible this channel is nil?
 				},
 				"choosing precommit following majority prevote",
-			) {
-				// Context cancelled and logged. Quit.
-				return
-			}
-		} else {
-			// We have majority prevotes but not on a single block.
-			// Only start the timer if we were not already in prevote delay.
-			if rlc.S == tsi.StepAwaitingPrevotes {
-				rlc.S = tsi.StepPrevoteDelay
-				rlc.StepTimer, rlc.CancelTimer = m.rt.PrevoteDelayTimer(ctx, rlc.H, rlc.R)
-			}
+			)
+
+			return
+		}
+
+		// We have majority prevotes but not on a single block.
+		// Only start the timer if we were not already in prevote delay.
+		if rlc.S == tsi.StepAwaitingPrevotes {
+			rlc.S = tsi.StepPrevoteDelay
+			rlc.StepTimer, rlc.CancelTimer = m.rt.PrevoteDelayTimer(ctx, rlc.H, rlc.R)
 		}
 	}
 }
@@ -771,44 +816,21 @@ func (m *StateMachine) handlePrecommitViewUpdate(
 				rlc.CancelTimer = nil
 			}
 
-			rlc.S = tsi.StepCommitWait
-			rlc.StepTimer, rlc.CancelTimer = m.rt.CommitWaitTimer(ctx, rlc.H, rlc.R)
+			_ = m.beginCommit(ctx, rlc, vrv)
+			return
+		}
 
-			idx := slices.IndexFunc(vrv.ProposedBlocks, func(pb tmconsensus.ProposedBlock) bool {
-				return string(pb.Block.Hash) == vs.MostVotedPrecommitHash
-			})
-			if idx < 0 {
-				panic(fmt.Errorf(
-					"TODO: handlePrecommitViewUpdate: handle committing a block that we don't have yet (height=%d hash=%x)",
-					rlc.H, vs.MostVotedPrecommitHash,
-				))
-			}
-
-			if !gchan.SendC(
-				ctx, m.log,
-				m.finalizeBlockRequestCh, tmapp.FinalizeBlockRequest{
-					// Not including Ctx. That field needs to go away for 0.3.
-					// We would never cancel a finalize request due to local state in the state machine.
-
-					Block: vrv.ProposedBlocks[idx].Block,
-					Round: vrv.Round,
-
-					Resp: rlc.FinalizeRespCh,
-				},
-				"making finalize block request from precommit update",
-			) {
-				return
-			}
-		} else if vs.TotalPrecommitPower == vs.AvailablePower {
+		if vs.TotalPrecommitPower == vs.AvailablePower {
 			// Reached 100% precommits but didn't reach consensus on a single block or nil.
 			_ = m.advanceRound(ctx, rlc)
-		} else {
-			// We have majority precommits but not on a single block.
-			// Only start the timer if we were not already in precommit delay.
-			if rlc.S == tsi.StepAwaitingPrecommits {
-				rlc.S = tsi.StepPrecommitDelay
-				rlc.StepTimer, rlc.CancelTimer = m.rt.PrecommitDelayTimer(ctx, rlc.H, rlc.R)
-			}
+			return
+		}
+
+		// We have majority precommits but not on a single block.
+		// Only start the timer if we were not already in precommit delay.
+		if rlc.S == tsi.StepAwaitingPrecommits {
+			rlc.S = tsi.StepPrecommitDelay
+			rlc.StepTimer, rlc.CancelTimer = m.rt.PrecommitDelayTimer(ctx, rlc.H, rlc.R)
 		}
 	}
 }
@@ -933,6 +955,42 @@ func (m *StateMachine) recordProposedBlock(
 	}
 
 	return true
+}
+
+// beginCommit emits a FinalizeBlockRequest for the most voted precommit hash.
+func (m *StateMachine) beginCommit(
+	ctx context.Context,
+	rlc *tsi.RoundLifecycle,
+	vrv tmconsensus.VersionedRoundView,
+) (ok bool) {
+	defer trace.StartRegion(ctx, "beginCommit").End()
+
+	rlc.S = tsi.StepCommitWait
+	rlc.StepTimer, rlc.CancelTimer = m.rt.CommitWaitTimer(ctx, rlc.H, rlc.R)
+
+	idx := slices.IndexFunc(vrv.ProposedBlocks, func(pb tmconsensus.ProposedBlock) bool {
+		return string(pb.Block.Hash) == vrv.VoteSummary.MostVotedPrecommitHash
+	})
+	if idx < 0 {
+		panic(fmt.Errorf(
+			"TODO: beginCommit: handle committing a block that we don't have yet (height=%d step=%s hash=%x)",
+			rlc.H, rlc.S, vrv.VoteSummary.MostVotedPrecommitHash,
+		))
+	}
+
+	return gchan.SendC(
+		ctx, m.log,
+		m.finalizeBlockRequestCh, tmapp.FinalizeBlockRequest{
+			// Not including Ctx. That field needs to go away for 0.3.
+			// We would never cancel a finalize request due to local state in the state machine.
+
+			Block: vrv.ProposedBlocks[idx].Block,
+			Round: vrv.Round,
+
+			Resp: rlc.FinalizeRespCh,
+		},
+		"making finalize block request from beginCommit",
+	)
 }
 
 func (m *StateMachine) handleFinalization(
