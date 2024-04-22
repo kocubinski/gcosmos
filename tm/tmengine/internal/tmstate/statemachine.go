@@ -496,12 +496,88 @@ func (m *StateMachine) handleProposalViewUpdate(
 	min := tmconsensus.ByzantineMinority(vrv.VoteSummary.AvailablePower)
 	maj := tmconsensus.ByzantineMajority(vrv.VoteSummary.AvailablePower)
 
+	if vrv.VoteSummary.TotalPrecommitPower >= maj {
+		// The majority of the network is on precommit and we are just expecting a proposal.
+
+		// We can start by canceling the proposal timer.
+		rlc.CancelTimer()
+		rlc.StepTimer = nil
+		rlc.CancelTimer = nil
+
+		// There is no point in submitting a prevote at this point,
+		// because the majority of the network has already seen enough prevotes
+		// to make their precommit decision.
+
+		// If the majority has already reached consensus then
+		// we will attempt to submit our own precommit
+		// based on the prevotes we have right now.
+		vs := vrv.VoteSummary
+		maxBlockPow := vs.PrecommitBlockPower[vs.MostVotedPrecommitHash]
+		if maxBlockPow >= maj {
+			// There is consensus on a hash,
+			// but we have to treat nil differently from a particular block.
+			if vs.MostVotedPrecommitHash == "" {
+				// For now, we just advance the round without submitting our own precommit.
+				// We do have sufficient information to submit a precommit,
+				// but we ought to adjust the way the consensus strategy is structured
+				// in order to indicate that the round is terminating
+				// and that the consensus strategy is allowed to elect not to precommit.
+				_ = m.advanceRound(ctx, rlc)
+				return
+			}
+
+			// Otherwise it must be a particular block.
+			// Just like the nil precommit case,
+			// we are currently not consulting the consensus strategy.
+			_ = m.advanceHeight(ctx, rlc)
+			return
+		}
+
+		// There was majority precommit power present but it was not for a particular block.
+		// Start the precommit delay.
+		rlc.S = tsi.StepPrecommitDelay
+		rlc.StepTimer, rlc.CancelTimer = m.rt.PrecommitDelayTimer(ctx, rlc.H, rlc.R)
+
+		// And we need to submit our own precommit decision still.
+		_ = gchan.SendC(
+			ctx, m.log,
+			m.cm.DecidePrecommitRequests, tsi.DecidePrecommitRequest{
+				VS:     vrv.VoteSummary.Clone(), // Clone under assumption to avoid data race.
+				Result: rlc.PrecommitHashCh,     // Is it ever possible this channel is nil?
+			},
+			"deciding precommit following observation of majority precommit while expecting proposal",
+		)
+
+		return
+	}
+
 	if vrv.VoteSummary.TotalPrecommitPower >= min {
-		panic("TODO: handle jumping to precommit when expecting proposed blocks")
+		// A sufficient portion of the rest of the network
+		// has decided they have enough information to precommit.
+		// So we will begin our precommit too.
+
+		// We can start by canceling the proposal timer.
+		rlc.CancelTimer()
+		rlc.StepTimer = nil
+		rlc.CancelTimer = nil
+
+		rlc.S = tsi.StepAwaitingPrecommits
+
+		// And we need to submit our own precommit decision still.
+		_ = gchan.SendC(
+			ctx, m.log,
+			m.cm.DecidePrecommitRequests, tsi.DecidePrecommitRequest{
+				VS:     vrv.VoteSummary.Clone(), // Clone under assumption to avoid data race.
+				Result: rlc.PrecommitHashCh,     // Is it ever possible this channel is nil?
+			},
+			"deciding precommit following observation of minority precommit while expecting proposal",
+		)
+
+		return
 	}
 
 	if vrv.VoteSummary.TotalPrevotePower >= maj {
-		// Everyone else has made their prevote.
+		// The majority has made their prevote.
 
 		// We are switching to either awaiting precommits or prevote delay.
 		// Either way, when we entered this method, we had a proposal timer,
