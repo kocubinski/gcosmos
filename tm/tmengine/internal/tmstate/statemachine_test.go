@@ -293,8 +293,6 @@ func TestStateMachine_initialization(t *testing.T) {
 		// Now the state machine should make a finalize block request.
 		req := gtest.ReceiveSoon(t, sfx.FinalizeBlockRequests)
 
-		require.NotNil(t, req.Ctx)
-		require.NoError(t, req.Ctx.Err())
 		require.Equal(t, pb1.Block, req.Block)
 		require.Zero(t, req.Round)
 

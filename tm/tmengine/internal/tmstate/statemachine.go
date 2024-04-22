@@ -416,7 +416,6 @@ func (m *StateMachine) sendInitialActionSet(ctx context.Context) (
 
 		// This is a replay, so we can just tell the app to finalize it.
 		finReq := tmapp.FinalizeBlockRequest{
-			Ctx:   ctx, // Is this the right context? Do we even still need context?
 			Block: update.CB.Block,
 			Round: update.CB.Proof.Round,
 

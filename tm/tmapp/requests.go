@@ -1,8 +1,6 @@
 package tmapp
 
 import (
-	"context"
-
 	"github.com/rollchains/gordian/tm/tmconsensus"
 )
 
@@ -37,10 +35,6 @@ type InitChainResponse struct {
 //
 // Consumers of this value may assume that Resp is buffered and sends will not block.
 type FinalizeBlockRequest struct {
-	// TODO: Ctx should probably be removed.
-	// The only time a finalize request would be interrupted would be a root context cancellation.
-	Ctx context.Context
-
 	Block tmconsensus.Block
 	Round uint32
 
