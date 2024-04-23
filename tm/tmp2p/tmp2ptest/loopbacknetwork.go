@@ -8,6 +8,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/rollchains/gordian/internal/gchan"
 	"github.com/rollchains/gordian/internal/glog"
 	"github.com/rollchains/gordian/tm/tmconsensus"
 	"github.com/rollchains/gordian/tm/tmp2p"
@@ -34,8 +35,7 @@ type LoopbackNetwork struct {
 }
 
 type newConnRequest struct {
-	conn     *LoopbackConnection
-	accepted chan struct{}
+	result chan *LoopbackConnection
 }
 
 // NewLoopbackNetwork returns an initialized LoopbackNetwork.
@@ -81,17 +81,27 @@ func (n *LoopbackNetwork) background(ctx context.Context) {
 				<-c.Disconnected()
 			}
 			return
+
 		case req := <-n.newConnRequests:
-			// Add a new connection.
-			conns = append(conns, req.conn)
-			n.log.Debug("Network added connection", "conn_idx", req.conn.idx)
-			close(req.accepted)
+			// Create a new connection and send it back to the requester.
+
+			// Atomic counter because parallel tests may all contend for the index counter.
+			idx := atomic.AddUint64(&loopbackConnIdxCounter, 1)
+
+			conn := newLoopbackConnection(ctx, n.log.With("conn_idx", idx), n, idx)
+			conns = append(conns, conn)
+			n.log.Debug("Network added connection", "conn_idx", idx)
+
+			// Guaranteed 1-buffered.
+			req.result <- conn
+
 		case c := <-n.rmConn:
 			// Remove an existing connection if found.
 			idx := slices.Index(conns, c)
 			if idx >= 0 {
 				conns = slices.Delete(conns, idx, idx+1)
 			}
+
 		case p := <-n.incomingProposals:
 			n.log.Debug("Received incoming proposal", "seq", p.seq)
 			// Send the proposal to everyone on the network.
@@ -128,28 +138,23 @@ func nextLoopbackSeq() uint64 {
 
 // Connect returns a new connection to the network.
 func (n *LoopbackNetwork) Connect(ctx context.Context) (*LoopbackConnection, error) {
-	idx := atomic.AddUint64(&loopbackConnIdxCounter, 1)
-
-	conn := newLoopbackConnection(n.log.With("conn_idx", idx), n, idx)
 	req := newConnRequest{
-		conn:     conn,
-		accepted: make(chan struct{}),
+		result: make(chan *LoopbackConnection, 1),
 	}
+
 	select {
-	case n.newConnRequests <- req:
-		// Okay.
 	case <-ctx.Done():
 		return nil, fmt.Errorf("context finished while creating connection to network: %w", context.Cause(ctx))
+	case n.newConnRequests <- req:
+		// Okay.
 	}
 
 	select {
-	case <-req.accepted:
-		// Okay.
 	case <-ctx.Done():
-		return nil, fmt.Errorf("context finished while awaiting network connection acknowledgement: %w", context.Cause(ctx))
+		return nil, fmt.Errorf("context finished while waiting for connection to be created: %w", context.Cause(ctx))
+	case conn := <-req.result:
+		return conn, nil
 	}
-
-	return conn, nil
 }
 
 // dispatchProposal sends the proposal to every connection on the network except the sender.
@@ -236,7 +241,7 @@ type LoopbackConnection struct {
 	wg                 sync.WaitGroup
 }
 
-func newLoopbackConnection(log *slog.Logger, n *LoopbackNetwork, idx uint64) *LoopbackConnection {
+func newLoopbackConnection(ctx context.Context, log *slog.Logger, n *LoopbackNetwork, idx uint64) *LoopbackConnection {
 	c := &LoopbackConnection{
 		log: log,
 
@@ -259,35 +264,40 @@ func newLoopbackConnection(log *slog.Logger, n *LoopbackNetwork, idx uint64) *Lo
 		quit:         make(chan struct{}),
 		disconnected: make(chan struct{}),
 	}
-	c.wg.Add(1)
-	go c.background()
 
-	for i := 0; i < cap(c.handleFuncs); i++ {
-		c.wg.Add(1)
-		go c.handleAsync()
+	connCtx, cancel := context.WithCancel(ctx)
+	c.wg.Add(1 + cap(c.handleFuncs))
+	go c.background(connCtx, cancel)
+
+	for range cap(c.handleFuncs) {
+		go c.handleAsync(connCtx)
 	}
 
 	return c
 }
 
-func (c *LoopbackConnection) background() {
+func (c *LoopbackConnection) background(ctx context.Context, cancel context.CancelFunc) {
 	defer c.wg.Done()
-
-	var h2 tmconsensus.ConsensusHandler
-
-	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	// Ensure the context is cancelled when quit signal arrives.
 	go func() {
-		<-c.quit
+		select {
+		case <-ctx.Done():
+		case <-c.quit:
+		}
+
 		cancel()
 	}()
 
+	var h tmconsensus.ConsensusHandler
+
 	for {
 		select {
-		case <-c.quit:
-			c.log.Debug("Connection closing")
-			close(c.handleFuncs)
+		case <-ctx.Done():
+			c.log.Debug("Connection closing due to context cancellation", "cause", context.Cause(ctx))
 			return
+
 		case p := <-c.outgoingProposals:
 			proposal := loopbackProposal{
 				sender: c,
@@ -300,31 +310,44 @@ func (c *LoopbackConnection) background() {
 				"round", p.Round,
 				"seq", proposal.seq,
 			)
-			select {
-			case c.net.incomingProposals <- proposal:
-			case <-c.quit:
+
+			if !gchan.SendC(
+				ctx, c.log,
+				c.net.incomingProposals, proposal,
+				"sending proposal to loopback main loop",
+			) {
+				return
 			}
+
 		case p := <-c.incomingProposals:
-			if h2 != nil {
-				select {
-				case c.handleFuncs <- func() {
-					// TODO: set appropriate context, probably respect feedback value
-					_ = h2.HandleProposedBlock(ctx, p)
-				}:
-				case <-c.quit:
-				}
+			if h == nil {
+				continue
+			}
+			if !gchan.SendC(
+				ctx, c.log,
+				c.handleFuncs, func() {
+					_ = h.HandleProposedBlock(ctx, p)
+				},
+				"making request to handle proposed block",
+			) {
+				return
 			}
 
 		case p := <-c.incomingPrevoteProofs:
 			c.log.Debug("Received incoming prevote proof")
-			if h2 != nil {
-				select {
-				case c.handleFuncs <- func() {
-					_ = h2.HandlePrevoteProofs(ctx, p)
-				}:
-				case <-c.quit:
-				}
+			if h == nil {
+				continue
 			}
+			if !gchan.SendC(
+				ctx, c.log,
+				c.handleFuncs, func() {
+					_ = h.HandlePrevoteProofs(ctx, p)
+				},
+				"making request to handle prevote proofs",
+			) {
+				return
+			}
+
 		case p := <-c.outgoingPrevoteProofs:
 			prevoteProof := loopbackPrevoteProof{
 				sender: c,
@@ -337,21 +360,28 @@ func (c *LoopbackConnection) background() {
 				"round", p.Round,
 				"seq", prevoteProof.seq,
 			)
-			select {
-			case c.net.incomingPrevoteProofs <- prevoteProof:
-			case <-c.quit:
+			if !gchan.SendC(
+				ctx, c.log,
+				c.net.incomingPrevoteProofs, prevoteProof,
+				"sending prevote to loopback main loop",
+			) {
+				return
 			}
 
 		case p := <-c.incomingPrecommitProofs:
-			if h2 != nil {
-				select {
-				case c.handleFuncs <- func() {
-					// TODO: set appropriate context, probably respect feedback value
-					_ = h2.HandlePrecommitProofs(ctx, p)
-				}:
-				case <-c.quit:
-				}
+			if h == nil {
+				continue
 			}
+			if !gchan.SendC(
+				ctx, c.log,
+				c.handleFuncs, func() {
+					_ = h.HandlePrecommitProofs(ctx, p)
+				},
+				"making request to handle precommit proofs",
+			) {
+				return
+			}
+
 		case p := <-c.outgoingPrecommitProofs:
 			precommitProof := loopbackPrecommitProof{
 				sender: c,
@@ -364,23 +394,31 @@ func (c *LoopbackConnection) background() {
 				"round", p.Round,
 				"seq", precommitProof.seq,
 			)
-			select {
-			case c.net.incomingPrecommitProofs <- precommitProof:
-			case <-c.quit:
+			if !gchan.SendC(
+				ctx, c.log,
+				c.net.incomingPrecommitProofs, precommitProof,
+				"sending precommit to loopback main loop",
+			) {
+				return
 			}
 
 		case req := <-c.setConsensusHandlerRequests:
-			h2 = req.Handler
+			h = req.Handler
 			close(req.Ready)
 		}
 	}
 }
 
-func (c *LoopbackConnection) handleAsync() {
+func (c *LoopbackConnection) handleAsync(ctx context.Context) {
 	defer c.wg.Done()
 
-	for fn := range c.handleFuncs {
-		fn()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case fn := <-c.handleFuncs:
+			fn()
+		}
 	}
 }
 
