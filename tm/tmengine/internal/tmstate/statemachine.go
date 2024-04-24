@@ -274,31 +274,14 @@ func (m *StateMachine) beginRoundLive(
 			return m.advanceRound(ctx, rlc)
 		}
 
-		// Otherwise we have a non-nil block to finalize.
-		idx := slices.IndexFunc(initVRV.ProposedBlocks, func(pb tmconsensus.ProposedBlock) bool {
-			return string(pb.Block.Hash) == committingHash
-		})
-		if idx < 0 {
-			panic(fmt.Errorf(
-				"TODO: beginRoundLive: handle committing a block that we don't have yet (height=%d hash=%x)",
-				rlc.H, committingHash,
-			))
-		}
-		if !gchan.SendC(
-			ctx, m.log,
-			m.finalizeBlockRequestCh, tmapp.FinalizeBlockRequest{
-				// Not including Ctx. That field needs to go away for 0.3.
-				// We would never cancel a finalize request due to local state in the state machine.
-
-				Block: initVRV.ProposedBlocks[idx].Block,
-				Round: initVRV.Round,
-
-				Resp: rlc.FinalizeRespCh,
-			},
-			"making finalize block request from initial state",
-		) {
+		// Another special case -- the beginCommit method assigns rlc.S and its timers.
+		// So we don't want to go past the end of the switch statement
+		// which will reassign the timers.
+		if !m.beginCommit(ctx, rlc, initVRV) {
 			return false
 		}
+		rlc.PrevVRV = &initVRV
+		return true
 
 	default:
 		panic(fmt.Errorf("BUG: unhandled initial step %s", curStep))
@@ -465,10 +448,7 @@ func (m *StateMachine) handleViewUpdate(
 	case tsi.StepAwaitingPrecommits, tsi.StepPrecommitDelay:
 		m.handlePrecommitViewUpdate(ctx, rlc, vrv)
 	case tsi.StepCommitWait, tsi.StepAwaitingFinalization:
-		// Nothing to do here, for now.
-		// By the time we are in commit wait, we've already made a finalization request.
-		// In the future we might find a way to notify an in-progress finalization request
-		// that there are updated precommits.
+		m.handleCommitWaitViewUpdate(ctx, rlc, vrv)
 	default:
 		panic(fmt.Errorf("TODO: handle view update for step %q", rlc.S))
 	}
@@ -884,6 +864,52 @@ func (m *StateMachine) recordPrecommit(
 	return true
 }
 
+func (m *StateMachine) handleCommitWaitViewUpdate(
+	ctx context.Context,
+	rlc *tsi.RoundLifecycle,
+	vrv tmconsensus.VersionedRoundView,
+) {
+	// Currently, the only action we may take here is creating a finalization request
+	// if we lacked the proposed block before.
+	// We don't currently have a way to notify an in-progress finalization request of anything.
+
+	if rlc.FinalizeRespCh == nil {
+		// The finalization has already completed,
+		// so there is nothing to do.
+		return
+	}
+
+	pbIdx := slices.IndexFunc(rlc.PrevVRV.ProposedBlocks, func(pb tmconsensus.ProposedBlock) bool {
+		return string(pb.Block.Hash) == rlc.PrevVRV.VoteSummary.MostVotedPrecommitHash
+	})
+	if pbIdx >= 0 {
+		// The previous VRV already had the proposed block,
+		// so we can assume we already made the finalization request.
+		return
+	}
+
+	// Now does the new VRV have the proposed block?
+	pbIdx = slices.IndexFunc(vrv.ProposedBlocks, func(pb tmconsensus.ProposedBlock) bool {
+		return string(pb.Block.Hash) == vrv.VoteSummary.MostVotedPrecommitHash
+	})
+	if pbIdx < 0 {
+		// Not there yet, so don't do anything.
+		return
+	}
+
+	// We have a valid index, so we can make the finalization request now.
+	_ = gchan.SendC(
+		ctx, m.log,
+		m.finalizeBlockRequestCh, tmapp.FinalizeBlockRequest{
+			Block: vrv.ProposedBlocks[pbIdx].Block,
+			Round: vrv.Round,
+
+			Resp: rlc.FinalizeRespCh,
+		},
+		"making finalize block request from handleCommitWaitViewUpdate",
+	)
+}
+
 func (m *StateMachine) recordProposedBlock(
 	ctx context.Context,
 	rlc tsi.RoundLifecycle,
@@ -971,18 +997,18 @@ func (m *StateMachine) beginCommit(
 		return string(pb.Block.Hash) == vrv.VoteSummary.MostVotedPrecommitHash
 	})
 	if idx < 0 {
-		panic(fmt.Errorf(
-			"TODO: beginCommit: handle committing a block that we don't have yet (height=%d step=%s hash=%x)",
-			rlc.H, rlc.S, vrv.VoteSummary.MostVotedPrecommitHash,
-		))
+		m.log.Warn(
+			"Reached commit wait step but don't have the proposed block to commit yet",
+			"height", rlc.H,
+			"round", rlc.R,
+			"committing_hash", glog.Hex(vrv.VoteSummary.MostVotedPrecommitHash),
+		)
+		return
 	}
 
 	return gchan.SendC(
 		ctx, m.log,
 		m.finalizeBlockRequestCh, tmapp.FinalizeBlockRequest{
-			// Not including Ctx. That field needs to go away for 0.3.
-			// We would never cancel a finalize request due to local state in the state machine.
-
 			Block: vrv.ProposedBlocks[idx].Block,
 			Round: vrv.Round,
 

@@ -1827,6 +1827,92 @@ func TestStateMachine_finalization(t *testing.T) {
 		require.Equal(t, uint64(2), as.H)
 		require.Zero(t, as.R)
 	})
+
+	t.Run("when proposed block is missing and it is time to finalize", func(t *testing.T) {
+		t.Parallel()
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		sfx := tmstatetest.NewFixture(t, 4)
+
+		sm := sfx.NewStateMachine(ctx)
+		defer sm.Wait()
+		defer cancel()
+
+		as := gtest.ReceiveSoon(t, sfx.ToMirrorCh)
+
+		// Make the proposed block but don't set it in the vrv yet.
+		pb1 := sfx.Fx.NextProposedBlock([]byte("app_data_1"), 1)
+
+		vrv := sfx.EmptyVRV(1, 0)
+		vrv = sfx.Fx.UpdateVRVPrevotes(ctx, vrv, map[string][]int{
+			string(pb1.Block.Hash): {1, 2, 3}, // Everyone else already prevoted for the block.
+		})
+
+		// Set up consensus strategy expectation before mocking the response.
+		cStrat := sfx.CStrat
+		_ = cStrat.ExpectEnterRound(1, 0, nil)
+
+		// Channel is 1-buffered, don't have to select.
+		as.StateResponse <- tmeil.StateUpdate{VRV: vrv}
+
+		// Since there was already a majority prevote for a block,
+		// we don't need to submit our prevote -- we jump straight into the precommit decision.
+		cReq := gtest.ReceiveSoon(t, cStrat.DecidePrecommitRequests)
+		require.Equal(t, vrv.VoteSummary, cReq.Input)
+
+		// And when the consensus strategy responds, the state machine forwards it to the mirror.
+		gtest.SendSoon(t, cReq.ChoiceHash, string(pb1.Block.Hash))
+
+		act := gtest.ReceiveSoon(t, as.Actions)
+		require.NotEmpty(t, act.Precommit.Sig)
+
+		// Now we get a live update with everyone's precommit.
+		// We are not going to make a finalization request,
+		// but this will still start the commit wait timer.
+		commitWaitStarted := sfx.RoundTimer.CommitWaitStartNotification(1, 0)
+		vrv = sfx.Fx.UpdateVRVPrecommits(ctx, vrv, map[string][]int{
+			string(pb1.Block.Hash): {0, 1, 2, 3},
+		})
+		gtest.SendSoon(t, sfx.RoundViewInCh, vrv)
+		gtest.ReceiveSoon(t, commitWaitStarted)
+
+		// Normally this would cause a finalization request,
+		// but we don't have the proposed block yet,
+		// so we can't tell the app to finalize.
+		gtest.NotSending(t, sfx.FinalizeBlockRequests)
+
+		// If the commit wait elapses, we still do not start the finalize request.
+		require.NoError(t, sfx.RoundTimer.ElapseCommitWaitTimer(1, 0))
+		gtest.NotSending(t, sfx.FinalizeBlockRequests)
+
+		// Now with the commit wait elapsed and the finalization not started,
+		// if we receive an update with the missing proposed block,
+		// we get a finalization request, and there is still no active timer.
+		vrv = vrv.Clone()
+		vrv.ProposedBlocks = []tmconsensus.ProposedBlock{pb1}
+		vrv.Version++
+		gtest.SendSoon(t, sfx.RoundViewInCh, vrv)
+
+		finReq := gtest.ReceiveSoon(t, sfx.FinalizeBlockRequests)
+		sfx.RoundTimer.RequireNoActiveTimer(t)
+
+		// Responding to the finalization request completes correctly.
+		finReq.Resp <- tmapp.FinalizeBlockResponse{
+			Height: 1, Round: 0,
+			BlockHash: pb1.Block.Hash,
+
+			Validators: sfx.Fx.Vals(),
+
+			AppStateHash: []byte("app_state_1"),
+		}
+
+		// Then the state machine tells the mirror we are on the next height.
+		as = gtest.ReceiveSoon(t, sfx.ToMirrorCh)
+		require.Equal(t, uint64(2), as.H)
+		require.Zero(t, as.R)
+	})
 }
 
 func TestStateMachine_followerMode(t *testing.T) {
