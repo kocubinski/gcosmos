@@ -1453,7 +1453,7 @@ func (k *Kernel) handleStateMachineRoundUpdate(ctx context.Context, s *kState, a
 	}
 
 	su := tmeil.StateUpdate{
-		VRV: view.VRV,
+		VRV: view.VRV.Clone(),
 	}
 	switch vID {
 	case ViewIDVoting:

@@ -8,6 +8,7 @@ import (
 	"github.com/rollchains/gordian/gcrypto"
 	"github.com/rollchains/gordian/internal/gtest"
 	"github.com/rollchains/gordian/tm/tmconsensus"
+	"github.com/rollchains/gordian/tm/tmengine/internal/tmeil"
 	"github.com/rollchains/gordian/tm/tmengine/internal/tmmirror/internal/tmi"
 	"github.com/stretchr/testify/require"
 )
@@ -223,4 +224,61 @@ func TestKernel_votesBeforeVotingRound(t *testing.T) {
 			}
 		})
 	}
+}
+
+// Regression test: if the state update is not a clone of the kernel's VRV,
+// there is a possible data race when the kernel next modifies that VRV.
+func TestKernel_initialStateUpdateToStateMachineUsesVRVClone(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	kfx := NewKernelFixture(t, 4)
+
+	k := kfx.NewKernel(ctx)
+	defer k.Wait()
+	defer cancel()
+
+	// Simulate the state machine round action input.
+	as := tmeil.StateMachineRoundActionSet{
+		H: 1, R: 0,
+
+		PubKey: nil,
+
+		Actions: make(chan tmeil.StateMachineRoundAction, 3),
+
+		StateResponse: make(chan tmeil.StateUpdate, 1),
+	}
+
+	gtest.SendSoon(t, kfx.StateMachineRoundActionsIn, as)
+
+	su := gtest.ReceiveSoon(t, as.StateResponse)
+
+	// Now we will do three modifications to be extra sure this is a clone.
+	// Change the version, add a proposed block directly, and modify the vote summary directly.
+	// None of these are likely to happen in practice,
+	// but they are simple checks to ensure we have a clone, not a reference.
+	pb3 := kfx.Fx.NextProposedBlock([]byte("val3"), 3)
+	origVersion := su.VRV.Version
+	su.VRV.Version = 12345
+	su.VRV.ProposedBlocks = append(su.VRV.ProposedBlocks, pb3)
+	su.VRV.VoteSummary.PrevoteBlockPower["not_a_block"] = 1
+
+	// If those fields were modified on the kernel's copy of the VRV,
+	// those would be included in the next update we force by sending a different proposed block.
+	pb1 := kfx.Fx.NextProposedBlock([]byte("app_data_1"), 0)
+	kfx.Fx.SignProposal(ctx, &pb1, 0)
+
+	gtest.SendSoon(t, kfx.AddPBRequests, pb1)
+
+	vrv := gtest.ReceiveSoon(t, kfx.StateMachineViewOut)
+
+	// It didn't keep our version change.
+	require.Equal(t, origVersion+1, vrv.Version)
+	// It only has the proposed block we simulated from the network.
+	// (Dubious test since the VRV slice may have been nil.)
+	require.Equal(t, []tmconsensus.ProposedBlock{pb1}, vrv.ProposedBlocks)
+	// And it doesn't have the bogus change we added to our copy of the vote summary.
+	require.Empty(t, vrv.VoteSummary.PrevoteBlockPower)
 }
