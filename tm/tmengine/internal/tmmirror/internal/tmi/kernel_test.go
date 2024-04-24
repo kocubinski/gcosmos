@@ -46,9 +46,9 @@ func TestKernel_votesBeforeVotingRound(t *testing.T) {
 			kfx.Fx.SignProposal(ctx, &pb1, 0)
 
 			// Proposed blocks are sent directly.
-			_ = gtest.ReceiveSoon(t, kfx.VotingViewOutCh)
+			_ = gtest.ReceiveSoon(t, kfx.GossipStrategyOut)
 			gtest.SendSoon(t, kfx.AddPBRequests, pb1)
-			_ = gtest.ReceiveSoon(t, kfx.VotingViewOutCh)
+			_ = gtest.ReceiveSoon(t, kfx.GossipStrategyOut)
 
 			commitProof1 := kfx.Fx.PrecommitSignatureProof(
 				ctx,
@@ -78,7 +78,7 @@ func TestKernel_votesBeforeVotingRound(t *testing.T) {
 
 			// Confirm vote applied after being accepted
 			// (since the kernel does some work in the background here).
-			votingVRV := gtest.ReceiveSoon(t, kfx.VotingViewOutCh)
+			votingVRV := gtest.ReceiveSoon(t, kfx.GossipStrategyOut).Voting
 			require.Equal(t, uint64(2), votingVRV.Height)
 
 			// Update the fixture and go through the next height.
@@ -89,7 +89,7 @@ func TestKernel_votesBeforeVotingRound(t *testing.T) {
 			pb2 := kfx.Fx.NextProposedBlock([]byte("app_data_2"), 0)
 			kfx.Fx.SignProposal(ctx, &pb2, 0)
 			gtest.SendSoon(t, kfx.AddPBRequests, pb2)
-			_ = gtest.ReceiveSoon(t, kfx.VotingViewOutCh)
+			_ = gtest.ReceiveSoon(t, kfx.GossipStrategyOut)
 
 			commitProof2 := kfx.Fx.PrecommitSignatureProof(
 				ctx,
@@ -118,7 +118,7 @@ func TestKernel_votesBeforeVotingRound(t *testing.T) {
 			require.Equal(t, tmi.AddVoteAccepted, resp)
 
 			// Confirm on voting height 3.
-			votingVRV = gtest.ReceiveSoon(t, kfx.VotingViewOutCh)
+			votingVRV = gtest.ReceiveSoon(t, kfx.GossipStrategyOut).Voting
 			require.Equal(t, uint64(3), votingVRV.Height)
 
 			// Check if we need to advance the voting round.
@@ -149,7 +149,7 @@ func TestKernel_votesBeforeVotingRound(t *testing.T) {
 				require.Equal(t, tmi.AddVoteAccepted, resp)
 
 				// Confirm on voting height 3, round 1.
-				votingVRV = gtest.ReceiveSoon(t, kfx.VotingViewOutCh)
+				votingVRV = gtest.ReceiveSoon(t, kfx.GossipStrategyOut).Voting
 				require.Equal(t, uint64(3), votingVRV.Height)
 				require.Equal(t, uint32(1), votingVRV.Round)
 			}

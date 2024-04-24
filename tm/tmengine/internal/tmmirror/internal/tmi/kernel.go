@@ -37,14 +37,9 @@ type Kernel struct {
 
 	pbf tmelink.ProposedBlockFetcher
 
-	votingViewOut,
-	committingViewOut,
-	nextRoundViewOut chan<- tmconsensus.VersionedRoundView
-
 	gossipOutCh chan<- tmelink.NetworkViewUpdate
 
-	stateMachineIn      <-chan tmeil.StateMachineRoundActionSet
-	stateMachineViewOut chan<- tmconsensus.VersionedRoundView
+	stateMachineIn <-chan tmeil.StateMachineRoundActionSet
 
 	nhrRequests        <-chan chan NetworkHeightRound
 	snapshotRequests   <-chan SnapshotRequest
@@ -72,11 +67,6 @@ type KernelConfig struct {
 	InitialValidators []tmconsensus.Validator
 
 	ProposedBlockFetcher tmelink.ProposedBlockFetcher
-
-	// Views that are sent to the gossip strategy.
-	VotingViewOut,
-	CommittingViewOut,
-	NextRoundViewOut chan<- tmconsensus.VersionedRoundView
 
 	GossipStrategyOut chan<- tmelink.NetworkViewUpdate
 
@@ -140,14 +130,9 @@ func NewKernel(ctx context.Context, log *slog.Logger, cfg KernelConfig) (*Kernel
 
 		// Channels provided through the config,
 		// i.e. channels coordinated by the Engine or Mirror.
-		votingViewOut:     cfg.VotingViewOut,
-		committingViewOut: cfg.CommittingViewOut,
-		nextRoundViewOut:  cfg.NextRoundViewOut,
-
 		gossipOutCh: cfg.GossipStrategyOut,
 
-		stateMachineIn:      cfg.StateMachineRoundActionsIn,
-		stateMachineViewOut: cfg.StateMachineViewOut,
+		stateMachineIn: cfg.StateMachineRoundActionsIn,
 
 		nhrRequests:        cfg.NHRRequests,
 		snapshotRequests:   cfg.SnapshotRequests,
@@ -218,7 +203,6 @@ func (k *Kernel) mainLoop(ctx context.Context, s *kState) {
 	defer close(k.done)
 
 	for {
-		vo := k.viewOutputs(s)
 		smOut := s.StateMachineView.Output(s)
 
 		gsOut := k.gossipStrategyOutput(s)
@@ -266,15 +250,6 @@ func (k *Kernel) mainLoop(ctx context.Context, s *kState) {
 
 		case req := <-k.addPrecommitRequests:
 			k.addPrecommit(ctx, s, req)
-
-		case vo.VotingCh <- vo.VotingVal:
-			s.Voting.Outgoing.MarkSent()
-
-		case vo.CommittingCh <- vo.CommittingVal:
-			s.Committing.Outgoing.MarkSent()
-
-		case vo.NextRoundCh <- vo.NextRoundVal:
-			s.NextRound.Outgoing.MarkSent()
 
 		case gsOut.Ch <- gsOut.Val:
 			gsOut.MarkSent(s)
@@ -1039,47 +1014,6 @@ func (k *Kernel) advanceVotingRound(s *kState) error {
 
 	s.NextRound.UpdateOutgoing()
 	return nil
-}
-
-// viewOutputs is the collection of channels and values
-// corresponding to round views that the Mirror tracks.
-type viewOutputs struct {
-	VotingCh  chan<- tmconsensus.VersionedRoundView
-	VotingVal tmconsensus.VersionedRoundView
-
-	CommittingCh  chan<- tmconsensus.VersionedRoundView
-	CommittingVal tmconsensus.VersionedRoundView
-
-	NextRoundCh  chan<- tmconsensus.VersionedRoundView
-	NextRoundVal tmconsensus.VersionedRoundView
-
-	// TODO: channels and values for NextHeight.
-}
-
-// kViewOutputs is a kernel method that returns a collection of
-// output channels and values to send on those channels.
-//
-// Any output channels that have already sent the most recent value,
-// will be set to nil so that no send is attempted.
-func (k *Kernel) viewOutputs(s *kState) viewOutputs {
-	var out viewOutputs
-
-	if !s.Voting.Outgoing.HasBeenSent() {
-		out.VotingCh = k.votingViewOut
-		out.VotingVal = s.Voting.Outgoing.VRV
-	}
-
-	if !s.Committing.Outgoing.HasBeenSent() {
-		out.CommittingCh = k.committingViewOut
-		out.CommittingVal = s.Committing.Outgoing.VRV
-	}
-
-	if !s.NextRound.Outgoing.HasBeenSent() {
-		out.NextRoundCh = k.nextRoundViewOut
-		out.NextRoundVal = s.NextRound.Outgoing.VRV
-	}
-
-	return out
 }
 
 type gossipStrategyOut struct {

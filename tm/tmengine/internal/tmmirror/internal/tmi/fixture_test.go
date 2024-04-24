@@ -10,6 +10,7 @@ import (
 	"github.com/rollchains/gordian/tm/tmconsensus/tmconsensustest"
 	"github.com/rollchains/gordian/tm/tmengine/internal/tmeil"
 	"github.com/rollchains/gordian/tm/tmengine/internal/tmmirror/internal/tmi"
+	"github.com/rollchains/gordian/tm/tmengine/tmelink"
 	"github.com/rollchains/gordian/tm/tmstore/tmmemstore"
 )
 
@@ -24,7 +25,8 @@ type KernelFixture struct {
 
 	// These channels are bidirectional in the fixture,
 	// because they are write-only in the config.
-	VotingViewOutCh, CommittingViewOutCh chan tmconsensus.VersionedRoundView
+
+	GossipStrategyOut chan tmelink.NetworkViewUpdate
 
 	NHRRequests        chan chan tmi.NetworkHeightRound
 	SnapshotRequests   chan tmi.SnapshotRequest
@@ -43,8 +45,8 @@ type KernelFixture struct {
 func NewKernelFixture(t *testing.T, nVals int) *KernelFixture {
 	fx := tmconsensustest.NewStandardFixture(nVals)
 
-	votingViewOutCh := make(chan tmconsensus.VersionedRoundView)     // Unbuffered like in production.
-	committingViewOutCh := make(chan tmconsensus.VersionedRoundView) // Unbuffered like in production.
+	// Unbuffered because the kernel needs to know exactly what was received.
+	gso := make(chan tmelink.NetworkViewUpdate)
 
 	// 1-buffered like production:
 	// "because it is possible that the caller
@@ -73,8 +75,7 @@ func NewKernelFixture(t *testing.T, nVals int) *KernelFixture {
 
 		Fx: fx,
 
-		VotingViewOutCh:     votingViewOutCh,
-		CommittingViewOutCh: committingViewOutCh,
+		GossipStrategyOut: gso,
 
 		NHRRequests:        nhrRequests,
 		SnapshotRequests:   snapshotRequests,
@@ -100,9 +101,7 @@ func NewKernelFixture(t *testing.T, nVals int) *KernelFixture {
 			SignatureScheme:                   fx.SignatureScheme,
 			CommonMessageSignatureProofScheme: fx.CommonMessageSignatureProofScheme,
 
-			VotingViewOut:     votingViewOutCh,
-			CommittingViewOut: committingViewOutCh,
-
+			GossipStrategyOut:          gso,
 			StateMachineRoundActionsIn: smActionsIn,
 			StateMachineViewOut:        smViewOut,
 
