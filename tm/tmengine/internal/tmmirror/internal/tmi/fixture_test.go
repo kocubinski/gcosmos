@@ -8,6 +8,7 @@ import (
 	"github.com/rollchains/gordian/internal/gtest"
 	"github.com/rollchains/gordian/tm/tmconsensus"
 	"github.com/rollchains/gordian/tm/tmconsensus/tmconsensustest"
+	"github.com/rollchains/gordian/tm/tmengine/internal/tmeil"
 	"github.com/rollchains/gordian/tm/tmengine/internal/tmmirror/internal/tmi"
 	"github.com/rollchains/gordian/tm/tmstore/tmmemstore"
 )
@@ -32,6 +33,9 @@ type KernelFixture struct {
 	AddPBRequests        chan tmconsensus.ProposedBlock
 	AddPrevoteRequests   chan tmi.AddPrevoteRequest
 	AddPrecommitRequests chan tmi.AddPrecommitRequest
+
+	StateMachineRoundActionsIn chan tmeil.StateMachineRoundActionSet
+	StateMachineViewOut        chan tmconsensus.VersionedRoundView
 
 	Cfg tmi.KernelConfig
 }
@@ -58,6 +62,12 @@ func NewKernelFixture(t *testing.T, nVals int) *KernelFixture {
 	addPrevoteRequests := make(chan tmi.AddPrevoteRequest)
 	addPrecommitRequests := make(chan tmi.AddPrecommitRequest)
 
+	// Okay to be unbuffered, this request would block reading from the response regardless.
+	smActionsIn := make(chan tmeil.StateMachineRoundActionSet)
+
+	// Must be unbuffered so kernel knows exactly what was sent to state machine.
+	smViewOut := make(chan tmconsensus.VersionedRoundView)
+
 	return &KernelFixture{
 		Log: gtest.NewLogger(t),
 
@@ -74,6 +84,9 @@ func NewKernelFixture(t *testing.T, nVals int) *KernelFixture {
 		AddPrevoteRequests:   addPrevoteRequests,
 		AddPrecommitRequests: addPrecommitRequests,
 
+		StateMachineRoundActionsIn: smActionsIn,
+		StateMachineViewOut:        smViewOut,
+
 		Cfg: tmi.KernelConfig{
 			Store:          tmmemstore.NewMirrorStore(),
 			BlockStore:     tmmemstore.NewBlockStore(),
@@ -89,6 +102,9 @@ func NewKernelFixture(t *testing.T, nVals int) *KernelFixture {
 
 			VotingViewOut:     votingViewOutCh,
 			CommittingViewOut: committingViewOutCh,
+
+			StateMachineRoundActionsIn: smActionsIn,
+			StateMachineViewOut:        smViewOut,
 
 			NHRRequests:        nhrRequests,
 			SnapshotRequests:   snapshotRequests,
