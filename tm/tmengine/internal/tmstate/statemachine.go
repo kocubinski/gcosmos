@@ -187,7 +187,10 @@ func (m *StateMachine) handleLiveEvent(ctx context.Context, rlc *tsi.RoundLifecy
 			return false
 		}
 
-		rlc.FinalizeRespCh = nil
+		// The other cases unconditionally set the rlc-associated channel to nil,
+		// but it is actually conditionally changed in the m.handleFinalization call.
+		// If we set it to nil following a height change which may have happend in m.handleFinalization,
+		// the state machine will deadlock when the app attempts to send its finalization to a nil channel.
 
 	case <-rlc.StepTimer:
 		if !m.handleTimerElapsed(ctx, rlc) {

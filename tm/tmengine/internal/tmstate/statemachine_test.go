@@ -1913,6 +1913,141 @@ func TestStateMachine_finalization(t *testing.T) {
 		require.Equal(t, uint64(2), as.H)
 		require.Zero(t, as.R)
 	})
+
+	// Regression test for a case where the finalization response channel was being set to nil
+	// when it should have been unmodified, depending on the order of finalization response
+	// and commit wait timeout.
+	t.Run("multiple finalizations in sequence", func(t *testing.T) {
+		t.Parallel()
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		sfx := tmstatetest.NewFixture(t, 3)
+		sfx.Cfg.Signer = nil
+
+		sm := sfx.NewStateMachine(ctx)
+		defer sm.Wait()
+		defer cancel()
+
+		cStrat := sfx.CStrat
+		_ = cStrat.ExpectEnterRound(1, 0, nil)
+		_ = cStrat.ExpectEnterRound(2, 0, nil)
+		_ = cStrat.ExpectEnterRound(3, 0, nil)
+
+		as := gtest.ReceiveSoon(t, sfx.ToMirrorCh)
+
+		// Send an empty state response so we aren't sending a committable state for the initial state.
+		vrv := sfx.EmptyVRV(1, 0)
+		as.StateResponse <- tmeil.StateUpdate{VRV: vrv}
+
+		pb1 := sfx.Fx.NextProposedBlock([]byte("app_data_1"), 0)
+		sfx.Fx.SignProposal(ctx, &pb1, 0)
+		vrv = vrv.Clone()
+		vrv.ProposedBlocks = []tmconsensus.ProposedBlock{pb1}
+		vrv = sfx.Fx.UpdateVRVPrevotes(ctx, vrv, map[string][]int{
+			string(pb1.Block.Hash): {0, 1, 2},
+		})
+		vrv = sfx.Fx.UpdateVRVPrecommits(ctx, vrv, map[string][]int{
+			string(pb1.Block.Hash): {0, 1, 2},
+		})
+		gtest.SendSoon(t, sfx.RoundViewInCh, vrv)
+
+		// On the first height, we send the finalize response first and then elapse the commit wait timer.
+		finReq := gtest.ReceiveSoon(t, sfx.FinalizeBlockRequests)
+		sfx.RoundTimer.RequireActiveCommitWaitTimer(t, 1, 0)
+
+		finReq.Resp <- tmapp.FinalizeBlockResponse{
+			Height: 1, Round: 0,
+			BlockHash:    pb1.Block.Hash,
+			Validators:   sfx.Fx.Vals(),
+			AppStateHash: []byte("state_1"),
+		}
+		// No good synchronization point to ensure the finalization has been handled,
+		// so just a short sleep to give the state machine a chance.
+		// Could alternatively poll the finalization store.
+		gtest.Sleep(gtest.ScaleMs(10))
+		require.NoError(t, sfx.RoundTimer.ElapseCommitWaitTimer(1, 0))
+
+		// Now for height 2, same initial setup.
+		as = gtest.ReceiveSoon(t, sfx.ToMirrorCh)
+		require.Equal(t, uint64(2), as.H)
+
+		vrv = sfx.EmptyVRV(2, 0)
+		as.StateResponse <- tmeil.StateUpdate{VRV: vrv}
+
+		sfx.Fx.CommitBlock(pb1.Block, []byte("state_1"), 0, map[string]gcrypto.CommonMessageSignatureProof{
+			string(pb1.Block.Hash): sfx.Fx.PrecommitSignatureProof(ctx, tmconsensus.VoteTarget{
+				Height:    1,
+				Round:     0,
+				BlockHash: string(pb1.Block.Hash),
+			}, nil, []int{0, 1, 2}),
+		})
+		pb2 := sfx.Fx.NextProposedBlock([]byte("app_data_2"), 0)
+		sfx.Fx.SignProposal(ctx, &pb2, 0)
+		vrv = vrv.Clone()
+		vrv.ProposedBlocks = []tmconsensus.ProposedBlock{pb2}
+		vrv = sfx.Fx.UpdateVRVPrevotes(ctx, vrv, map[string][]int{
+			string(pb2.Block.Hash): {0, 1, 2},
+		})
+		vrv = sfx.Fx.UpdateVRVPrecommits(ctx, vrv, map[string][]int{
+			string(pb2.Block.Hash): {0, 1, 2},
+		})
+		gtest.SendSoon(t, sfx.RoundViewInCh, vrv)
+
+		// For the second height, we elapse the commit wait timer first and then send the finalization request,
+		// the opposite order of the first height.
+		finReq = gtest.ReceiveSoon(t, sfx.FinalizeBlockRequests)
+
+		sfx.RoundTimer.RequireActiveCommitWaitTimer(t, 2, 0)
+		require.NoError(t, sfx.RoundTimer.ElapseCommitWaitTimer(2, 0))
+
+		// Again lacking a good synchronization point here.
+		gtest.Sleep(gtest.ScaleMs(10))
+
+		finReq.Resp <- tmapp.FinalizeBlockResponse{
+			Height: 2, Round: 0,
+			BlockHash:    pb2.Block.Hash,
+			Validators:   sfx.Fx.Vals(),
+			AppStateHash: []byte("state_2"),
+		}
+
+		// Now one more finalization, to ensure that either finalize-timeout order does not break finalizations.
+		as = gtest.ReceiveSoon(t, sfx.ToMirrorCh)
+		require.Equal(t, uint64(3), as.H)
+
+		vrv = sfx.EmptyVRV(3, 0)
+		as.StateResponse <- tmeil.StateUpdate{VRV: vrv}
+
+		sfx.Fx.CommitBlock(pb2.Block, []byte("state_2"), 0, map[string]gcrypto.CommonMessageSignatureProof{
+			string(pb2.Block.Hash): sfx.Fx.PrecommitSignatureProof(ctx, tmconsensus.VoteTarget{
+				Height:    2,
+				Round:     0,
+				BlockHash: string(pb2.Block.Hash),
+			}, nil, []int{0, 1, 2}),
+		})
+		pb3 := sfx.Fx.NextProposedBlock([]byte("app_data_3"), 0)
+		sfx.Fx.SignProposal(ctx, &pb3, 0)
+		vrv = vrv.Clone()
+		vrv.ProposedBlocks = []tmconsensus.ProposedBlock{pb3}
+		vrv = sfx.Fx.UpdateVRVPrevotes(ctx, vrv, map[string][]int{
+			string(pb3.Block.Hash): {0, 1, 2},
+		})
+		vrv = sfx.Fx.UpdateVRVPrecommits(ctx, vrv, map[string][]int{
+			string(pb3.Block.Hash): {0, 1, 2},
+		})
+		gtest.SendSoon(t, sfx.RoundViewInCh, vrv)
+
+		finReq = gtest.ReceiveSoon(t, sfx.FinalizeBlockRequests)
+		require.NoError(t, sfx.RoundTimer.ElapseCommitWaitTimer(3, 0))
+		finReq.Resp <- tmapp.FinalizeBlockResponse{
+			Height: 3, Round: 0,
+			BlockHash:    pb2.Block.Hash,
+			Validators:   sfx.Fx.Vals(),
+			AppStateHash: []byte("state_3"),
+		}
+		_ = gtest.ReceiveSoon(t, sfx.ToMirrorCh)
+	})
 }
 
 func TestStateMachine_followerMode(t *testing.T) {
