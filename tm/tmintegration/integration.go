@@ -167,8 +167,6 @@ func RunIntegrationTest(t *testing.T, nf NewFactoryFunc) {
 	})
 
 	t.Run("basic flow with validator shuffle app", func(t *testing.T) {
-		t.Skip("TODO: this is hitting at least one bug in the loopback network")
-
 		t.Parallel()
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -316,11 +314,9 @@ func RunIntegrationTest(t *testing.T, nf NewFactoryFunc) {
 				finResp := gtest.ReceiveOrTimeout(t, apps[appIdx].FinalizeResponses, gtest.ScaleMs(500))
 				require.Equal(t, height, finResp.Height)
 
-				if height > 0000 {
-					require.Len(t, finResp.Validators, 5)
-				} else {
-					require.Len(t, finResp.Validators, 10)
-				}
+				require.Len(t, finResp.Validators, 5)
+
+				// TODO: There should be more assertions around the specific validators here.
 			}
 		}
 	})

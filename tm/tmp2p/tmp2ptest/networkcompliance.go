@@ -76,8 +76,6 @@ func (n *GenericNetwork[C]) Stabilize(ctx context.Context) error {
 }
 
 func TestNetworkCompliance(t *testing.T, newNet NetworkConstructor) {
-	t.Parallel()
-
 	t.Run("child connections are closed on main context cancellation", func(t *testing.T) {
 		t.Parallel()
 

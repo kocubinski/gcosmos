@@ -25,7 +25,7 @@ type Connection interface {
 	// because you typically already need a connection before you can create the engine;
 	// then once you have a running engine you call conn.SetConsensusHandler(e)
 	// so that new messages are validated based on the engine's state.
-	SetConsensusHandler(tmconsensus.ConsensusHandler)
+	SetConsensusHandler(tmconsensus.ConsensusHandler) // TODO: this should have a context argument.
 
 	// Disconnect the connection, rendering it unusable.
 	Disconnect()
