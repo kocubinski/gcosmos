@@ -146,7 +146,7 @@ func RunIntegrationTest(t *testing.T, nf NewFactoryFunc) {
 			t.Cleanup(e.Wait)
 			t.Cleanup(cancel)
 
-			conns[i].SetConsensusHandler(tmconsensus.AcceptAllValidFeedbackMapper{
+			conns[i].SetConsensusHandler(ctx, tmconsensus.AcceptAllValidFeedbackMapper{
 				Handler: e,
 			})
 		}
@@ -303,7 +303,7 @@ func RunIntegrationTest(t *testing.T, nf NewFactoryFunc) {
 					Handler: e,
 				}
 			}
-			conns[i].SetConsensusHandler(tmconsensus.DropDuplicateFeedbackMapper{
+			conns[i].SetConsensusHandler(ctx, tmconsensus.DropDuplicateFeedbackMapper{
 				Handler: handler,
 			})
 		}

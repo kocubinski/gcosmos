@@ -197,12 +197,12 @@ func (c *DaisyChainConnection) ConsensusBroadcaster() tmp2p.ConsensusBroadcaster
 	return dccbWrapper{c: c}
 }
 
-func (c *DaisyChainConnection) SetConsensusHandler(h tmconsensus.ConsensusHandler) {
+func (c *DaisyChainConnection) SetConsensusHandler(ctx context.Context, h tmconsensus.ConsensusHandler) {
 	req := dcSetHandlerRequest{
 		H:     h,
 		Ready: make(chan struct{}),
 	}
-	ctx := context.TODO() // TODO: use input ctx parameter when the Connection interface is updated.
+
 	_, _ = gchan.ReqResp(
 		ctx, c.log,
 		c.setHandlerRequests, req,

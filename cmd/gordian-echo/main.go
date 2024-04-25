@@ -379,9 +379,9 @@ func NewStandaloneMirrorCmd(log *slog.Logger) *cobra.Command {
 						},
 					},
 				}
-				conn.SetConsensusHandler(lh)
+				conn.SetConsensusHandler(ctx, lh)
 			} else {
-				conn.SetConsensusHandler(tmconsensus.AcceptAllValidFeedbackMapper{
+				conn.SetConsensusHandler(ctx, tmconsensus.AcceptAllValidFeedbackMapper{
 					Handler: m,
 				})
 			}
@@ -634,9 +634,9 @@ func runStateMachineV3(
 				},
 			},
 		}
-		conn.SetConsensusHandler(lh)
+		conn.SetConsensusHandler(ctx, lh)
 	} else {
-		conn.SetConsensusHandler(tmconsensus.AcceptAllValidFeedbackMapper{
+		conn.SetConsensusHandler(ctx, tmconsensus.AcceptAllValidFeedbackMapper{
 			Handler: e,
 		})
 	}
