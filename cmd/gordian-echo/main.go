@@ -17,8 +17,8 @@ import (
 	libp2pevent "github.com/libp2p/go-libp2p/core/event"
 	libp2phost "github.com/libp2p/go-libp2p/core/host"
 	libp2ppeer "github.com/libp2p/go-libp2p/core/peer"
-	"github.com/spf13/cobra"
 	"github.com/rollchains/gordian/gcrypto"
+	"github.com/rollchains/gordian/gwatchdog"
 	"github.com/rollchains/gordian/tm/tmapp"
 	"github.com/rollchains/gordian/tm/tmcodec/tmjson"
 	"github.com/rollchains/gordian/tm/tmconsensus"
@@ -28,6 +28,7 @@ import (
 	"github.com/rollchains/gordian/tm/tmgossip"
 	"github.com/rollchains/gordian/tm/tmp2p/tmlibp2p"
 	"github.com/rollchains/gordian/tm/tmstore/tmmemstore"
+	"github.com/spf13/cobra"
 	"golang.org/x/crypto/blake2b"
 )
 
@@ -456,6 +457,10 @@ func runStateMachineV3(
 	ctx, cancel := context.WithCancel(cmd.Context())
 	defer cancel()
 
+	// Just reassign ctx here because we will not have any further references to the root context,
+	// other than explicit cancel calls to ensure clean shutdown.
+	wd, ctx := gwatchdog.NewWatchdog(ctx, log.With("sys", "watchdog"))
+
 	jConfig, err := os.ReadFile(configPath)
 	if err != nil {
 		return err
@@ -617,6 +622,8 @@ func runStateMachineV3(
 		tmengine.WithInitChainChannel(initChainCh),
 
 		tmengine.WithSigner(signer),
+
+		tmengine.WithWatchdog(wd),
 	)
 	if err != nil {
 		return fmt.Errorf("failed to build engine: %w", err)

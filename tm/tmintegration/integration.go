@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/rollchains/gordian/gwatchdog"
 	"github.com/rollchains/gordian/internal/gtest"
 	"github.com/rollchains/gordian/tm/tmapp"
 	"github.com/rollchains/gordian/tm/tmconsensus"
@@ -102,8 +103,12 @@ func RunIntegrationTest(t *testing.T, nf NewFactoryFunc) {
 
 			apps[i] = app
 
+			wd, wCtx := gwatchdog.NewWatchdog(ctx, log.With("sys", "watchdog", "idx", i))
+			t.Cleanup(wd.Wait)
+			t.Cleanup(cancel)
+
 			e, err := tmengine.New(
-				ctx,
+				wCtx,
 				log.With("sys", "engine", "idx", i),
 				tmengine.WithActionStore(as),
 				tmengine.WithBlockStore(bs),
@@ -141,6 +146,8 @@ func RunIntegrationTest(t *testing.T, nf NewFactoryFunc) {
 				tmengine.WithInitChainChannel(initChainCh),
 
 				tmengine.WithSigner(v.Signer),
+
+				tmengine.WithWatchdog(wd),
 			)
 			require.NoError(t, err)
 			t.Cleanup(e.Wait)
@@ -251,8 +258,12 @@ func RunIntegrationTest(t *testing.T, nf NewFactoryFunc) {
 
 			apps[i] = app
 
+			wd, wCtx := gwatchdog.NewWatchdog(ctx, log.With("sys", "watchdog", "idx", i))
+			t.Cleanup(wd.Wait)
+			t.Cleanup(cancel)
+
 			e, err := tmengine.New(
-				ctx,
+				wCtx,
 				log.With("sys", "engine", "idx", i),
 				tmengine.WithActionStore(as),
 				tmengine.WithBlockStore(bs),
@@ -290,6 +301,8 @@ func RunIntegrationTest(t *testing.T, nf NewFactoryFunc) {
 				tmengine.WithInitChainChannel(initChainCh),
 
 				tmengine.WithSigner(v.Signer),
+
+				tmengine.WithWatchdog(wd),
 			)
 			require.NoError(t, err)
 			t.Cleanup(e.Wait)

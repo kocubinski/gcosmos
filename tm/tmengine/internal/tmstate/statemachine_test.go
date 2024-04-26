@@ -22,11 +22,11 @@ func TestStateMachine_initialization(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		sfx := tmstatetest.NewFixture(t, 2)
+		sfx := tmstatetest.NewFixture(ctx, t, 2)
 
 		// No extra data in any stores, so we are from a natural 1/0 genesis.
 
-		sm := sfx.NewStateMachine(ctx)
+		sm := sfx.NewStateMachine()
 		defer sm.Wait()
 		defer cancel()
 
@@ -51,9 +51,9 @@ func TestStateMachine_initialization(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		sfx := tmstatetest.NewFixture(t, 2)
+		sfx := tmstatetest.NewFixture(ctx, t, 2)
 
-		sm := sfx.NewStateMachine(ctx)
+		sm := sfx.NewStateMachine()
 		defer sm.Wait()
 		defer cancel()
 
@@ -95,9 +95,9 @@ func TestStateMachine_initialization(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		sfx := tmstatetest.NewFixture(t, 4)
+		sfx := tmstatetest.NewFixture(ctx, t, 4)
 
-		sm := sfx.NewStateMachine(ctx)
+		sm := sfx.NewStateMachine()
 		defer sm.Wait()
 		defer cancel()
 
@@ -135,9 +135,9 @@ func TestStateMachine_initialization(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		sfx := tmstatetest.NewFixture(t, 4)
+		sfx := tmstatetest.NewFixture(ctx, t, 4)
 
-		sm := sfx.NewStateMachine(ctx)
+		sm := sfx.NewStateMachine()
 		defer sm.Wait()
 		defer cancel()
 
@@ -210,10 +210,10 @@ func TestStateMachine_initialization(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		sfx := tmstatetest.NewFixture(t, 4)
+		sfx := tmstatetest.NewFixture(ctx, t, 4)
 		sfx.Cfg.Signer = nil
 
-		sm := sfx.NewStateMachine(ctx)
+		sm := sfx.NewStateMachine()
 		defer sm.Wait()
 		defer cancel()
 
@@ -264,9 +264,9 @@ func TestStateMachine_initialization(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		sfx := tmstatetest.NewFixture(t, 4)
+		sfx := tmstatetest.NewFixture(ctx, t, 4)
 
-		sm := sfx.NewStateMachine(ctx)
+		sm := sfx.NewStateMachine()
 		defer sm.Wait()
 		defer cancel()
 
@@ -329,9 +329,9 @@ func TestStateMachine_stateTransitions(t *testing.T) {
 				ctx, cancel := context.WithCancel(context.Background())
 				defer cancel()
 
-				sfx := tmstatetest.NewFixture(t, 4)
+				sfx := tmstatetest.NewFixture(ctx, t, 4)
 
-				sm := sfx.NewStateMachine(ctx)
+				sm := sfx.NewStateMachine()
 				defer sm.Wait()
 				defer cancel()
 
@@ -374,9 +374,9 @@ func TestStateMachine_stateTransitions(t *testing.T) {
 				ctx, cancel := context.WithCancel(context.Background())
 				defer cancel()
 
-				sfx := tmstatetest.NewFixture(t, 4)
+				sfx := tmstatetest.NewFixture(ctx, t, 4)
 
-				sm := sfx.NewStateMachine(ctx)
+				sm := sfx.NewStateMachine()
 				defer sm.Wait()
 				defer cancel()
 
@@ -409,9 +409,9 @@ func TestStateMachine_stateTransitions(t *testing.T) {
 				ctx, cancel := context.WithCancel(context.Background())
 				defer cancel()
 
-				sfx := tmstatetest.NewFixture(t, 4)
+				sfx := tmstatetest.NewFixture(ctx, t, 4)
 
-				sm := sfx.NewStateMachine(ctx)
+				sm := sfx.NewStateMachine()
 				defer sm.Wait()
 				defer cancel()
 
@@ -451,9 +451,9 @@ func TestStateMachine_stateTransitions(t *testing.T) {
 				ctx, cancel := context.WithCancel(context.Background())
 				defer cancel()
 
-				sfx := tmstatetest.NewFixture(t, 8)
+				sfx := tmstatetest.NewFixture(ctx, t, 8)
 
-				sm := sfx.NewStateMachine(ctx)
+				sm := sfx.NewStateMachine()
 				defer sm.Wait()
 				defer cancel()
 
@@ -499,9 +499,9 @@ func TestStateMachine_stateTransitions(t *testing.T) {
 				ctx, cancel := context.WithCancel(context.Background())
 				defer cancel()
 
-				sfx := tmstatetest.NewFixture(t, 8)
+				sfx := tmstatetest.NewFixture(ctx, t, 8)
 
-				sm := sfx.NewStateMachine(ctx)
+				sm := sfx.NewStateMachine()
 				defer sm.Wait()
 				defer cancel()
 
@@ -546,9 +546,9 @@ func TestStateMachine_stateTransitions(t *testing.T) {
 				ctx, cancel := context.WithCancel(context.Background())
 				defer cancel()
 
-				sfx := tmstatetest.NewFixture(t, 8)
+				sfx := tmstatetest.NewFixture(ctx, t, 8)
 
-				sm := sfx.NewStateMachine(ctx)
+				sm := sfx.NewStateMachine()
 				defer sm.Wait()
 				defer cancel()
 
@@ -588,9 +588,9 @@ func TestStateMachine_stateTransitions(t *testing.T) {
 				ctx, cancel := context.WithCancel(context.Background())
 				defer cancel()
 
-				sfx := tmstatetest.NewFixture(t, 8)
+				sfx := tmstatetest.NewFixture(ctx, t, 8)
 
-				sm := sfx.NewStateMachine(ctx)
+				sm := sfx.NewStateMachine()
 				defer sm.Wait()
 				defer cancel()
 
@@ -636,9 +636,9 @@ func TestStateMachine_stateTransitions(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 
-			sfx := tmstatetest.NewFixture(t, 8)
+			sfx := tmstatetest.NewFixture(ctx, t, 8)
 
-			sm := sfx.NewStateMachine(ctx)
+			sm := sfx.NewStateMachine()
 			defer sm.Wait()
 			defer cancel()
 
@@ -689,9 +689,9 @@ func TestStateMachine_stateTransitions(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 
-			sfx := tmstatetest.NewFixture(t, 8)
+			sfx := tmstatetest.NewFixture(ctx, t, 8)
 
-			sm := sfx.NewStateMachine(ctx)
+			sm := sfx.NewStateMachine()
 			defer sm.Wait()
 			defer cancel()
 
@@ -749,9 +749,9 @@ func TestStateMachine_stateTransitions(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 
-			sfx := tmstatetest.NewFixture(t, 8)
+			sfx := tmstatetest.NewFixture(ctx, t, 8)
 
-			sm := sfx.NewStateMachine(ctx)
+			sm := sfx.NewStateMachine()
 			defer sm.Wait()
 			defer cancel()
 
@@ -815,9 +815,9 @@ func TestStateMachine_enterRoundProposal(t *testing.T) {
 				ctx, cancel := context.WithCancel(context.Background())
 				defer cancel()
 
-				sfx := tmstatetest.NewFixture(t, 4)
+				sfx := tmstatetest.NewFixture(ctx, t, 4)
 
-				sm := sfx.NewStateMachine(ctx)
+				sm := sfx.NewStateMachine()
 				defer sm.Wait()
 				defer cancel()
 
@@ -870,9 +870,9 @@ func TestStateMachine_enterRoundProposal(t *testing.T) {
 				ctx, cancel := context.WithCancel(context.Background())
 				defer cancel()
 
-				sfx := tmstatetest.NewFixture(t, 4)
+				sfx := tmstatetest.NewFixture(ctx, t, 4)
 
-				sm := sfx.NewStateMachine(ctx)
+				sm := sfx.NewStateMachine()
 				defer sm.Wait()
 				defer cancel()
 
@@ -917,9 +917,9 @@ func TestStateMachine_decidePrecommit(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		sfx := tmstatetest.NewFixture(t, 4)
+		sfx := tmstatetest.NewFixture(ctx, t, 4)
 
-		sm := sfx.NewStateMachine(ctx)
+		sm := sfx.NewStateMachine()
 		defer sm.Wait()
 		defer cancel()
 
@@ -971,9 +971,9 @@ func TestStateMachine_decidePrecommit(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		sfx := tmstatetest.NewFixture(t, 4)
+		sfx := tmstatetest.NewFixture(ctx, t, 4)
 
-		sm := sfx.NewStateMachine(ctx)
+		sm := sfx.NewStateMachine()
 		defer sm.Wait()
 		defer cancel()
 
@@ -1044,9 +1044,9 @@ func TestStateMachine_decidePrecommit(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		sfx := tmstatetest.NewFixture(t, 4)
+		sfx := tmstatetest.NewFixture(ctx, t, 4)
 
-		sm := sfx.NewStateMachine(ctx)
+		sm := sfx.NewStateMachine()
 		defer sm.Wait()
 		defer cancel()
 
@@ -1128,9 +1128,9 @@ func TestStateMachine_decidePrecommit(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		sfx := tmstatetest.NewFixture(t, 4)
+		sfx := tmstatetest.NewFixture(ctx, t, 4)
 
-		sm := sfx.NewStateMachine(ctx)
+		sm := sfx.NewStateMachine()
 		defer sm.Wait()
 		defer cancel()
 
@@ -1194,9 +1194,9 @@ func TestStateMachine_nilPrecommit(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		sfx := tmstatetest.NewFixture(t, 4)
+		sfx := tmstatetest.NewFixture(ctx, t, 4)
 
-		sm := sfx.NewStateMachine(ctx)
+		sm := sfx.NewStateMachine()
 		defer sm.Wait()
 		defer cancel()
 
@@ -1253,9 +1253,9 @@ func TestStateMachine_nilPrecommit(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		sfx := tmstatetest.NewFixture(t, 4)
+		sfx := tmstatetest.NewFixture(ctx, t, 4)
 
-		sm := sfx.NewStateMachine(ctx)
+		sm := sfx.NewStateMachine()
 		defer sm.Wait()
 		defer cancel()
 
@@ -1330,9 +1330,9 @@ func TestStateMachine_unexpectedSteps(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		sfx := tmstatetest.NewFixture(t, 4)
+		sfx := tmstatetest.NewFixture(ctx, t, 4)
 
-		sm := sfx.NewStateMachine(ctx)
+		sm := sfx.NewStateMachine()
 		defer sm.Wait()
 		defer cancel()
 
@@ -1399,9 +1399,9 @@ func TestStateMachine_unexpectedSteps(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		sfx := tmstatetest.NewFixture(t, 4)
+		sfx := tmstatetest.NewFixture(ctx, t, 4)
 
-		sm := sfx.NewStateMachine(ctx)
+		sm := sfx.NewStateMachine()
 		defer sm.Wait()
 		defer cancel()
 
@@ -1473,9 +1473,9 @@ func TestStateMachine_finalization(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		sfx := tmstatetest.NewFixture(t, 4)
+		sfx := tmstatetest.NewFixture(ctx, t, 4)
 
-		sm := sfx.NewStateMachine(ctx)
+		sm := sfx.NewStateMachine()
 		defer sm.Wait()
 		defer cancel()
 
@@ -1561,9 +1561,9 @@ func TestStateMachine_finalization(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		sfx := tmstatetest.NewFixture(t, 4)
+		sfx := tmstatetest.NewFixture(ctx, t, 4)
 
-		sm := sfx.NewStateMachine(ctx)
+		sm := sfx.NewStateMachine()
 		defer sm.Wait()
 		defer cancel()
 
@@ -1659,9 +1659,9 @@ func TestStateMachine_finalization(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		sfx := tmstatetest.NewFixture(t, 4)
+		sfx := tmstatetest.NewFixture(ctx, t, 4)
 
-		sm := sfx.NewStateMachine(ctx)
+		sm := sfx.NewStateMachine()
 		defer sm.Wait()
 		defer cancel()
 
@@ -1766,9 +1766,9 @@ func TestStateMachine_finalization(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		sfx := tmstatetest.NewFixture(t, 4)
+		sfx := tmstatetest.NewFixture(ctx, t, 4)
 
-		sm := sfx.NewStateMachine(ctx)
+		sm := sfx.NewStateMachine()
 		defer sm.Wait()
 		defer cancel()
 
@@ -1834,9 +1834,9 @@ func TestStateMachine_finalization(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		sfx := tmstatetest.NewFixture(t, 4)
+		sfx := tmstatetest.NewFixture(ctx, t, 4)
 
-		sm := sfx.NewStateMachine(ctx)
+		sm := sfx.NewStateMachine()
 		defer sm.Wait()
 		defer cancel()
 
@@ -1923,10 +1923,10 @@ func TestStateMachine_finalization(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		sfx := tmstatetest.NewFixture(t, 3)
+		sfx := tmstatetest.NewFixture(ctx, t, 3)
 		sfx.Cfg.Signer = nil
 
-		sm := sfx.NewStateMachine(ctx)
+		sm := sfx.NewStateMachine()
 		defer sm.Wait()
 		defer cancel()
 
@@ -2057,10 +2057,10 @@ func TestStateMachine_followerMode(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		sfx := tmstatetest.NewFixture(t, 4)
+		sfx := tmstatetest.NewFixture(ctx, t, 4)
 		sfx.Cfg.Signer = nil // Nil signer means "follower mode"; will never participate in consensus.
 
-		sm := sfx.NewStateMachine(ctx)
+		sm := sfx.NewStateMachine()
 		defer sm.Wait()
 		defer cancel()
 
@@ -2161,9 +2161,9 @@ func TestStateMachine_timers(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 
-			sfx := tmstatetest.NewFixture(t, 2)
+			sfx := tmstatetest.NewFixture(ctx, t, 2)
 
-			sm := sfx.NewStateMachine(ctx)
+			sm := sfx.NewStateMachine()
 			defer sm.Wait()
 			defer cancel()
 
@@ -2203,9 +2203,9 @@ func TestStateMachine_timers(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 
-			sfx := tmstatetest.NewFixture(t, 4)
+			sfx := tmstatetest.NewFixture(ctx, t, 4)
 
-			sm := sfx.NewStateMachine(ctx)
+			sm := sfx.NewStateMachine()
 			defer sm.Wait()
 			defer cancel()
 
@@ -2253,9 +2253,9 @@ func TestStateMachine_timers(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 
-			sfx := tmstatetest.NewFixture(t, 2)
+			sfx := tmstatetest.NewFixture(ctx, t, 2)
 
-			sm := sfx.NewStateMachine(ctx)
+			sm := sfx.NewStateMachine()
 			defer sm.Wait()
 			defer cancel()
 
@@ -2300,9 +2300,9 @@ func TestStateMachine_timers(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 
-			sfx := tmstatetest.NewFixture(t, 4)
+			sfx := tmstatetest.NewFixture(ctx, t, 4)
 
-			sm := sfx.NewStateMachine(ctx)
+			sm := sfx.NewStateMachine()
 			defer sm.Wait()
 			defer cancel()
 
@@ -2346,9 +2346,9 @@ func TestStateMachine_timers(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 
-			sfx := tmstatetest.NewFixture(t, 4)
+			sfx := tmstatetest.NewFixture(ctx, t, 4)
 
-			sm := sfx.NewStateMachine(ctx)
+			sm := sfx.NewStateMachine()
 			defer sm.Wait()
 			defer cancel()
 
@@ -2392,9 +2392,9 @@ func TestStateMachine_timers(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 
-			sfx := tmstatetest.NewFixture(t, 8)
+			sfx := tmstatetest.NewFixture(ctx, t, 8)
 
-			sm := sfx.NewStateMachine(ctx)
+			sm := sfx.NewStateMachine()
 			defer sm.Wait()
 			defer cancel()
 
@@ -2453,9 +2453,9 @@ func TestStateMachine_timers(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 
-			sfx := tmstatetest.NewFixture(t, 8)
+			sfx := tmstatetest.NewFixture(ctx, t, 8)
 
-			sm := sfx.NewStateMachine(ctx)
+			sm := sfx.NewStateMachine()
 			defer sm.Wait()
 			defer cancel()
 

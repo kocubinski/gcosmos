@@ -6,6 +6,7 @@ import (
 	"sort"
 	"testing"
 
+	"github.com/rollchains/gordian/gwatchdog"
 	"github.com/rollchains/gordian/internal/gtest"
 	"github.com/rollchains/gordian/tm/tmapp"
 	"github.com/rollchains/gordian/tm/tmconsensus"
@@ -24,13 +25,13 @@ func TestEngine_plumbing_ConsensusStrategy(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	efx := tmenginetest.NewFixture(t, 4)
+	efx := tmenginetest.NewFixture(ctx, t, 4)
 
 	var engine *tmengine.Engine
 	eReady := make(chan struct{})
 	go func() {
 		defer close(eReady)
-		engine = efx.MustNewEngine(ctx, efx.SigningOptionMap().ToSlice()...)
+		engine = efx.MustNewEngine(efx.SigningOptionMap().ToSlice()...)
 	}()
 
 	defer func() {
@@ -401,13 +402,13 @@ func TestEngine_plumbing_GossipStrategy(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	efx := tmenginetest.NewFixture(t, 4)
+	efx := tmenginetest.NewFixture(ctx, t, 4)
 
 	var engine *tmengine.Engine
 	eReady := make(chan struct{})
 	go func() {
 		defer close(eReady)
-		engine = efx.MustNewEngine(ctx, efx.SigningOptionMap().ToSlice()...)
+		engine = efx.MustNewEngine(efx.SigningOptionMap().ToSlice()...)
 	}()
 
 	defer func() {
@@ -625,7 +626,7 @@ func TestEngine_initChain(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		efx := tmenginetest.NewFixture(t, 2)
+		efx := tmenginetest.NewFixture(ctx, t, 2)
 
 		// NewEngine blocks in the main goroutine on the init chain call,
 		// so we have to create it in the background,
@@ -635,7 +636,7 @@ func TestEngine_initChain(t *testing.T) {
 		eReady := make(chan struct{})
 		go func() {
 			defer close(eReady)
-			engine = efx.MustNewEngine(ctx, efx.SigningOptionMap().ToSlice()...)
+			engine = efx.MustNewEngine(efx.SigningOptionMap().ToSlice()...)
 		}()
 
 		defer func() {
@@ -676,7 +677,7 @@ func TestEngine_initChain(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		efx := tmenginetest.NewFixture(t, 2)
+		efx := tmenginetest.NewFixture(ctx, t, 2)
 
 		// NewEngine blocks in the main goroutine on the init chain call,
 		// so we have to create it in the background,
@@ -686,7 +687,7 @@ func TestEngine_initChain(t *testing.T) {
 		eReady := make(chan struct{})
 		go func() {
 			defer close(eReady)
-			engine = efx.MustNewEngine(ctx, efx.SigningOptionMap().ToSlice()...)
+			engine = efx.MustNewEngine(efx.SigningOptionMap().ToSlice()...)
 		}()
 
 		defer func() {
@@ -730,7 +731,7 @@ func TestEngine_initChain(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		efx := tmenginetest.NewFixture(t, 2)
+		efx := tmenginetest.NewFixture(ctx, t, 2)
 
 		// Before starting the engine, save a finalization.
 		require.NoError(t, efx.FinalizationStore.SaveFinalization(
@@ -747,7 +748,7 @@ func TestEngine_initChain(t *testing.T) {
 		eReady := make(chan struct{})
 		go func() {
 			defer close(eReady)
-			engine = efx.MustNewEngine(ctx, efx.SigningOptionMap().ToSlice()...)
+			engine = efx.MustNewEngine(efx.SigningOptionMap().ToSlice()...)
 		}()
 
 		defer func() {
@@ -775,7 +776,7 @@ func TestEngine_initChain(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		efx := tmenginetest.NewFixture(t, 2)
+		efx := tmenginetest.NewFixture(ctx, t, 2)
 
 		// Before starting the engine, set the network height-round.
 		// This will cause the engine to not consult the finalization store.
@@ -787,7 +788,7 @@ func TestEngine_initChain(t *testing.T) {
 		eReady := make(chan struct{})
 		go func() {
 			defer close(eReady)
-			engine = efx.MustNewEngine(ctx, efx.SigningOptionMap().ToSlice()...)
+			engine = efx.MustNewEngine(efx.SigningOptionMap().ToSlice()...)
 		}()
 
 		defer func() {
@@ -833,6 +834,10 @@ func TestEngine_configuration(t *testing.T) {
 		GenesisValidators: fx.Vals(),
 	}
 
+	// NOTE: Uncancellable root context means this leaks a goroutine.
+	// Making this cancellable would require some rework on the parallel subtests.
+	wd, _ := gwatchdog.NewNopWatchdog(context.Background(), gtest.NewLogger(t))
+
 	fullOptions := map[string]tmengine.Opt{
 		"WithGenesis": tmengine.WithGenesis(eg),
 
@@ -858,6 +863,8 @@ func TestEngine_configuration(t *testing.T) {
 		"WithTimeoutStrategy": tmengine.WithInternalRoundTimer(new(tmstatetest.MockRoundTimer)),
 
 		"WithBlockFinalizationChannel": tmengine.WithBlockFinalizationChannel(make(chan tmapp.FinalizeBlockRequest)),
+
+		"WithWatchdog": tmengine.WithWatchdog(wd),
 	}
 
 	requiredWithSignerOptions := map[string]tmengine.Opt{

@@ -6,8 +6,10 @@ import (
 	"log/slog"
 	"runtime/trace"
 	"slices"
+	"time"
 
 	"github.com/rollchains/gordian/gcrypto"
+	"github.com/rollchains/gordian/gwatchdog"
 	"github.com/rollchains/gordian/internal/gchan"
 	"github.com/rollchains/gordian/internal/glog"
 	"github.com/rollchains/gordian/tm/tmapp"
@@ -60,6 +62,8 @@ type StateMachineConfig struct {
 	ToMirrorCh    chan<- tmeil.StateMachineRoundActionSet
 
 	FinalizeBlockRequestCh chan<- tmapp.FinalizeBlockRequest
+
+	Watchdog *gwatchdog.Watchdog
 }
 
 func NewStateMachine(ctx context.Context, log *slog.Logger, cfg StateMachineConfig) (*StateMachine, error) {
@@ -87,7 +91,7 @@ func NewStateMachine(ctx context.Context, log *slog.Logger, cfg StateMachineConf
 		kernelDone: make(chan struct{}),
 	}
 
-	go m.kernel(ctx)
+	go m.kernel(ctx, cfg.Watchdog)
 
 	if m.signer == nil {
 		m.log.Info("State machine starting with nil signer; can never participate in consensus")
@@ -101,7 +105,7 @@ func (m *StateMachine) Wait() {
 	<-m.kernelDone
 }
 
-func (m *StateMachine) kernel(ctx context.Context) {
+func (m *StateMachine) kernel(ctx context.Context, wd *gwatchdog.Watchdog) {
 	defer close(m.kernelDone)
 
 	ctx, task := trace.NewTask(ctx, "StateMachine.kernel")
@@ -114,24 +118,44 @@ func (m *StateMachine) kernel(ctx context.Context) {
 		return
 	}
 
+	wSig := wd.Monitor(ctx, gwatchdog.MonitorConfig{
+		Name:     "StateMachine",
+		Interval: 10 * time.Second, Jitter: time.Second,
+		ResponseTimeout: time.Second,
+	})
+
+	defer func() {
+		if gwatchdog.IsTermination(ctx) {
+			m.log.Info("TODO: full state dump due to watchdog termination")
+		}
+	}()
+
 	for {
 		if rlc.IsReplaying() {
-			if !m.handleReplayEvent(ctx, &rlc) {
+			if !m.handleReplayEvent(ctx, wSig, &rlc) {
 				return
 			}
 		} else {
-			if !m.handleLiveEvent(ctx, &rlc) {
+			if !m.handleLiveEvent(ctx, wSig, &rlc) {
 				return
 			}
 		}
 	}
 }
 
-func (m *StateMachine) handleReplayEvent(ctx context.Context, rlc *tsi.RoundLifecycle) (ok bool) {
+func (m *StateMachine) handleReplayEvent(
+	ctx context.Context,
+	wSig <-chan gwatchdog.Signal,
+	rlc *tsi.RoundLifecycle,
+) (ok bool) {
 	return false
 }
 
-func (m *StateMachine) handleLiveEvent(ctx context.Context, rlc *tsi.RoundLifecycle) (ok bool) {
+func (m *StateMachine) handleLiveEvent(
+	ctx context.Context,
+	wSig <-chan gwatchdog.Signal,
+	rlc *tsi.RoundLifecycle,
+) (ok bool) {
 	defer trace.StartRegion(ctx, "handleLiveEvent").End()
 
 	select {
@@ -196,6 +220,9 @@ func (m *StateMachine) handleLiveEvent(ctx context.Context, rlc *tsi.RoundLifecy
 		if !m.handleTimerElapsed(ctx, rlc) {
 			return false
 		}
+
+	case sig := <-wSig:
+		close(sig.Alive)
 	}
 
 	return true

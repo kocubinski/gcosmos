@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/rollchains/gordian/gcrypto"
+	"github.com/rollchains/gordian/gwatchdog"
 	"github.com/rollchains/gordian/tm/tmapp"
 	"github.com/rollchains/gordian/tm/tmconsensus"
 	"github.com/rollchains/gordian/tm/tmengine/internal/tmstate"
@@ -177,4 +178,15 @@ func WithInternalRoundTimer(rt roundTimer) Opt {
 // The context value controls the lifecycle of the timer.
 func WithTimeoutStrategy(ctx context.Context, s TimeoutStrategy) Opt {
 	return WithInternalRoundTimer(tmstate.NewStandardRoundTimer(ctx, s))
+}
+
+// WithWatchdog sets the engine's watchdog, propagating it through subsystems of the engine.
+// This option is required.
+// For tests, the caller may use [gwatchdog.NewNopWatchdog] to avoid creating unnecessary goroutines.
+func WithWatchdog(wd *gwatchdog.Watchdog) Opt {
+	return func(e *Engine, smc *tmstate.StateMachineConfig) error {
+		e.watchdog = wd
+		smc.Watchdog = wd
+		return nil
+	}
 }

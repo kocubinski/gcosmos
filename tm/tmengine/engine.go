@@ -7,6 +7,7 @@ import (
 	"log/slog"
 
 	"github.com/rollchains/gordian/gcrypto"
+	"github.com/rollchains/gordian/gwatchdog"
 	"github.com/rollchains/gordian/internal/gchan"
 	"github.com/rollchains/gordian/internal/glog"
 	"github.com/rollchains/gordian/tm/tmapp"
@@ -39,6 +40,8 @@ type Engine struct {
 	sm *tmstate.StateMachine
 
 	initChainCh chan<- tmapp.InitChainRequest
+
+	watchdog *gwatchdog.Watchdog
 }
 
 func New(ctx context.Context, log *slog.Logger, opts ...Opt) (*Engine, error) {
@@ -168,6 +171,10 @@ func (e *Engine) validateSettings(smc tmstate.StateMachineConfig) error {
 
 	if e.mCfg.ValidatorStore == nil {
 		err = errors.Join(err, errors.New("no validator store set (use tmengine.WithValidatorStore)"))
+	}
+
+	if e.watchdog == nil {
+		err = errors.Join(err, errors.New("no watchdog set (use tmengine.WithWatchdog)"))
 	}
 
 	if smc.ConsensusStrategy == nil {
