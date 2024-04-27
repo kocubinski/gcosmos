@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"testing"
 
+	"github.com/rollchains/gordian/gwatchdog"
 	"github.com/rollchains/gordian/internal/gtest"
 	"github.com/rollchains/gordian/tm/tmconsensus"
 	"github.com/rollchains/gordian/tm/tmconsensus/tmconsensustest"
@@ -40,9 +41,11 @@ type KernelFixture struct {
 	StateMachineViewOut        chan tmconsensus.VersionedRoundView
 
 	Cfg tmi.KernelConfig
+
+	WatchdogCtx context.Context
 }
 
-func NewKernelFixture(t *testing.T, nVals int) *KernelFixture {
+func NewKernelFixture(ctx context.Context, t *testing.T, nVals int) *KernelFixture {
 	fx := tmconsensustest.NewStandardFixture(nVals)
 
 	// Unbuffered because the kernel needs to know exactly what was received.
@@ -70,8 +73,15 @@ func NewKernelFixture(t *testing.T, nVals int) *KernelFixture {
 	// Must be unbuffered so kernel knows exactly what was sent to state machine.
 	smViewOut := make(chan tmconsensus.VersionedRoundView)
 
+	log := gtest.NewLogger(t)
+	wd, wCtx := gwatchdog.NewNopWatchdog(ctx, log.With("sys", "watchdog"))
+
+	// Ensure the watchdog doesn't log after test completion.
+	// There ought to be a defer cancel before the call to NewFixture anyway.
+	t.Cleanup(wd.Wait)
+
 	return &KernelFixture{
-		Log: gtest.NewLogger(t),
+		Log: log,
 
 		Fx: fx,
 
@@ -112,12 +122,16 @@ func NewKernelFixture(t *testing.T, nVals int) *KernelFixture {
 			AddPBRequests:        addPBRequests,
 			AddPrevoteRequests:   addPrevoteRequests,
 			AddPrecommitRequests: addPrecommitRequests,
+
+			Watchdog: wd,
 		},
+
+		WatchdogCtx: wCtx,
 	}
 }
 
-func (f *KernelFixture) NewKernel(ctx context.Context) *tmi.Kernel {
-	k, err := tmi.NewKernel(ctx, f.Log, f.Cfg)
+func (f *KernelFixture) NewKernel() *tmi.Kernel {
+	k, err := tmi.NewKernel(f.WatchdogCtx, f.Log, f.Cfg)
 	if err != nil {
 		panic(err)
 	}

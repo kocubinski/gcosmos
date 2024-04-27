@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/rollchains/gordian/gcrypto"
+	"github.com/rollchains/gordian/gwatchdog"
 	"github.com/rollchains/gordian/internal/gtest"
 	"github.com/rollchains/gordian/tm/tmconsensus"
 	"github.com/rollchains/gordian/tm/tmconsensus/tmconsensustest"
@@ -34,15 +35,25 @@ type Fixture struct {
 	StateMachineRoundActionsIn chan tmeil.StateMachineRoundActionSet
 
 	Cfg tmmirror.MirrorConfig
+
+	WatchdogCtx context.Context
 }
 
-func NewFixture(t *testing.T, nVals int) *Fixture {
+func NewFixture(ctx context.Context, t *testing.T, nVals int) *Fixture {
 	fx := tmconsensustest.NewStandardFixture(nVals)
 	gso := make(chan tmelink.NetworkViewUpdate)
 	smIn := make(chan tmeil.StateMachineRoundActionSet, 1)
 	smViewOut := make(chan tmconsensus.VersionedRoundView) // Unbuffered.
+
+	log := gtest.NewLogger(t)
+	wd, wCtx := gwatchdog.NewNopWatchdog(ctx, log.With("sys", "watchdog"))
+
+	// Ensure the watchdog doesn't log after test completion.
+	// There ought to be a defer cancel before the call to NewFixture anyway.
+	t.Cleanup(wd.Wait)
+
 	return &Fixture{
-		Log: gtest.NewLogger(t),
+		Log: log,
 
 		Fx: fx,
 
@@ -75,12 +86,16 @@ func NewFixture(t *testing.T, nVals int) *Fixture {
 			StateMachineViewOut: smViewOut,
 
 			FromStateMachineLink: smIn,
+
+			Watchdog: wd,
 		},
+
+		WatchdogCtx: wCtx,
 	}
 }
 
-func (f *Fixture) NewMirror(ctx context.Context) *tmmirror.Mirror {
-	m, err := tmmirror.NewMirror(ctx, f.Log, f.Cfg)
+func (f *Fixture) NewMirror() *tmmirror.Mirror {
+	m, err := tmmirror.NewMirror(f.WatchdogCtx, f.Log, f.Cfg)
 	if err != nil {
 		panic(err)
 	}

@@ -186,6 +186,7 @@ func WithTimeoutStrategy(ctx context.Context, s TimeoutStrategy) Opt {
 func WithWatchdog(wd *gwatchdog.Watchdog) Opt {
 	return func(e *Engine, smc *tmstate.StateMachineConfig) error {
 		e.watchdog = wd
+		e.mCfg.Watchdog = wd
 		smc.Watchdog = wd
 		return nil
 	}

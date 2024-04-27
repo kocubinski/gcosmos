@@ -8,6 +8,7 @@ import (
 	"runtime/trace"
 
 	"github.com/rollchains/gordian/gcrypto"
+	"github.com/rollchains/gordian/gwatchdog"
 	"github.com/rollchains/gordian/internal/gchan"
 	"github.com/rollchains/gordian/internal/glog"
 	"github.com/rollchains/gordian/tm/tmconsensus"
@@ -60,6 +61,8 @@ type MirrorConfig struct {
 	StateMachineViewOut chan<- tmconsensus.VersionedRoundView
 
 	FromStateMachineLink <-chan tmeil.StateMachineRoundActionSet
+
+	Watchdog *gwatchdog.Watchdog
 }
 
 // toKernelConfig copies the fields from c that are duplicated in the kernel config.
@@ -83,6 +86,8 @@ func (c MirrorConfig) toKernelConfig() tmi.KernelConfig {
 
 		StateMachineRoundActionsIn: c.FromStateMachineLink,
 		StateMachineViewOut:        c.StateMachineViewOut,
+
+		Watchdog: c.Watchdog,
 	}
 }
 

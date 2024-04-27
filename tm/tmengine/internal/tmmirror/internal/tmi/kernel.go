@@ -9,8 +9,10 @@ import (
 	"maps"
 	"runtime/trace"
 	"slices"
+	"time"
 
 	"github.com/rollchains/gordian/gcrypto"
+	"github.com/rollchains/gordian/gwatchdog"
 	"github.com/rollchains/gordian/internal/glog"
 	"github.com/rollchains/gordian/tm/tmconsensus"
 	"github.com/rollchains/gordian/tm/tmengine/internal/tmeil"
@@ -87,6 +89,8 @@ type KernelConfig struct {
 	AddPBRequests        <-chan tmconsensus.ProposedBlock
 	AddPrevoteRequests   <-chan AddPrevoteRequest
 	AddPrecommitRequests <-chan AddPrecommitRequest
+
+	Watchdog *gwatchdog.Watchdog
 }
 
 func NewKernel(ctx context.Context, log *slog.Logger, cfg KernelConfig) (*Kernel, error) {
@@ -187,7 +191,7 @@ func NewKernel(ctx context.Context, log *slog.Logger, cfg KernelConfig) (*Kernel
 		return nil, err
 	}
 
-	go k.mainLoop(ctx, &initState)
+	go k.mainLoop(ctx, &initState, cfg.Watchdog)
 
 	return k, nil
 }
@@ -196,11 +200,23 @@ func (k *Kernel) Wait() {
 	<-k.done
 }
 
-func (k *Kernel) mainLoop(ctx context.Context, s *kState) {
+func (k *Kernel) mainLoop(ctx context.Context, s *kState, wd *gwatchdog.Watchdog) {
 	ctx, task := trace.NewTask(ctx, "Mirror.kernel.mainLoop")
 	defer task.End()
 
 	defer close(k.done)
+
+	defer func() {
+		if gwatchdog.IsTermination(ctx) {
+			k.log.Info("TODO: full state dump due to watchdog termination")
+		}
+	}()
+
+	wSig := wd.Monitor(ctx, gwatchdog.MonitorConfig{
+		Name:     "Mirror kernel",
+		Interval: 10 * time.Second, Jitter: time.Second,
+		ResponseTimeout: time.Second,
+	})
 
 	for {
 		smOut := s.StateMachineView.Output(s)
@@ -265,6 +281,9 @@ func (k *Kernel) mainLoop(ctx context.Context, s *kState) {
 
 		case act := <-s.StateMachineView.Actions():
 			k.handleStateMachineAction(ctx, s, act)
+
+		case sig := <-wSig:
+			close(sig.Alive)
 		}
 	}
 }

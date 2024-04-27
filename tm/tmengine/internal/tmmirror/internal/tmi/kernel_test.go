@@ -35,9 +35,9 @@ func TestKernel_votesBeforeVotingRound(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 
-			kfx := NewKernelFixture(t, 2)
+			kfx := NewKernelFixture(ctx, t, 2)
 
-			k := kfx.NewKernel(ctx)
+			k := kfx.NewKernel()
 			defer k.Wait()
 			defer cancel()
 
@@ -234,9 +234,9 @@ func TestKernel_initialStateUpdateToStateMachineUsesVRVClone(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	kfx := NewKernelFixture(t, 4)
+	kfx := NewKernelFixture(ctx, t, 4)
 
-	k := kfx.NewKernel(ctx)
+	k := kfx.NewKernel()
 	defer k.Wait()
 	defer cancel()
 

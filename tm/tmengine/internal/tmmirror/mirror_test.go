@@ -48,10 +48,10 @@ func TestMirror_Initialization(t *testing.T) {
 				ctx, cancel := context.WithCancel(context.Background())
 				defer cancel()
 
-				mfx := tmmirrortest.NewFixture(t, 2)
+				mfx := tmmirrortest.NewFixture(ctx, t, 2)
 				mfx.Cfg.InitialHeight = initialHeight
 
-				m := mfx.NewMirror(ctx)
+				m := mfx.NewMirror()
 				defer m.Wait()
 				defer cancel()
 
@@ -82,7 +82,7 @@ func TestMirror_Initialization(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		mfx := tmmirrortest.NewFixture(t, 2)
+		mfx := tmmirrortest.NewFixture(ctx, t, 2)
 		mfx.CommitInitialHeight(ctx, []byte("app_state_1"), 0, []int{0, 1})
 		// Now adjust the mirror store directly to say we are on round 1.
 		// The CommitInitialHeight helper fixes the round to zero.
@@ -95,7 +95,7 @@ func TestMirror_Initialization(t *testing.T) {
 			CommittingRound:  0,
 		}.ForStore(ctx)))
 
-		m := mfx.NewMirror(ctx)
+		m := mfx.NewMirror()
 		defer m.Wait()
 		defer cancel()
 
@@ -124,7 +124,7 @@ func TestMirror_Initialization(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		mfx := tmmirrortest.NewFixture(t, 2)
+		mfx := tmmirrortest.NewFixture(ctx, t, 2)
 
 		keyHash, err := mfx.Fx.HashScheme.PubKeys(
 			tmconsensus.ValidatorsToPubKeys(mfx.Cfg.InitialValidators),
@@ -146,7 +146,7 @@ func TestMirror_Initialization(t *testing.T) {
 		require.Error(t, err)
 		require.Nil(t, noPows)
 
-		m := mfx.NewMirror(ctx)
+		m := mfx.NewMirror()
 		defer m.Wait()
 		defer cancel()
 
@@ -162,7 +162,7 @@ func TestMirror_Initialization(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		mfx := tmmirrortest.NewFixture(t, 2)
+		mfx := tmmirrortest.NewFixture(ctx, t, 2)
 
 		vs := mfx.ValidatorStore()
 		_, err := vs.SavePubKeys(
@@ -176,7 +176,7 @@ func TestMirror_Initialization(t *testing.T) {
 		)
 		require.NoError(t, err)
 
-		m := mfx.NewMirror(ctx)
+		m := mfx.NewMirror()
 		defer m.Wait()
 		defer cancel()
 
@@ -190,9 +190,9 @@ func TestMirror_Initialization(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		mfx := tmmirrortest.NewFixture(t, 2)
+		mfx := tmmirrortest.NewFixture(ctx, t, 2)
 
-		m := mfx.NewMirror(ctx)
+		m := mfx.NewMirror()
 		defer m.Wait()
 		defer cancel()
 
@@ -268,9 +268,9 @@ func TestMirror_HandleProposedBlock(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		mfx := tmmirrortest.NewFixture(t, 2)
+		mfx := tmmirrortest.NewFixture(ctx, t, 2)
 
-		m := mfx.NewMirror(ctx)
+		m := mfx.NewMirror()
 		defer m.Wait()
 		defer cancel()
 
@@ -339,9 +339,9 @@ func TestMirror_HandleProposedBlock(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		mfx := tmmirrortest.NewFixture(t, 2)
+		mfx := tmmirrortest.NewFixture(ctx, t, 2)
 
-		m := mfx.NewMirror(ctx)
+		m := mfx.NewMirror()
 		defer m.Wait()
 		defer cancel()
 
@@ -373,14 +373,14 @@ func TestMirror_HandleProposedBlock(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		mfx := tmmirrortest.NewFixture(t, 4)
+		mfx := tmmirrortest.NewFixture(ctx, t, 4)
 
 		pb03 := mfx.Fx.NextProposedBlock([]byte("app_data_0_3"), 3)
 		mfx.Fx.SignProposal(ctx, &pb03, 3)
 
 		mfx.CommitInitialHeight(ctx, []byte("app_data_1"), 0, []int{0, 1, 2, 3})
 
-		m := mfx.NewMirror(ctx)
+		m := mfx.NewMirror()
 		defer m.Wait()
 		defer cancel()
 
@@ -412,12 +412,12 @@ func TestMirror_HandleProposedBlock(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 
-			mfx := tmmirrortest.NewFixture(t, 4)
+			mfx := tmmirrortest.NewFixture(ctx, t, 4)
 
 			pb1 := mfx.Fx.NextProposedBlock([]byte("app_data_1"), 1)
 			mfx.Fx.SignProposal(ctx, &pb1, 1)
 
-			m := mfx.NewMirror(ctx)
+			m := mfx.NewMirror()
 			defer m.Wait()
 			defer cancel()
 
@@ -472,9 +472,9 @@ func TestMirror_HandleProposedBlock(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		mfx := tmmirrortest.NewFixture(t, 4)
+		mfx := tmmirrortest.NewFixture(ctx, t, 4)
 
-		m := mfx.NewMirror(ctx)
+		m := mfx.NewMirror()
 		defer m.Wait()
 		defer cancel()
 
@@ -578,9 +578,9 @@ func TestMirror_HandlePrevoteProofs(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		mfx := tmmirrortest.NewFixture(t, 2)
+		mfx := tmmirrortest.NewFixture(ctx, t, 2)
 
-		m := mfx.NewMirror(ctx)
+		m := mfx.NewMirror()
 		defer m.Wait()
 		defer cancel()
 
@@ -649,9 +649,9 @@ func TestMirror_HandlePrevoteProofs(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		mfx := tmmirrortest.NewFixture(t, 10)
+		mfx := tmmirrortest.NewFixture(ctx, t, 10)
 
-		m := mfx.NewMirror(ctx)
+		m := mfx.NewMirror()
 		defer m.Wait()
 		defer cancel()
 
@@ -747,9 +747,9 @@ func TestMirror_HandlePrecommitProofs(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		mfx := tmmirrortest.NewFixture(t, 4)
+		mfx := tmmirrortest.NewFixture(ctx, t, 4)
 
-		m := mfx.NewMirror(ctx)
+		m := mfx.NewMirror()
 		defer m.Wait()
 		defer cancel()
 
@@ -851,9 +851,9 @@ func TestMirror_FullRound(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 
-			mfx := tmmirrortest.NewFixture(t, 4)
+			mfx := tmmirrortest.NewFixture(ctx, t, 4)
 
-			m := mfx.NewMirror(ctx)
+			m := mfx.NewMirror()
 			defer m.Wait()
 			defer cancel()
 
@@ -911,11 +911,11 @@ func TestMirror_pastInitialHeight(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		mfx := tmmirrortest.NewFixture(t, 4)
+		mfx := tmmirrortest.NewFixture(ctx, t, 4)
 
 		mfx.CommitInitialHeight(ctx, []byte("app_data_1"), 0, []int{0, 1, 2, 3})
 
-		m := mfx.NewMirror(ctx)
+		m := mfx.NewMirror()
 		defer m.Wait()
 		defer cancel()
 
@@ -987,11 +987,11 @@ func TestMirror_pastInitialHeight(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 
-			mfx := tmmirrortest.NewFixture(t, 4)
+			mfx := tmmirrortest.NewFixture(ctx, t, 4)
 
 			mfx.CommitInitialHeight(ctx, []byte("app_data_1"), 0, []int{0, 1, 2}) // Last validator precommit missing.
 
-			m := mfx.NewMirror(ctx)
+			m := mfx.NewMirror()
 			defer m.Wait()
 			defer cancel()
 
@@ -1026,12 +1026,12 @@ func TestMirror_pastInitialHeight(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		mfx := tmmirrortest.NewFixture(t, 4)
+		mfx := tmmirrortest.NewFixture(ctx, t, 4)
 
 		// Only has the first 3/4 validators in the commit info.
 		mfx.CommitInitialHeight(ctx, []byte("app_data_1"), 0, []int{0, 1, 2})
 
-		m := mfx.NewMirror(ctx)
+		m := mfx.NewMirror()
 		defer m.Wait()
 		defer cancel()
 
@@ -1079,9 +1079,9 @@ func TestMirror_CommitToBlockStore(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	mfx := tmmirrortest.NewFixture(t, 4)
+	mfx := tmmirrortest.NewFixture(ctx, t, 4)
 
-	m := mfx.NewMirror(ctx)
+	m := mfx.NewMirror()
 	defer m.Wait()
 	defer cancel()
 
@@ -1162,9 +1162,9 @@ func TestMirror_nilPrecommitAdvancesRound(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	mfx := tmmirrortest.NewFixture(t, 4)
+	mfx := tmmirrortest.NewFixture(ctx, t, 4)
 
-	m := mfx.NewMirror(ctx)
+	m := mfx.NewMirror()
 	defer m.Wait()
 	defer cancel()
 
@@ -1212,9 +1212,9 @@ func TestMirror_advanceRoundOnMixedPrecommit(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		mfx := tmmirrortest.NewFixture(t, 4)
+		mfx := tmmirrortest.NewFixture(ctx, t, 4)
 
-		m := mfx.NewMirror(ctx)
+		m := mfx.NewMirror()
 		defer m.Wait()
 		defer cancel()
 
@@ -1261,9 +1261,9 @@ func TestMirror_proposedBlockOutOfBounds(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	mfx := tmmirrortest.NewFixture(t, 2)
+	mfx := tmmirrortest.NewFixture(ctx, t, 2)
 
-	m := mfx.NewMirror(ctx)
+	m := mfx.NewMirror()
 	defer m.Wait()
 	defer cancel()
 
@@ -1346,12 +1346,12 @@ func TestMirror_votesBeforeVotingRound(t *testing.T) {
 				ctx, cancel := context.WithCancel(context.Background())
 				defer cancel()
 
-				mfx := tmmirrortest.NewFixture(t, 2)
+				mfx := tmmirrortest.NewFixture(ctx, t, 2)
 
 				// Easy way to get voting height to 2.
 				mfx.CommitInitialHeight(ctx, []byte("app_state_1"), 0, []int{0, 1})
 
-				m := mfx.NewMirror(ctx)
+				m := mfx.NewMirror()
 				defer m.Wait()
 				defer cancel()
 
@@ -1437,12 +1437,12 @@ func TestMirror_fetchProposedBlock(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 
-			mfx := tmmirrortest.NewFixture(t, 4)
+			mfx := tmmirrortest.NewFixture(ctx, t, 4)
 
 			pbf := tmelinktest.NewPBFetcher(1, 1)
 			mfx.Cfg.ProposedBlockFetcher = pbf.ProposedBlockFetcher()
 
-			m := mfx.NewMirror(ctx)
+			m := mfx.NewMirror()
 			defer m.Wait()
 			defer cancel()
 
@@ -1513,12 +1513,12 @@ func TestMirror_fetchProposedBlock(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		mfx := tmmirrortest.NewFixture(t, 4)
+		mfx := tmmirrortest.NewFixture(ctx, t, 4)
 
 		pbf := tmelinktest.NewPBFetcher(1, 1)
 		mfx.Cfg.ProposedBlockFetcher = pbf.ProposedBlockFetcher()
 
-		m := mfx.NewMirror(ctx)
+		m := mfx.NewMirror()
 		defer m.Wait()
 		defer cancel()
 
@@ -1566,7 +1566,7 @@ func TestMirror_nextRound(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		mfx := tmmirrortest.NewFixture(t, 4)
+		mfx := tmmirrortest.NewFixture(ctx, t, 4)
 
 		// We are at 1/0, so a proposed block at 1/1 must be saved to the next round view.
 		pb11 := mfx.Fx.NextProposedBlock([]byte("app_data_1"), 0)
@@ -1574,7 +1574,7 @@ func TestMirror_nextRound(t *testing.T) {
 		mfx.Fx.RecalculateHash(&pb11.Block)
 		mfx.Fx.SignProposal(ctx, &pb11, 0)
 
-		m := mfx.NewMirror(ctx)
+		m := mfx.NewMirror()
 		defer m.Wait()
 		defer cancel()
 
@@ -1630,7 +1630,7 @@ func TestMirror_nextRound(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 
-			mfx := tmmirrortest.NewFixture(t, 4)
+			mfx := tmmirrortest.NewFixture(ctx, t, 4)
 
 			// We will be fetching a missed PB later in the test.
 			pbf := tmelinktest.NewPBFetcher(1, 1)
@@ -1642,7 +1642,7 @@ func TestMirror_nextRound(t *testing.T) {
 			mfx.Fx.RecalculateHash(&pb11.Block)
 			mfx.Fx.SignProposal(ctx, &pb11, 0)
 
-			m := mfx.NewMirror(ctx)
+			m := mfx.NewMirror()
 			defer m.Wait()
 			defer cancel()
 
@@ -1694,9 +1694,9 @@ func TestMirror_stateMachineActions(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		mfx := tmmirrortest.NewFixture(t, 4)
+		mfx := tmmirrortest.NewFixture(ctx, t, 4)
 
-		m := mfx.NewMirror(ctx)
+		m := mfx.NewMirror()
 		defer m.Wait()
 		defer cancel()
 
@@ -1793,12 +1793,12 @@ func TestMirror_stateMachineActions(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		mfx := tmmirrortest.NewFixture(t, 4)
+		mfx := tmmirrortest.NewFixture(ctx, t, 4)
 
 		// Easy way to get voting height to 2.
 		mfx.CommitInitialHeight(ctx, []byte("app_state_1"), 0, []int{0, 1, 2, 3})
 
-		m := mfx.NewMirror(ctx)
+		m := mfx.NewMirror()
 		defer m.Wait()
 		defer cancel()
 
@@ -1838,12 +1838,12 @@ func TestMirror_stateMachineActions(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		mfx := tmmirrortest.NewFixture(t, 4)
+		mfx := tmmirrortest.NewFixture(ctx, t, 4)
 
 		// Easy way to get voting height to 2.
 		mfx.CommitInitialHeight(ctx, []byte("app_state_1"), 0, []int{0, 1, 2, 3})
 
-		m := mfx.NewMirror(ctx)
+		m := mfx.NewMirror()
 		defer m.Wait()
 		defer cancel()
 
@@ -1921,9 +1921,9 @@ func TestMirror_stateMachineActions(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		mfx := tmmirrortest.NewFixture(t, 4)
+		mfx := tmmirrortest.NewFixture(ctx, t, 4)
 
-		m := mfx.NewMirror(ctx)
+		m := mfx.NewMirror()
 		defer m.Wait()
 		defer cancel()
 
@@ -2036,9 +2036,9 @@ func TestMirror_stateMachineActions(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		mfx := tmmirrortest.NewFixture(t, 4)
+		mfx := tmmirrortest.NewFixture(ctx, t, 4)
 
-		m := mfx.NewMirror(ctx)
+		m := mfx.NewMirror()
 		defer m.Wait()
 		defer cancel()
 
@@ -2142,9 +2142,9 @@ func TestMirror_StateMachineViewOut(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	mfx := tmmirrortest.NewFixture(t, 4)
+	mfx := tmmirrortest.NewFixture(ctx, t, 4)
 
-	m := mfx.NewMirror(ctx)
+	m := mfx.NewMirror()
 	defer m.Wait()
 	defer cancel()
 
@@ -2191,9 +2191,9 @@ func TestMirror_VoteSummaryReset(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	mfx := tmmirrortest.NewFixture(t, 4)
+	mfx := tmmirrortest.NewFixture(ctx, t, 4)
 
-	m := mfx.NewMirror(ctx)
+	m := mfx.NewMirror()
 	defer m.Wait()
 	defer cancel()
 
@@ -2318,9 +2318,9 @@ func TestMirror_nilCommitSentToGossipStrategy(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	mfx := tmmirrortest.NewFixture(t, 5)
+	mfx := tmmirrortest.NewFixture(ctx, t, 5)
 
-	m := mfx.NewMirror(ctx)
+	m := mfx.NewMirror()
 	defer m.Wait()
 	defer cancel()
 
@@ -2434,9 +2434,9 @@ func TestMirror_gossipStrategyOutStripsEmptyNilVotes(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	mfx := tmmirrortest.NewFixture(t, 4)
+	mfx := tmmirrortest.NewFixture(ctx, t, 4)
 
-	m := mfx.NewMirror(ctx)
+	m := mfx.NewMirror()
 	defer m.Wait()
 	defer cancel()
 
