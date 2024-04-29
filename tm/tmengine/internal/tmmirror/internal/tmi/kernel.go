@@ -990,7 +990,7 @@ func (k *Kernel) checkMissingPBs(ctx context.Context, s *kState, proofs map[stri
 			// The FetchRequests channel ought to be sufficiently buffered to avoid this.
 			// But even if we do hit this log line once,
 			// the fetch attempt will repeat for every subsequent vote received thereafter.
-			k.log.Warn(
+			k.log.Debug(
 				"Blocked sending fetch request; kernel may deadlock if this block reaches consensus",
 				"height", s.Voting.VRV.Height, "round", s.Voting.VRV.Round,
 				"missing_hash", glog.Hex(missingHash),
