@@ -674,10 +674,12 @@ func (k *Kernel) checkVotingPrecommitViewShift(ctx context.Context, s *kState) e
 			return err
 		}
 
+		newHeight, newRound := s.Voting.VRV.Height, s.Voting.VRV.Round
+
 		k.log.Info(
 			"Shifted voting round due to nil precommit",
-			"height", oldHeight,
-			"old_round", oldRound, "new_round", oldRound+1,
+			"old_height", oldHeight, "old_round", oldRound,
+			"new_height", newHeight, "new_round", newRound,
 		)
 		return nil
 	}
@@ -820,7 +822,6 @@ func (k *Kernel) checkVotingPrecommitViewShift(ctx context.Context, s *kState) e
 // If it has, voting advances to the next round.
 func (k *Kernel) checkNextRoundPrecommitViewShift(ctx context.Context, s *kState) error {
 	vrv := &s.NextRound.VRV
-	oldHeight, oldRound := vrv.Height, vrv.Round
 
 	vs := vrv.VoteSummary
 	min := tmconsensus.ByzantineMinority(vs.AvailablePower)
@@ -829,16 +830,20 @@ func (k *Kernel) checkNextRoundPrecommitViewShift(ctx context.Context, s *kState
 		return nil
 	}
 
+	oldHeight, oldRound := s.Voting.VRV.Height, s.Voting.VRV.Round
+
 	// Otherwise at least a minority of the network is precommitting on the target round,
 	// so we need to advance voting to that round.
 	if err := k.advanceVotingRound(s); err != nil {
 		return err
 	}
 
+	newHeight, newRound := s.Voting.VRV.Height, s.Voting.VRV.Round
+
 	k.log.Info(
 		"Shifting voting round due to minority precommit",
-		"height", oldHeight,
-		"old_round", oldRound, "new_round", oldRound+1,
+		"old_height", oldHeight, "old_round", oldRound,
+		"new_height", newHeight, "new_round", newRound,
 	)
 
 	maj := tmconsensus.ByzantineMajority(vs.AvailablePower)
@@ -869,8 +874,6 @@ func (k *Kernel) checkPrevoteViewShift(ctx context.Context, s *kState, vID ViewI
 		panic(fmt.Errorf("BUG: unhandled view ID %s in checkPrecommitViewShift", vID))
 	}
 
-	oldHeight, oldRound := vrv.Height, vrv.Round
-
 	vs := vrv.VoteSummary
 	min := tmconsensus.ByzantineMinority(vs.AvailablePower)
 	if vs.TotalPrevotePower < min {
@@ -878,16 +881,20 @@ func (k *Kernel) checkPrevoteViewShift(ctx context.Context, s *kState, vID ViewI
 		return nil
 	}
 
+	oldHeight, oldRound := s.Voting.VRV.Height, s.Voting.VRV.Round
+
 	// Otherwise a minority of the network is prevoting on the target round,
 	// so we need to advance voting to that round.
 	if err := k.advanceVotingRound(s); err != nil {
 		return err
 	}
 
+	newHeight, newRound := s.Voting.VRV.Height, s.Voting.VRV.Round
+
 	k.log.Info(
 		"Shifted voting round due to minority prevote",
-		"height", oldHeight,
-		"old_round", oldRound, "new_round", oldRound+1,
+		"old_height", oldHeight, "old_round", oldRound,
+		"new_height", newHeight, "new_round", newRound,
 	)
 
 	// If the vote was for a single non-nil block, we may need to fetch proposed blocks.
