@@ -36,6 +36,8 @@ type StateMachine struct {
 
 	cm *tsi.ConsensusManager
 
+	wd *gwatchdog.Watchdog
+
 	viewInCh               <-chan tmconsensus.VersionedRoundView
 	toMirrorCh             chan<- tmeil.StateMachineRoundActionSet
 	finalizeBlockRequestCh chan<- tmapp.FinalizeBlockRequest
@@ -84,6 +86,8 @@ func NewStateMachine(ctx context.Context, log *slog.Logger, cfg StateMachineConf
 
 		cm: tsi.NewConsensusManager(ctx, log.With("sm_sys", "consmgr"), cfg.ConsensusStrategy),
 
+		wd: cfg.Watchdog,
+
 		viewInCh:               cfg.RoundViewInCh,
 		toMirrorCh:             cfg.ToMirrorCh,
 		finalizeBlockRequestCh: cfg.FinalizeBlockRequestCh,
@@ -91,7 +95,7 @@ func NewStateMachine(ctx context.Context, log *slog.Logger, cfg StateMachineConf
 		kernelDone: make(chan struct{}),
 	}
 
-	go m.kernel(ctx, cfg.Watchdog)
+	go m.kernel(ctx)
 
 	if m.signer == nil {
 		m.log.Info("State machine starting with nil signer; can never participate in consensus")
@@ -105,7 +109,7 @@ func (m *StateMachine) Wait() {
 	<-m.kernelDone
 }
 
-func (m *StateMachine) kernel(ctx context.Context, wd *gwatchdog.Watchdog) {
+func (m *StateMachine) kernel(ctx context.Context) {
 	defer close(m.kernelDone)
 
 	ctx, task := trace.NewTask(ctx, "StateMachine.kernel")
@@ -118,16 +122,26 @@ func (m *StateMachine) kernel(ctx context.Context, wd *gwatchdog.Watchdog) {
 		return
 	}
 
-	wSig := wd.Monitor(ctx, gwatchdog.MonitorConfig{
+	wSig := m.wd.Monitor(ctx, gwatchdog.MonitorConfig{
 		Name:     "StateMachine",
 		Interval: 10 * time.Second, Jitter: time.Second,
 		ResponseTimeout: time.Second,
 	})
 
 	defer func() {
-		if gwatchdog.IsTermination(ctx) {
-			m.log.Info("TODO: full state dump due to watchdog termination")
+		if !gwatchdog.IsTermination(ctx) {
+			return
 		}
+
+		m.log.Info(
+			"WATCHDOG TERMINATING; DUMPING STATE",
+			"rlc", slog.GroupValue(
+				slog.Uint64("H", rlc.H), slog.Uint64("R", uint64(rlc.R)),
+				slog.Any("S", rlc.S),
+
+				slog.Any("PrevVRV", rlc.PrevVRV),
+			),
+		)
 	}()
 
 	for {
@@ -467,6 +481,15 @@ func (m *StateMachine) handleViewUpdate(
 			"h", rlc.H, "r", rlc.R, "step", rlc.S,
 			"prev_version", rlc.PrevVRV.Version, "cur_version", vrv.Version,
 		)
+
+		m.log.Info(
+			"STATE DUMP DUE TO STALE UPDATE BUG",
+			"h", rlc.H, "r", rlc.R, "step", rlc.S,
+			"prev_vrv", rlc.PrevVRV,
+			"new_vrv", vrv,
+		)
+
+		m.wd.Terminate("state machine got non-increasing round view")
 		return
 	}
 

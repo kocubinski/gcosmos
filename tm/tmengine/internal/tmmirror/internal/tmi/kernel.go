@@ -207,9 +207,24 @@ func (k *Kernel) mainLoop(ctx context.Context, s *kState, wd *gwatchdog.Watchdog
 	defer close(k.done)
 
 	defer func() {
-		if gwatchdog.IsTermination(ctx) {
-			k.log.Info("TODO: full state dump due to watchdog termination")
+		if !gwatchdog.IsTermination(ctx) {
+			return
 		}
+
+		nvrVal := slog.StringValue("<nil>")
+		if s.NilVotedRound != nil {
+			nvrVal = slog.AnyValue(s.NilVotedRound.LogValue())
+		}
+
+		k.log.Info(
+			"WATCHDOG TERMINATING; DUMPING STATE",
+			"kState", slog.GroupValue(
+				slog.Any("CommittingVRV", s.Committing.VRV),
+				slog.Any("VotingVRV", s.Voting.VRV),
+				slog.Any("NextRoundVRV", s.NextRound.VRV),
+				slog.Any("NilVotedRound", nvrVal),
+			),
+		)
 	}()
 
 	wSig := wd.Monitor(ctx, gwatchdog.MonitorConfig{
