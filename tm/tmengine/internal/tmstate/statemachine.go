@@ -39,7 +39,7 @@ type StateMachine struct {
 	wd *gwatchdog.Watchdog
 
 	viewInCh               <-chan tmconsensus.VersionedRoundView
-	toMirrorCh             chan<- tmeil.StateMachineRoundActionSet
+	roundEntranceOutCh     chan<- tmeil.StateMachineRoundEntrance
 	finalizeBlockRequestCh chan<- tmapp.FinalizeBlockRequest
 
 	kernelDone chan struct{}
@@ -60,8 +60,8 @@ type StateMachineConfig struct {
 
 	ConsensusStrategy tmconsensus.ConsensusStrategy
 
-	RoundViewInCh <-chan tmconsensus.VersionedRoundView
-	ToMirrorCh    chan<- tmeil.StateMachineRoundActionSet
+	RoundViewInCh      <-chan tmconsensus.VersionedRoundView
+	RoundEntranceOutCh chan<- tmeil.StateMachineRoundEntrance
 
 	FinalizeBlockRequestCh chan<- tmapp.FinalizeBlockRequest
 
@@ -89,7 +89,7 @@ func NewStateMachine(ctx context.Context, log *slog.Logger, cfg StateMachineConf
 		wd: cfg.Watchdog,
 
 		viewInCh:               cfg.RoundViewInCh,
-		toMirrorCh:             cfg.ToMirrorCh,
+		roundEntranceOutCh:     cfg.RoundEntranceOutCh,
 		finalizeBlockRequestCh: cfg.FinalizeBlockRequestCh,
 
 		kernelDone: make(chan struct{}),
@@ -361,38 +361,38 @@ func (m *StateMachine) startInitialTimer(ctx context.Context, rlc *tsi.RoundLife
 // it logs an appropriate error and reports false.
 func (m *StateMachine) sendInitialActionSet(ctx context.Context) (
 	rlc tsi.RoundLifecycle,
-	su tmeil.StateUpdate,
+	rer tmeil.RoundEntranceResponse,
 	ok bool,
 ) {
 	// Assume for now that we start up with no history.
 	// We have to send our height and round to the mirror.
-	initActionSet := tmeil.StateMachineRoundActionSet{
+	initRE := tmeil.StateMachineRoundEntrance{
 		H: m.genesis.InitialHeight, R: 0,
 
-		StateResponse: make(chan tmeil.StateUpdate, 1),
+		Response: make(chan tmeil.RoundEntranceResponse, 1),
 	}
 	if m.signer != nil {
-		initActionSet.PubKey = m.signer.PubKey()
-		initActionSet.Actions = make(chan tmeil.StateMachineRoundAction, 3)
+		initRE.PubKey = m.signer.PubKey()
+		initRE.Actions = make(chan tmeil.StateMachineRoundAction, 3)
 	}
-	update, ok := gchan.ReqResp(
+	rer, ok = gchan.ReqResp(
 		ctx, m.log,
-		m.toMirrorCh, initActionSet,
-		initActionSet.StateResponse,
+		m.roundEntranceOutCh, initRE,
+		initRE.Response,
 		"seeding initial state from mirror",
 	)
 	if !ok {
-		return rlc, update, false
+		return rlc, rer, false
 	}
-	// Closing the outgoing StateResponse channel is not strictly necessary,
-	// but it is a little helpful in tests in case a StateMachineRoundActionSet is mistakenly reused.
-	close(initActionSet.StateResponse)
+	// Closing the outgoing Response channel is not strictly necessary,
+	// but it is a little helpful in tests in case a StateMachineRoundEntrance is mistakenly reused.
+	close(initRE.Response)
 
 	// We have a response -- do we need to call into the consensus strategy,
 	// or do we only need to replay the block?
-	if update.IsVRV() {
-		rlc.Reset(ctx, initActionSet.H, initActionSet.R)
-		rlc.OutgoingActionsCh = initActionSet.Actions // Should this be part of the Reset method instead?
+	if rer.IsVRV() {
+		rlc.Reset(ctx, initRE.H, initRE.R)
+		rlc.OutgoingActionsCh = initRE.Actions // Should this be part of the Reset method instead?
 
 		// Still assuming we are initializing at genesis,
 		// which will not always be a correct assumption.
@@ -415,7 +415,7 @@ func (m *StateMachine) sendInitialActionSet(ctx context.Context) (
 		// We have to synchronously enter the round,
 		// but we still enter through the consensus manager for this.
 		req := tsi.EnterRoundRequest{
-			RV:     update.VRV.RoundView,
+			RV:     rer.VRV.RoundView,
 			Result: make(chan error), // Unbuffered since both sides sync on this.
 
 			ProposalOut: rlc.ProposalCh,
@@ -429,7 +429,7 @@ func (m *StateMachine) sendInitialActionSet(ctx context.Context) (
 		)
 		if !ok {
 			// Context cancelled, we cannot continue.
-			return rlc, update, false
+			return rlc, rer, false
 		}
 		if err != nil {
 			panic(fmt.Errorf(
@@ -439,12 +439,12 @@ func (m *StateMachine) sendInitialActionSet(ctx context.Context) (
 	} else {
 		// TODO: there should be a different method for resetting
 		// in expectation of handling a replayed block.
-		rlc.Reset(ctx, initActionSet.H, initActionSet.R)
+		rlc.Reset(ctx, initRE.H, initRE.R)
 
 		// This is a replay, so we can just tell the app to finalize it.
 		finReq := tmapp.FinalizeBlockRequest{
-			Block: update.CB.Block,
-			Round: update.CB.Proof.Round,
+			Block: rer.CB.Block,
+			Round: rer.CB.Proof.Round,
 
 			Resp: rlc.FinalizeRespCh,
 		}
@@ -456,7 +456,7 @@ func (m *StateMachine) sendInitialActionSet(ctx context.Context) (
 		)
 	}
 
-	return rlc, update, ok
+	return rlc, rer, ok
 }
 
 func (m *StateMachine) handleViewUpdate(
@@ -1203,22 +1203,22 @@ func (m *StateMachine) advanceHeight(ctx context.Context, rlc *tsi.RoundLifecycl
 	rlc.CycleFinalization()
 	rlc.Reset(ctx, rlc.H+1, 0)
 
-	as := tmeil.StateMachineRoundActionSet{
+	re := tmeil.StateMachineRoundEntrance{
 		H: rlc.H,
 		R: 0,
 
-		StateResponse: make(chan tmeil.StateUpdate, 1),
+		Response: make(chan tmeil.RoundEntranceResponse, 1),
 	}
 
 	if m.signer != nil {
-		as.PubKey = m.signer.PubKey()
-		as.Actions = make(chan tmeil.StateMachineRoundAction, 3)
+		re.PubKey = m.signer.PubKey()
+		re.Actions = make(chan tmeil.StateMachineRoundAction, 3)
 	}
 
 	update, ok := gchan.ReqResp(
 		ctx, m.log,
-		m.toMirrorCh, as,
-		as.StateResponse,
+		m.roundEntranceOutCh, re,
+		re.Response,
 		"seeding initial state from mirror",
 	)
 	if !ok {
@@ -1229,7 +1229,7 @@ func (m *StateMachine) advanceHeight(ctx context.Context, rlc *tsi.RoundLifecycl
 	// but it differs because at this point it is impossible for us to be on the initial height;
 	// and the rlc has some state we are reusing through the earlier call to rlc.CycleFinalization.
 	if update.IsVRV() {
-		rlc.OutgoingActionsCh = as.Actions // Should this be part of the Reset method instead?
+		rlc.OutgoingActionsCh = re.Actions // Should this be part of the Reset method instead?
 
 		// We have to synchronously enter the round,
 		// but we still enter through the consensus manager for this.
@@ -1272,35 +1272,35 @@ func (m *StateMachine) advanceRound(ctx context.Context, rlc *tsi.RoundLifecycle
 	// TODO: do we need to do anything with the finalizations?
 	rlc.Reset(ctx, rlc.H, rlc.R+1)
 
-	as := tmeil.StateMachineRoundActionSet{
+	re := tmeil.StateMachineRoundEntrance{
 		H: rlc.H,
 		R: rlc.R,
 
-		StateResponse: make(chan tmeil.StateUpdate, 1),
+		Response: make(chan tmeil.RoundEntranceResponse, 1),
 	}
 
 	if m.signer != nil {
-		as.PubKey = m.signer.PubKey()
-		as.Actions = make(chan tmeil.StateMachineRoundAction, 3)
+		re.PubKey = m.signer.PubKey()
+		re.Actions = make(chan tmeil.StateMachineRoundAction, 3)
 	}
 
 	update, ok := gchan.ReqResp(
 		ctx, m.log,
-		m.toMirrorCh, as,
-		as.StateResponse,
+		m.roundEntranceOutCh, re,
+		re.Response,
 		"seeding initial round state from mirror",
 	)
 	if !ok {
 		return false
 	}
-	// Closing the outgoing StateResponse channel is not strictly necessary,
-	// but it is a little helpful in tests in case a StateMachineRoundActionSet is mistakenly reused.
-	close(as.StateResponse)
+	// Closing the outgoing Response channel is not strictly necessary,
+	// but it is a little helpful in tests in case a StateMachineRoundEntrance is mistakenly reused.
+	close(re.Response)
 
 	if update.IsVRV() {
 		// TODO: this is probably missing some setup to handle initial height.
 
-		rlc.OutgoingActionsCh = as.Actions // Should this be part of the Reset method instead?
+		rlc.OutgoingActionsCh = re.Actions // Should this be part of the Reset method instead?
 
 		// We have to synchronously enter the round,
 		// but we still enter through the consensus manager for this.

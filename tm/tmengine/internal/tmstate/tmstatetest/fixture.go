@@ -28,7 +28,7 @@ type Fixture struct {
 	RoundTimer *MockRoundTimer
 
 	RoundViewInCh         chan tmconsensus.VersionedRoundView
-	ToMirrorCh            chan tmeil.StateMachineRoundActionSet
+	RoundEntranceOutCh    chan tmeil.StateMachineRoundEntrance
 	FinalizeBlockRequests chan tmapp.FinalizeBlockRequest
 
 	Cfg tmstate.StateMachineConfig
@@ -44,7 +44,7 @@ func NewFixture(ctx context.Context, t *testing.T, nVals int) *Fixture {
 	rt := new(MockRoundTimer)
 
 	roundViewInCh := make(chan tmconsensus.VersionedRoundView)
-	toMirrorCh := make(chan tmeil.StateMachineRoundActionSet)
+	roundEntranceOutCh := make(chan tmeil.StateMachineRoundEntrance)
 	finReq := make(chan tmapp.FinalizeBlockRequest)
 
 	log := gtest.NewLogger(t)
@@ -64,7 +64,7 @@ func NewFixture(ctx context.Context, t *testing.T, nVals int) *Fixture {
 		RoundTimer: rt,
 
 		RoundViewInCh:         roundViewInCh,
-		ToMirrorCh:            toMirrorCh,
+		RoundEntranceOutCh:    roundEntranceOutCh,
 		FinalizeBlockRequests: finReq,
 
 		Cfg: tmstate.StateMachineConfig{
@@ -86,7 +86,7 @@ func NewFixture(ctx context.Context, t *testing.T, nVals int) *Fixture {
 			ConsensusStrategy: cStrat,
 
 			RoundViewInCh:          roundViewInCh,
-			ToMirrorCh:             toMirrorCh,
+			RoundEntranceOutCh:     roundEntranceOutCh,
 			FinalizeBlockRequestCh: finReq,
 
 			Watchdog: wd,

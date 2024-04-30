@@ -41,7 +41,7 @@ type Kernel struct {
 
 	gossipOutCh chan<- tmelink.NetworkViewUpdate
 
-	stateMachineIn <-chan tmeil.StateMachineRoundActionSet
+	stateMachineRoundEntranceIn <-chan tmeil.StateMachineRoundEntrance
 
 	nhrRequests        <-chan chan NetworkHeightRound
 	snapshotRequests   <-chan SnapshotRequest
@@ -72,7 +72,7 @@ type KernelConfig struct {
 
 	GossipStrategyOut chan<- tmelink.NetworkViewUpdate
 
-	StateMachineRoundActionsIn <-chan tmeil.StateMachineRoundActionSet
+	StateMachineRoundEntranceIn <-chan tmeil.StateMachineRoundEntrance
 
 	// View sent to the state machine.
 	// It should usually map to the voting view,
@@ -136,7 +136,7 @@ func NewKernel(ctx context.Context, log *slog.Logger, cfg KernelConfig) (*Kernel
 		// i.e. channels coordinated by the Engine or Mirror.
 		gossipOutCh: cfg.GossipStrategyOut,
 
-		stateMachineIn: cfg.StateMachineRoundActionsIn,
+		stateMachineRoundEntranceIn: cfg.StateMachineRoundEntranceIn,
 
 		nhrRequests:        cfg.NHRRequests,
 		snapshotRequests:   cfg.SnapshotRequests,
@@ -291,8 +291,8 @@ func (k *Kernel) mainLoop(ctx context.Context, s *kState, wd *gwatchdog.Watchdog
 		case pb := <-k.pbf.FetchedProposedBlocks:
 			k.addPB(ctx, s, pb)
 
-		case as := <-k.stateMachineIn:
-			k.handleStateMachineRoundUpdate(ctx, s, as)
+		case re := <-k.stateMachineRoundEntranceIn:
+			k.handleStateMachineRoundEntrance(ctx, s, re)
 
 		case act := <-s.StateMachineView.Actions():
 			k.handleStateMachineAction(ctx, s, act)
@@ -1394,28 +1394,28 @@ func (k *Kernel) setPBCheckStatus(
 	}
 }
 
-func (k *Kernel) handleStateMachineRoundUpdate(ctx context.Context, s *kState, as tmeil.StateMachineRoundActionSet) {
-	defer trace.StartRegion(ctx, "handleStateMachineRoundUpdate").End()
+func (k *Kernel) handleStateMachineRoundEntrance(ctx context.Context, s *kState, re tmeil.StateMachineRoundEntrance) {
+	defer trace.StartRegion(ctx, "handleStateMachineRoundEntrance").End()
 
 	// We have received an updated height and round, and new action channels.
-	s.StateMachineView.Reset(as)
+	s.StateMachineView.Reset(re)
 
 	// And now we need to respond with the matching view.
-	view, vID, status := s.FindView(as.H, as.R, "(*Kernel).handleStateMachineRoundUpdate")
+	view, vID, status := s.FindView(re.H, re.R, "(*Kernel).handleStateMachineRoundEntrance")
 	if view == nil {
 		// There is one acceptable condition here -- it was before the committing round.
 		if status == ViewBeforeCommitting {
 			// Then we have to load it from the block store.
-			cb, err := k.bStore.LoadBlock(ctx, as.H)
+			cb, err := k.bStore.LoadBlock(ctx, re.H)
 			if err != nil {
 				panic(fmt.Errorf(
 					"failed to load block at height %d from block store for state machine: %w",
-					as.H, err,
+					re.H, err,
 				))
 			}
 
 			// Send on 1-buffered channel does not require a select.
-			as.StateResponse <- tmeil.StateUpdate{
+			re.Response <- tmeil.RoundEntranceResponse{
 				CB: cb,
 			}
 			return
@@ -1427,24 +1427,24 @@ func (k *Kernel) handleStateMachineRoundUpdate(ctx context.Context, s *kState, a
 		))
 	}
 
-	su := tmeil.StateUpdate{
+	r := tmeil.RoundEntranceResponse{
 		VRV: view.VRV.Clone(),
 	}
 	switch vID {
 	case ViewIDVoting:
-		su.PrevBlockHash = string(s.CommittingBlock.Hash)
+		r.PrevBlockHash = string(s.CommittingBlock.Hash)
 	case ViewIDCommitting:
-		su.PrevBlockHash = string(s.CommittingBlock.PrevBlockHash)
+		r.PrevBlockHash = string(s.CommittingBlock.PrevBlockHash)
 	default:
 		panic(fmt.Errorf(
 			"TODO: handle state machine round update when matched view ID = %s (received height=%d round=%d; voting view is height=%d round=%d)",
-			vID, as.H, as.R, s.Voting.VRV.Height, s.Voting.VRV.Round,
+			vID, re.H, re.R, s.Voting.VRV.Height, s.Voting.VRV.Round,
 		))
 	}
 
 	// Response channel is 1-buffered so it is safe to send this without a select.
-	as.StateResponse <- su
-	s.StateMachineView.MarkFirstSentVersion(su.VRV.Version)
+	re.Response <- r
+	s.StateMachineView.MarkFirstSentVersion(r.VRV.Version)
 }
 
 func (k *Kernel) handleStateMachineAction(ctx context.Context, s *kState, act tmeil.StateMachineRoundAction) {

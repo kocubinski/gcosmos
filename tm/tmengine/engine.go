@@ -96,9 +96,9 @@ func New(ctx context.Context, log *slog.Logger, opts ...Opt) (*Engine, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	_ = cancel // Suppress unused cancel warning.
 
-	mirrorStateMachineLink := make(chan tmeil.StateMachineRoundActionSet)
-	e.mCfg.FromStateMachineLink = mirrorStateMachineLink
-	smCfg.ToMirrorCh = mirrorStateMachineLink
+	stateMachineRoundEntrances := make(chan tmeil.StateMachineRoundEntrance)
+	e.mCfg.StateMachineRoundEntranceIn = stateMachineRoundEntrances
+	smCfg.RoundEntranceOutCh = stateMachineRoundEntrances
 
 	e.m, err = tmmirror.NewMirror(ctx, log.With("e_sys", "mirror"), e.mCfg)
 	if err != nil {

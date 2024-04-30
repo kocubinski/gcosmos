@@ -1708,25 +1708,25 @@ func TestMirror_stateMachineActions(t *testing.T) {
 		mfx.Fx.SignProposal(ctx, &pb, 0)
 
 		actionCh := make(chan tmeil.StateMachineRoundAction, 3)
-		as := tmeil.StateMachineRoundActionSet{
-			H:             1,
-			R:             0,
-			PubKey:        mfx.Fx.Vals()[0].PubKey,
-			Actions:       actionCh,
-			StateResponse: make(chan tmeil.StateUpdate, 1),
+		re := tmeil.StateMachineRoundEntrance{
+			H:        1,
+			R:        0,
+			PubKey:   mfx.Fx.Vals()[0].PubKey,
+			Actions:  actionCh,
+			Response: make(chan tmeil.RoundEntranceResponse, 1),
 		}
-		gtest.SendSoon(t, mfx.StateMachineRoundActionsIn, as)
+		gtest.SendSoon(t, mfx.StateMachineRoundEntranceIn, re)
 
 		// This is the initial height so the mirror only populates the round view.
-		su := gtest.ReceiveSoon(t, as.StateResponse)
-		require.Empty(t, su.PrevBlockHash)
-		require.Empty(t, su.CB.Block.Hash)
-		require.Empty(t, su.CB.Proof.Proofs)
+		rer := gtest.ReceiveSoon(t, re.Response)
+		require.Empty(t, rer.PrevBlockHash)
+		require.Empty(t, rer.CB.Block.Hash)
+		require.Empty(t, rer.CB.Proof.Proofs)
 
-		require.Equal(t, uint64(1), su.VRV.Height)
-		require.Empty(t, su.VRV.ProposedBlocks)
-		require.Len(t, su.VRV.PrevoteProofs, 1)   // Empty nil proof.
-		require.Len(t, su.VRV.PrecommitProofs, 1) // Empty nil proof.
+		require.Equal(t, uint64(1), rer.VRV.Height)
+		require.Empty(t, rer.VRV.ProposedBlocks)
+		require.Len(t, rer.VRV.PrevoteProofs, 1)   // Empty nil proof.
+		require.Len(t, rer.VRV.PrecommitProofs, 1) // Empty nil proof.
 
 		t.Run("proposed block", func(t *testing.T) {
 			// Buffered channel so we can just send without select.
@@ -1804,32 +1804,32 @@ func TestMirror_stateMachineActions(t *testing.T) {
 
 		// State machine sends round update.
 		actionCh := make(chan tmeil.StateMachineRoundAction, 3)
-		as := tmeil.StateMachineRoundActionSet{
-			H:             1,
-			R:             0,
-			PubKey:        mfx.Fx.Vals()[0].PubKey,
-			Actions:       actionCh,
-			StateResponse: make(chan tmeil.StateUpdate, 1),
+		re := tmeil.StateMachineRoundEntrance{
+			H:        1,
+			R:        0,
+			PubKey:   mfx.Fx.Vals()[0].PubKey,
+			Actions:  actionCh,
+			Response: make(chan tmeil.RoundEntranceResponse, 1),
 		}
-		gtest.SendSoon(t, mfx.StateMachineRoundActionsIn, as)
+		gtest.SendSoon(t, mfx.StateMachineRoundEntranceIn, re)
 
-		su := gtest.ReceiveSoon(t, as.StateResponse)
+		rer := gtest.ReceiveSoon(t, re.Response)
 		// A committing block is not the same as a committed block.
 		// We have sufficient info to commit,
 		// but we don't know the canonical commits that will be persisted to chain.
-		require.Empty(t, su.PrevBlockHash)
-		require.Empty(t, su.CB.Block.Hash)
-		require.Empty(t, su.CB.Proof.Proofs)
+		require.Empty(t, rer.PrevBlockHash)
+		require.Empty(t, rer.CB.Block.Hash)
+		require.Empty(t, rer.CB.Proof.Proofs)
 
 		pbs, _, _, err := mfx.Cfg.RoundStore.LoadRoundState(ctx, 1, 0)
 		require.NoError(t, err)
 		require.Len(t, pbs, 1)
 
-		require.Equal(t, uint64(1), su.VRV.Height)
-		require.Zero(t, su.VRV.Round)
-		require.Equal(t, pbs, su.VRV.ProposedBlocks)
-		require.Len(t, su.VRV.PrevoteProofs, 1)   // No prevotes were stored, that's fine.
-		require.Len(t, su.VRV.PrecommitProofs, 2) // Empty nil proof and proof for the block.
+		require.Equal(t, uint64(1), rer.VRV.Height)
+		require.Zero(t, rer.VRV.Round)
+		require.Equal(t, pbs, rer.VRV.ProposedBlocks)
+		require.Len(t, rer.VRV.PrevoteProofs, 1)   // No prevotes were stored, that's fine.
+		require.Len(t, rer.VRV.PrecommitProofs, 2) // Empty nil proof and proof for the block.
 	})
 
 	t.Run("historic block sent as CommittedBlock", func(t *testing.T) {
@@ -1884,35 +1884,35 @@ func TestMirror_stateMachineActions(t *testing.T) {
 		// So, if the state machine starts up now at height 1...
 		// State machine sends round update.
 		actionCh := make(chan tmeil.StateMachineRoundAction, 3)
-		as := tmeil.StateMachineRoundActionSet{
-			H:             1,
-			R:             0,
-			PubKey:        mfx.Fx.Vals()[0].PubKey,
-			Actions:       actionCh,
-			StateResponse: make(chan tmeil.StateUpdate, 1),
+		re := tmeil.StateMachineRoundEntrance{
+			H:        1,
+			R:        0,
+			PubKey:   mfx.Fx.Vals()[0].PubKey,
+			Actions:  actionCh,
+			Response: make(chan tmeil.RoundEntranceResponse, 1),
 		}
-		gtest.SendSoon(t, mfx.StateMachineRoundActionsIn, as)
+		gtest.SendSoon(t, mfx.StateMachineRoundEntranceIn, re)
 
-		su := gtest.ReceiveSoon(t, as.StateResponse)
+		rer := gtest.ReceiveSoon(t, re.Response)
 
 		// The whole VRV is blank.
-		require.Zero(t, su.VRV.Height)
+		require.Zero(t, rer.VRV.Height)
 
 		// But the committed block matches what was in the store.
-		require.Equal(t, cb, su.CB)
+		require.Equal(t, cb, rer.CB)
 
-		as = tmeil.StateMachineRoundActionSet{
-			H:             2,
-			R:             0,
-			PubKey:        mfx.Fx.Vals()[0].PubKey,
-			Actions:       actionCh,
-			StateResponse: make(chan tmeil.StateUpdate, 1),
+		re = tmeil.StateMachineRoundEntrance{
+			H:        2,
+			R:        0,
+			PubKey:   mfx.Fx.Vals()[0].PubKey,
+			Actions:  actionCh,
+			Response: make(chan tmeil.RoundEntranceResponse, 1),
 		}
-		gtest.SendSoon(t, mfx.StateMachineRoundActionsIn, as)
+		gtest.SendSoon(t, mfx.StateMachineRoundEntranceIn, re)
 
-		su = gtest.ReceiveSoon(t, as.StateResponse)
-		require.Equal(t, string(pb2.Block.PrevBlockHash), su.PrevBlockHash)
-		require.Empty(t, su.CB.Block.Hash) // Nothing in the CommittedBlock.
+		rer = gtest.ReceiveSoon(t, re.Response)
+		require.Equal(t, string(pb2.Block.PrevBlockHash), rer.PrevBlockHash)
+		require.Empty(t, rer.CB.Block.Hash) // Nothing in the CommittedBlock.
 	})
 
 	t.Run("state machine precommit accepted when it arrives into committing view", func(t *testing.T) {
@@ -1928,16 +1928,16 @@ func TestMirror_stateMachineActions(t *testing.T) {
 		defer cancel()
 
 		actionCh := make(chan tmeil.StateMachineRoundAction, 3)
-		as := tmeil.StateMachineRoundActionSet{
-			H:             1,
-			R:             0,
-			PubKey:        mfx.Fx.Vals()[0].PubKey,
-			Actions:       actionCh,
-			StateResponse: make(chan tmeil.StateUpdate),
+		re := tmeil.StateMachineRoundEntrance{
+			H:        1,
+			R:        0,
+			PubKey:   mfx.Fx.Vals()[0].PubKey,
+			Actions:  actionCh,
+			Response: make(chan tmeil.RoundEntranceResponse),
 		}
-		gtest.SendSoon(t, mfx.StateMachineRoundActionsIn, as)
+		gtest.SendSoon(t, mfx.StateMachineRoundEntranceIn, re)
 
-		_ = gtest.ReceiveSoon(t, as.StateResponse)
+		_ = gtest.ReceiveSoon(t, re.Response)
 
 		// Proposed block from different validator.
 		pb := mfx.Fx.NextProposedBlock([]byte("app_data_1"), 1)
@@ -2043,16 +2043,16 @@ func TestMirror_stateMachineActions(t *testing.T) {
 		defer cancel()
 
 		actionCh := make(chan tmeil.StateMachineRoundAction, 3)
-		as := tmeil.StateMachineRoundActionSet{
-			H:             1,
-			R:             0,
-			PubKey:        mfx.Fx.Vals()[0].PubKey,
-			Actions:       actionCh,
-			StateResponse: make(chan tmeil.StateUpdate),
+		re := tmeil.StateMachineRoundEntrance{
+			H:        1,
+			R:        0,
+			PubKey:   mfx.Fx.Vals()[0].PubKey,
+			Actions:  actionCh,
+			Response: make(chan tmeil.RoundEntranceResponse),
 		}
-		gtest.SendSoon(t, mfx.StateMachineRoundActionsIn, as)
+		gtest.SendSoon(t, mfx.StateMachineRoundEntranceIn, re)
 
-		_ = gtest.ReceiveSoon(t, as.StateResponse)
+		_ = gtest.ReceiveSoon(t, re.Response)
 
 		// No proposed block here.
 		// The state machine has a simulated timeout and prevotes nil.
@@ -2161,17 +2161,17 @@ func TestMirror_StateMachineViewOut(t *testing.T) {
 
 	// Now the state machine starts.
 	actionCh := make(chan tmeil.StateMachineRoundAction, 3)
-	as := tmeil.StateMachineRoundActionSet{
+	re := tmeil.StateMachineRoundEntrance{
 		H: 1, R: 0,
-		PubKey:        mfx.Fx.Vals()[0].PubKey,
-		Actions:       actionCh,
-		StateResponse: make(chan tmeil.StateUpdate, 1),
+		PubKey:   mfx.Fx.Vals()[0].PubKey,
+		Actions:  actionCh,
+		Response: make(chan tmeil.RoundEntranceResponse, 1),
 	}
-	gtest.SendSoon(t, mfx.StateMachineRoundActionsIn, as)
+	gtest.SendSoon(t, mfx.StateMachineRoundEntranceIn, re)
 
 	// The mirror responds with the initial state update.
-	su := gtest.ReceiveSoon(t, as.StateResponse)
-	require.Equal(t, []tmconsensus.ProposedBlock{pb11}, su.VRV.ProposedBlocks)
+	rer := gtest.ReceiveSoon(t, re.Response)
+	require.Equal(t, []tmconsensus.ProposedBlock{pb11}, rer.VRV.ProposedBlocks)
 
 	// And because the initial state update consumed the state machine view,
 	// there is still nothing sent on the state machine view out channel.
@@ -2221,16 +2221,16 @@ func TestMirror_VoteSummaryReset(t *testing.T) {
 
 	// Now the state machine comes online.
 	actionCh := make(chan tmeil.StateMachineRoundAction, 3)
-	as10 := tmeil.StateMachineRoundActionSet{
+	as10 := tmeil.StateMachineRoundEntrance{
 		H: 1, R: 0,
-		PubKey:        nil,
-		Actions:       actionCh,
-		StateResponse: make(chan tmeil.StateUpdate, 1),
+		PubKey:   nil,
+		Actions:  actionCh,
+		Response: make(chan tmeil.RoundEntranceResponse, 1),
 	}
-	gtest.SendSoon(t, mfx.StateMachineRoundActionsIn, as10)
+	gtest.SendSoon(t, mfx.StateMachineRoundEntranceIn, as10)
 
-	su := gtest.ReceiveSoon(t, as10.StateResponse)
-	require.Equal(t, []tmconsensus.ProposedBlock{pb10}, su.VRV.ProposedBlocks)
+	rer := gtest.ReceiveSoon(t, as10.Response)
+	require.Equal(t, []tmconsensus.ProposedBlock{pb10}, rer.VRV.ProposedBlocks)
 
 	// Next, the precommit is split 50-50.
 	pb10VoteMap = map[string][]int{
@@ -2251,17 +2251,17 @@ func TestMirror_VoteSummaryReset(t *testing.T) {
 	require.Len(t, vrv10.PrecommitProofs, 2)
 
 	// And the state machine enters 1/1.
-	as11 := tmeil.StateMachineRoundActionSet{
+	as11 := tmeil.StateMachineRoundEntrance{
 		H: 1, R: 1,
-		PubKey:        nil,
-		Actions:       actionCh,
-		StateResponse: make(chan tmeil.StateUpdate, 1),
+		PubKey:   nil,
+		Actions:  actionCh,
+		Response: make(chan tmeil.RoundEntranceResponse, 1),
 	}
-	gtest.SendSoon(t, mfx.StateMachineRoundActionsIn, as11)
+	gtest.SendSoon(t, mfx.StateMachineRoundEntranceIn, as11)
 
-	su = gtest.ReceiveSoon(t, as11.StateResponse)
-	require.Zero(t, su.VRV.VoteSummary.TotalPrevotePower)
-	require.Zero(t, su.VRV.VoteSummary.TotalPrecommitPower)
+	rer = gtest.ReceiveSoon(t, as11.Response)
+	require.Zero(t, rer.VRV.VoteSummary.TotalPrevotePower)
+	require.Zero(t, rer.VRV.VoteSummary.TotalPrecommitPower)
 
 	gsVRV := gtest.ReceiveSoon(t, mfx.GossipStrategyOut).Voting
 	require.Equal(t, uint32(1), gsVRV.Round)
@@ -2294,17 +2294,17 @@ func TestMirror_VoteSummaryReset(t *testing.T) {
 
 	// Now the state machine enters 1/2.
 	// This is key, because the mirror should now be reusing the VRV it originally had at 1/0.
-	as12 := tmeil.StateMachineRoundActionSet{
+	as12 := tmeil.StateMachineRoundEntrance{
 		H: 1, R: 2,
-		PubKey:        nil,
-		Actions:       actionCh,
-		StateResponse: make(chan tmeil.StateUpdate, 1),
+		PubKey:   nil,
+		Actions:  actionCh,
+		Response: make(chan tmeil.RoundEntranceResponse, 1),
 	}
-	gtest.SendSoon(t, mfx.StateMachineRoundActionsIn, as12)
+	gtest.SendSoon(t, mfx.StateMachineRoundEntranceIn, as12)
 
-	su = gtest.ReceiveSoon(t, as12.StateResponse)
-	require.Zero(t, su.VRV.VoteSummary.TotalPrevotePower)
-	require.Zero(t, su.VRV.VoteSummary.TotalPrecommitPower)
+	rer = gtest.ReceiveSoon(t, as12.Response)
+	require.Zero(t, rer.VRV.VoteSummary.TotalPrevotePower)
+	require.Zero(t, rer.VRV.VoteSummary.TotalPrecommitPower)
 
 	gsVRV = gtest.ReceiveSoon(t, mfx.GossipStrategyOut).Voting
 	require.Equal(t, uint32(2), gsVRV.Round)
@@ -2326,17 +2326,17 @@ func TestMirror_nilCommitSentToGossipStrategy(t *testing.T) {
 
 	// Now the state machine starts.
 	actionCh := make(chan tmeil.StateMachineRoundAction, 3)
-	as := tmeil.StateMachineRoundActionSet{
+	re := tmeil.StateMachineRoundEntrance{
 		H: 1, R: 0,
-		PubKey:        mfx.Fx.Vals()[0].PubKey,
-		Actions:       actionCh,
-		StateResponse: make(chan tmeil.StateUpdate, 1),
+		PubKey:   mfx.Fx.Vals()[0].PubKey,
+		Actions:  actionCh,
+		Response: make(chan tmeil.RoundEntranceResponse, 1),
 	}
-	gtest.SendSoon(t, mfx.StateMachineRoundActionsIn, as)
+	gtest.SendSoon(t, mfx.StateMachineRoundEntranceIn, re)
 
 	// The mirror responds with the initial state update;
 	// nothing of interest yet.
-	_ = gtest.ReceiveSoon(t, as.StateResponse)
+	_ = gtest.ReceiveSoon(t, re.Response)
 
 	// The state machine submits its own prevote for nil.
 	vt := tmconsensus.VoteTarget{

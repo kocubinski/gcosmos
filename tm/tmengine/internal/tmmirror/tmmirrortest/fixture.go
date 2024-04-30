@@ -32,7 +32,7 @@ type Fixture struct {
 
 	GossipStrategyOut chan tmelink.NetworkViewUpdate
 
-	StateMachineRoundActionsIn chan tmeil.StateMachineRoundActionSet
+	StateMachineRoundEntranceIn chan tmeil.StateMachineRoundEntrance
 
 	Cfg tmmirror.MirrorConfig
 
@@ -42,7 +42,7 @@ type Fixture struct {
 func NewFixture(ctx context.Context, t *testing.T, nVals int) *Fixture {
 	fx := tmconsensustest.NewStandardFixture(nVals)
 	gso := make(chan tmelink.NetworkViewUpdate)
-	smIn := make(chan tmeil.StateMachineRoundActionSet, 1)
+	smIn := make(chan tmeil.StateMachineRoundEntrance, 1)
 	smViewOut := make(chan tmconsensus.VersionedRoundView) // Unbuffered.
 
 	log := gtest.NewLogger(t)
@@ -61,7 +61,7 @@ func NewFixture(ctx context.Context, t *testing.T, nVals int) *Fixture {
 
 		GossipStrategyOut: gso,
 
-		StateMachineRoundActionsIn: smIn,
+		StateMachineRoundEntranceIn: smIn,
 
 		Cfg: tmmirror.MirrorConfig{
 			Store:          tmmemstore.NewMirrorStore(),
@@ -85,7 +85,7 @@ func NewFixture(ctx context.Context, t *testing.T, nVals int) *Fixture {
 
 			StateMachineViewOut: smViewOut,
 
-			FromStateMachineLink: smIn,
+			StateMachineRoundEntranceIn: smIn,
 
 			Watchdog: wd,
 		},

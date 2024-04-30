@@ -241,29 +241,29 @@ func TestKernel_initialStateUpdateToStateMachineUsesVRVClone(t *testing.T) {
 	defer cancel()
 
 	// Simulate the state machine round action input.
-	as := tmeil.StateMachineRoundActionSet{
+	re := tmeil.StateMachineRoundEntrance{
 		H: 1, R: 0,
 
 		PubKey: nil,
 
 		Actions: make(chan tmeil.StateMachineRoundAction, 3),
 
-		StateResponse: make(chan tmeil.StateUpdate, 1),
+		Response: make(chan tmeil.RoundEntranceResponse, 1),
 	}
 
-	gtest.SendSoon(t, kfx.StateMachineRoundActionsIn, as)
+	gtest.SendSoon(t, kfx.StateMachineRoundEntranceIn, re)
 
-	su := gtest.ReceiveSoon(t, as.StateResponse)
+	rer := gtest.ReceiveSoon(t, re.Response)
 
 	// Now we will do three modifications to be extra sure this is a clone.
 	// Change the version, add a proposed block directly, and modify the vote summary directly.
 	// None of these are likely to happen in practice,
 	// but they are simple checks to ensure we have a clone, not a reference.
 	pb3 := kfx.Fx.NextProposedBlock([]byte("val3"), 3)
-	origVersion := su.VRV.Version
-	su.VRV.Version = 12345
-	su.VRV.ProposedBlocks = append(su.VRV.ProposedBlocks, pb3)
-	su.VRV.VoteSummary.PrevoteBlockPower["not_a_block"] = 1
+	origVersion := rer.VRV.Version
+	rer.VRV.Version = 12345
+	rer.VRV.ProposedBlocks = append(rer.VRV.ProposedBlocks, pb3)
+	rer.VRV.VoteSummary.PrevoteBlockPower["not_a_block"] = 1
 
 	// If those fields were modified on the kernel's copy of the VRV,
 	// those would be included in the next update we force by sending a different proposed block.

@@ -16,7 +16,7 @@ import (
 )
 
 func TestStateMachine_initialization(t *testing.T) {
-	t.Run("initial action set at genesis", func(t *testing.T) {
+	t.Run("initial round entrance at genesis", func(t *testing.T) {
 		t.Parallel()
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -31,18 +31,18 @@ func TestStateMachine_initialization(t *testing.T) {
 		defer cancel()
 
 		// The state machine sends its initial action set at 1/0.
-		as := gtest.ReceiveSoon(t, sfx.ToMirrorCh)
-		require.Equal(t, uint64(1), as.H)
-		require.Zero(t, as.R)
+		re := gtest.ReceiveSoon(t, sfx.RoundEntranceOutCh)
+		require.Equal(t, uint64(1), re.H)
+		require.Zero(t, re.R)
 
 		// The pubkey matches the signer.
-		require.True(t, sfx.Fx.PrivVals[0].Signer.PubKey().Equal(as.PubKey))
+		require.True(t, sfx.Fx.PrivVals[0].Signer.PubKey().Equal(re.PubKey))
 
 		// The created Actions channel is 3-buffered so sends from the state machine do not block.
-		require.Equal(t, 3, cap(as.Actions))
+		require.Equal(t, 3, cap(re.Actions))
 
 		// And the response is 1-buffered so the kernel does not block in sending its response.
-		require.Equal(t, 1, cap(as.StateResponse))
+		require.Equal(t, 1, cap(re.Response))
 	})
 
 	t.Run("empty round view response from mirror", func(t *testing.T) {
@@ -57,7 +57,7 @@ func TestStateMachine_initialization(t *testing.T) {
 		defer sm.Wait()
 		defer cancel()
 
-		as := gtest.ReceiveSoon(t, sfx.ToMirrorCh)
+		re := gtest.ReceiveSoon(t, sfx.RoundEntranceOutCh)
 
 		// Set up consensus strategy expectation before mocking the response.
 		cStrat := sfx.CStrat
@@ -65,7 +65,7 @@ func TestStateMachine_initialization(t *testing.T) {
 
 		// Channel is 1-buffered, don't have to select.
 		vrv := sfx.EmptyVRV(1, 0)
-		as.StateResponse <- tmeil.StateUpdate{VRV: vrv} // No PrevBlockHash at initial height.
+		re.Response <- tmeil.RoundEntranceResponse{VRV: vrv} // No PrevBlockHash at initial height.
 
 		// And since we sent a VRV, the state machine calls into consensus strategy,
 		// with vrv's RoundView.
@@ -80,7 +80,7 @@ func TestStateMachine_initialization(t *testing.T) {
 		gtest.SendSoon(t, erc.ProposalOut, p)
 
 		// Sending the proposal causes a corresponding proposed block action to the mirror.
-		action := gtest.ReceiveSoon(t, as.Actions)
+		action := gtest.ReceiveSoon(t, re.Actions)
 		require.Empty(t, action.Prevote.Sig)
 		require.Empty(t, action.Precommit.Sig)
 
@@ -101,7 +101,7 @@ func TestStateMachine_initialization(t *testing.T) {
 		defer sm.Wait()
 		defer cancel()
 
-		as := gtest.ReceiveSoon(t, sfx.ToMirrorCh)
+		re := gtest.ReceiveSoon(t, sfx.RoundEntranceOutCh)
 
 		// Set up consensus strategy expectation before mocking the response.
 		cStrat := sfx.CStrat
@@ -109,7 +109,7 @@ func TestStateMachine_initialization(t *testing.T) {
 
 		// Channel is 1-buffered, don't have to select.
 		vrv := sfx.EmptyVRV(1, 0)
-		as.StateResponse <- tmeil.StateUpdate{VRV: vrv}
+		re.Response <- tmeil.RoundEntranceResponse{VRV: vrv}
 
 		// And since we sent a VRV, the state machine calls into consensus strategy,
 		// with vrv's RoundView.
@@ -141,7 +141,7 @@ func TestStateMachine_initialization(t *testing.T) {
 		defer sm.Wait()
 		defer cancel()
 
-		as := gtest.ReceiveSoon(t, sfx.ToMirrorCh)
+		re := gtest.ReceiveSoon(t, sfx.RoundEntranceOutCh)
 
 		vrv := sfx.EmptyVRV(1, 0)
 		pb1 := sfx.Fx.NextProposedBlock([]byte("app_data_1"), 1)
@@ -155,7 +155,7 @@ func TestStateMachine_initialization(t *testing.T) {
 		enterCh := cStrat.ExpectEnterRound(1, 0, nil)
 
 		// Channel is 1-buffered, don't have to select.
-		as.StateResponse <- tmeil.StateUpdate{VRV: vrv}
+		re.Response <- tmeil.RoundEntranceResponse{VRV: vrv}
 
 		// And since we sent a VRV, the state machine calls into consensus strategy,
 		// with vrv's RoundView.
@@ -175,8 +175,8 @@ func TestStateMachine_initialization(t *testing.T) {
 
 		// The state machine constructs a valid vote, saves it to the action store,
 		// and sends it to the mirror.
-		// We check the mirror send first as a synchronization point.
-		action := gtest.ReceiveSoon(t, as.Actions)
+		// We check the mirror send first re a synchronization point.
+		action := gtest.ReceiveSoon(t, re.Actions)
 		// Only prevote is set.
 		require.Empty(t, action.PB.Block.Hash)
 		require.Empty(t, action.Precommit.Sig)
@@ -217,7 +217,7 @@ func TestStateMachine_initialization(t *testing.T) {
 		defer sm.Wait()
 		defer cancel()
 
-		as := gtest.ReceiveSoon(t, sfx.ToMirrorCh)
+		re := gtest.ReceiveSoon(t, sfx.RoundEntranceOutCh)
 
 		vrv := sfx.EmptyVRV(1, 0)
 		pb1 := sfx.Fx.NextProposedBlock([]byte("app_data_1"), 3)
@@ -238,13 +238,13 @@ func TestStateMachine_initialization(t *testing.T) {
 		enterCh := cStrat.ExpectEnterRound(1, 0, nil)
 
 		// Channel is 1-buffered, don't have to select.
-		as.StateResponse <- tmeil.StateUpdate{VRV: vrv}
+		re.Response <- tmeil.RoundEntranceResponse{VRV: vrv}
 
 		// Immediately after entering the round, the state machine advances to the next round due to the nil precommit.
 		erc := gtest.ReceiveSoon(t, enterCh)
 		require.Equal(t, vrv.RoundView, erc.RV)
 
-		as11 := gtest.ReceiveSoon(t, sfx.ToMirrorCh)
+		as11 := gtest.ReceiveSoon(t, sfx.RoundEntranceOutCh)
 		require.Equal(t, uint64(1), as11.H)
 		require.Equal(t, uint32(1), as11.R)
 
@@ -252,7 +252,7 @@ func TestStateMachine_initialization(t *testing.T) {
 		enterCh = cStrat.ExpectEnterRound(1, 1, nil)
 
 		emptyVRV11 := sfx.EmptyVRV(1, 1)
-		as11.StateResponse <- tmeil.StateUpdate{VRV: emptyVRV11}
+		as11.Response <- tmeil.RoundEntranceResponse{VRV: emptyVRV11}
 
 		erc = gtest.ReceiveSoon(t, enterCh)
 		require.Equal(t, emptyVRV11.RoundView, erc.RV)
@@ -270,7 +270,7 @@ func TestStateMachine_initialization(t *testing.T) {
 		defer sm.Wait()
 		defer cancel()
 
-		as := gtest.ReceiveSoon(t, sfx.ToMirrorCh)
+		re := gtest.ReceiveSoon(t, sfx.RoundEntranceOutCh)
 
 		// We don't need a negative assertion on the consensus strategy,
 		// because it would panic if called without an ExpectEnterRound.
@@ -283,7 +283,7 @@ func TestStateMachine_initialization(t *testing.T) {
 
 		pb2 := sfx.Fx.NextProposedBlock([]byte("app_data_2"), 1)
 
-		as.StateResponse <- tmeil.StateUpdate{
+		re.Response <- tmeil.RoundEntranceResponse{
 			CB: tmconsensus.CommittedBlock{
 				Block: pb1.Block,
 				Proof: pb2.Block.PrevCommitProof,
@@ -335,7 +335,7 @@ func TestStateMachine_stateTransitions(t *testing.T) {
 				defer sm.Wait()
 				defer cancel()
 
-				as := gtest.ReceiveSoon(t, sfx.ToMirrorCh)
+				re := gtest.ReceiveSoon(t, sfx.RoundEntranceOutCh)
 
 				vrv := sfx.EmptyVRV(1, 0)
 
@@ -344,7 +344,7 @@ func TestStateMachine_stateTransitions(t *testing.T) {
 				_ = cStrat.ExpectEnterRound(1, 0, nil)
 
 				// Channel is 1-buffered, don't have to select.
-				as.StateResponse <- tmeil.StateUpdate{VRV: vrv}
+				re.Response <- tmeil.RoundEntranceResponse{VRV: vrv}
 
 				// We are awaiting a proposal because we started with empty state.
 				// We receive one prevote for nil, only 25% so below minority threshold.
@@ -380,7 +380,7 @@ func TestStateMachine_stateTransitions(t *testing.T) {
 				defer sm.Wait()
 				defer cancel()
 
-				as := gtest.ReceiveSoon(t, sfx.ToMirrorCh)
+				re := gtest.ReceiveSoon(t, sfx.RoundEntranceOutCh)
 
 				vrv := sfx.EmptyVRV(1, 0)
 
@@ -389,7 +389,7 @@ func TestStateMachine_stateTransitions(t *testing.T) {
 				_ = cStrat.ExpectEnterRound(1, 0, nil)
 
 				// Channel is 1-buffered, don't have to select.
-				as.StateResponse <- tmeil.StateUpdate{VRV: vrv}
+				re.Response <- tmeil.RoundEntranceResponse{VRV: vrv}
 
 				// We are awaiting a proposal because we started with empty state.
 				// We receive one prevote for nil, only 25% so below minority threshold.
@@ -415,7 +415,7 @@ func TestStateMachine_stateTransitions(t *testing.T) {
 				defer sm.Wait()
 				defer cancel()
 
-				as := gtest.ReceiveSoon(t, sfx.ToMirrorCh)
+				re := gtest.ReceiveSoon(t, sfx.RoundEntranceOutCh)
 
 				vrv := sfx.EmptyVRV(1, 0)
 
@@ -424,7 +424,7 @@ func TestStateMachine_stateTransitions(t *testing.T) {
 				_ = cStrat.ExpectEnterRound(1, 0, nil)
 
 				// Channel is 1-buffered, don't have to select.
-				as.StateResponse <- tmeil.StateUpdate{VRV: vrv}
+				re.Response <- tmeil.RoundEntranceResponse{VRV: vrv}
 
 				prevoteDelayStarted := sfx.RoundTimer.PrevoteDelayStartNotification(1, 0)
 				// We are awaiting a proposal because we started with empty state.
@@ -457,7 +457,7 @@ func TestStateMachine_stateTransitions(t *testing.T) {
 				defer sm.Wait()
 				defer cancel()
 
-				as := gtest.ReceiveSoon(t, sfx.ToMirrorCh)
+				re := gtest.ReceiveSoon(t, sfx.RoundEntranceOutCh)
 
 				vrv := sfx.EmptyVRV(1, 0)
 
@@ -466,7 +466,7 @@ func TestStateMachine_stateTransitions(t *testing.T) {
 				_ = cStrat.ExpectEnterRound(1, 0, nil)
 
 				// Channel is 1-buffered, don't have to select.
-				as.StateResponse <- tmeil.StateUpdate{VRV: vrv}
+				re.Response <- tmeil.RoundEntranceResponse{VRV: vrv}
 
 				precommitDelayStarted := sfx.RoundTimer.PrecommitDelayStartNotification(1, 0)
 				pb := sfx.Fx.NextProposedBlock([]byte("app_data_1"), 1)
@@ -505,7 +505,7 @@ func TestStateMachine_stateTransitions(t *testing.T) {
 				defer sm.Wait()
 				defer cancel()
 
-				as := gtest.ReceiveSoon(t, sfx.ToMirrorCh)
+				re := gtest.ReceiveSoon(t, sfx.RoundEntranceOutCh)
 
 				vrv := sfx.EmptyVRV(1, 0)
 
@@ -514,7 +514,7 @@ func TestStateMachine_stateTransitions(t *testing.T) {
 				_ = cStrat.ExpectEnterRound(1, 0, nil)
 
 				// Channel is 1-buffered, don't have to select.
-				as.StateResponse <- tmeil.StateUpdate{VRV: vrv}
+				re.Response <- tmeil.RoundEntranceResponse{VRV: vrv}
 
 				vrv = sfx.Fx.UpdateVRVPrevotes(ctx, vrv, map[string][]int{
 					"": {1, 2, 3, 4, 5, 6, 7},
@@ -532,11 +532,11 @@ func TestStateMachine_stateTransitions(t *testing.T) {
 				erc11Ch := cStrat.ExpectEnterRound(1, 1, nil)
 				gtest.NotSending(t, cStrat.DecidePrecommitRequests)
 
-				as = gtest.ReceiveSoon(t, sfx.ToMirrorCh)
-				require.Equal(t, uint64(1), as.H)
-				require.Equal(t, uint32(1), as.R)
+				re = gtest.ReceiveSoon(t, sfx.RoundEntranceOutCh)
+				require.Equal(t, uint64(1), re.H)
+				require.Equal(t, uint32(1), re.R)
 
-				as.StateResponse <- tmeil.StateUpdate{VRV: sfx.EmptyVRV(1, 1)}
+				re.Response <- tmeil.RoundEntranceResponse{VRV: sfx.EmptyVRV(1, 1)}
 				_ = gtest.ReceiveSoon(t, erc11Ch)
 			})
 
@@ -552,7 +552,7 @@ func TestStateMachine_stateTransitions(t *testing.T) {
 				defer sm.Wait()
 				defer cancel()
 
-				as := gtest.ReceiveSoon(t, sfx.ToMirrorCh)
+				re := gtest.ReceiveSoon(t, sfx.RoundEntranceOutCh)
 
 				vrv := sfx.EmptyVRV(1, 0)
 
@@ -561,7 +561,7 @@ func TestStateMachine_stateTransitions(t *testing.T) {
 				_ = cStrat.ExpectEnterRound(1, 0, nil)
 
 				// Channel is 1-buffered, don't have to select.
-				as.StateResponse <- tmeil.StateUpdate{VRV: vrv}
+				re.Response <- tmeil.RoundEntranceResponse{VRV: vrv}
 
 				pb := sfx.Fx.NextProposedBlock([]byte("app_data_1"), 1)
 				sfx.Fx.SignProposal(ctx, &pb, 1)
@@ -594,7 +594,7 @@ func TestStateMachine_stateTransitions(t *testing.T) {
 				defer sm.Wait()
 				defer cancel()
 
-				as := gtest.ReceiveSoon(t, sfx.ToMirrorCh)
+				re := gtest.ReceiveSoon(t, sfx.RoundEntranceOutCh)
 
 				vrv := sfx.EmptyVRV(1, 0)
 
@@ -603,7 +603,7 @@ func TestStateMachine_stateTransitions(t *testing.T) {
 				_ = cStrat.ExpectEnterRound(1, 0, nil)
 
 				// Channel is 1-buffered, don't have to select.
-				as.StateResponse <- tmeil.StateUpdate{VRV: vrv}
+				re.Response <- tmeil.RoundEntranceResponse{VRV: vrv}
 
 				pb := sfx.Fx.NextProposedBlock([]byte("app_data_1"), 1)
 				sfx.Fx.SignProposal(ctx, &pb, 1)
@@ -642,7 +642,7 @@ func TestStateMachine_stateTransitions(t *testing.T) {
 			defer sm.Wait()
 			defer cancel()
 
-			as := gtest.ReceiveSoon(t, sfx.ToMirrorCh)
+			re := gtest.ReceiveSoon(t, sfx.RoundEntranceOutCh)
 
 			// Set up consensus strategy expectation before mocking the response.
 			cStrat := sfx.CStrat
@@ -653,7 +653,7 @@ func TestStateMachine_stateTransitions(t *testing.T) {
 			sfx.Fx.SignProposal(ctx, &pb, 1)
 			vrv.ProposedBlocks = []tmconsensus.ProposedBlock{pb}
 			vrv.Version++
-			as.StateResponse <- tmeil.StateUpdate{VRV: vrv}
+			re.Response <- tmeil.RoundEntranceResponse{VRV: vrv}
 
 			// The initial state had a proposed block,
 			// so there was a consider request.
@@ -695,7 +695,7 @@ func TestStateMachine_stateTransitions(t *testing.T) {
 			defer sm.Wait()
 			defer cancel()
 
-			as := gtest.ReceiveSoon(t, sfx.ToMirrorCh)
+			re := gtest.ReceiveSoon(t, sfx.RoundEntranceOutCh)
 
 			// Set up consensus strategy expectation before mocking the response.
 			cStrat := sfx.CStrat
@@ -706,7 +706,7 @@ func TestStateMachine_stateTransitions(t *testing.T) {
 			sfx.Fx.SignProposal(ctx, &pb, 1)
 			vrv.ProposedBlocks = []tmconsensus.ProposedBlock{pb}
 			vrv.Version++
-			as.StateResponse <- tmeil.StateUpdate{VRV: vrv}
+			re.Response <- tmeil.RoundEntranceResponse{VRV: vrv}
 
 			// The initial state had a proposed block,
 			// so there was a consider request.
@@ -732,10 +732,10 @@ func TestStateMachine_stateTransitions(t *testing.T) {
 			// That will probably change in the future.
 
 			// Round transition, so the state machine makes a new request to the mirror.
-			as = gtest.ReceiveSoon(t, sfx.ToMirrorCh)
-			require.Equal(t, uint64(1), as.H)
-			require.Equal(t, uint32(1), as.R)
-			as.StateResponse <- tmeil.StateUpdate{VRV: sfx.EmptyVRV(1, 1)}
+			re = gtest.ReceiveSoon(t, sfx.RoundEntranceOutCh)
+			require.Equal(t, uint64(1), re.H)
+			require.Equal(t, uint32(1), re.R)
+			re.Response <- tmeil.RoundEntranceResponse{VRV: sfx.EmptyVRV(1, 1)}
 
 			_ = gtest.ReceiveSoon(t, erc11Ch)
 			gtest.NotSending(t, cStrat.ConsiderProposedBlockRequests)
@@ -755,7 +755,7 @@ func TestStateMachine_stateTransitions(t *testing.T) {
 			defer sm.Wait()
 			defer cancel()
 
-			as := gtest.ReceiveSoon(t, sfx.ToMirrorCh)
+			re := gtest.ReceiveSoon(t, sfx.RoundEntranceOutCh)
 
 			// Set up consensus strategy expectation before mocking the response.
 			cStrat := sfx.CStrat
@@ -766,7 +766,7 @@ func TestStateMachine_stateTransitions(t *testing.T) {
 			sfx.Fx.SignProposal(ctx, &pb, 1)
 			vrv.ProposedBlocks = []tmconsensus.ProposedBlock{pb}
 			vrv.Version++
-			as.StateResponse <- tmeil.StateUpdate{VRV: vrv}
+			re.Response <- tmeil.RoundEntranceResponse{VRV: vrv}
 
 			// The initial state had a proposed block,
 			// so there was a consider request.
@@ -821,7 +821,7 @@ func TestStateMachine_enterRoundProposal(t *testing.T) {
 				defer sm.Wait()
 				defer cancel()
 
-				as := gtest.ReceiveSoon(t, sfx.ToMirrorCh)
+				re := gtest.ReceiveSoon(t, sfx.RoundEntranceOutCh)
 
 				vrv := sfx.EmptyVRV(1, 0)
 
@@ -830,7 +830,7 @@ func TestStateMachine_enterRoundProposal(t *testing.T) {
 				ercCh := cStrat.ExpectEnterRound(1, 0, nil)
 
 				// Channel is 1-buffered, don't have to select.
-				as.StateResponse <- tmeil.StateUpdate{VRV: vrv}
+				re.Response <- tmeil.RoundEntranceResponse{VRV: vrv}
 
 				erc := gtest.ReceiveSoon(t, ercCh)
 
@@ -841,7 +841,7 @@ func TestStateMachine_enterRoundProposal(t *testing.T) {
 				}
 
 				// Synchronize on the action output.
-				sentPB := gtest.ReceiveSoon(t, as.Actions).PB
+				sentPB := gtest.ReceiveSoon(t, re.Actions).PB
 
 				// Now the proposed block should be in the action store.
 				ra, err := sfx.Cfg.ActionStore.Load(ctx, 1, 0)
@@ -876,7 +876,7 @@ func TestStateMachine_enterRoundProposal(t *testing.T) {
 				defer sm.Wait()
 				defer cancel()
 
-				as := gtest.ReceiveSoon(t, sfx.ToMirrorCh)
+				re := gtest.ReceiveSoon(t, sfx.RoundEntranceOutCh)
 
 				vrv := sfx.EmptyVRV(1, 0)
 
@@ -885,7 +885,7 @@ func TestStateMachine_enterRoundProposal(t *testing.T) {
 				ercCh := cStrat.ExpectEnterRound(1, 0, nil)
 
 				// Channel is 1-buffered, don't have to select.
-				as.StateResponse <- tmeil.StateUpdate{VRV: vrv}
+				re.Response <- tmeil.RoundEntranceResponse{VRV: vrv}
 
 				erc := gtest.ReceiveSoon(t, ercCh)
 
@@ -896,7 +896,7 @@ func TestStateMachine_enterRoundProposal(t *testing.T) {
 				}
 
 				// Synchronize on the action output.
-				sentPB := gtest.ReceiveSoon(t, as.Actions).PB
+				sentPB := gtest.ReceiveSoon(t, re.Actions).PB
 
 				// Now the proposed block should be in the action store.
 				ra, err := sfx.Cfg.ActionStore.Load(ctx, 1, 0)
@@ -923,7 +923,7 @@ func TestStateMachine_decidePrecommit(t *testing.T) {
 		defer sm.Wait()
 		defer cancel()
 
-		as := gtest.ReceiveSoon(t, sfx.ToMirrorCh)
+		re := gtest.ReceiveSoon(t, sfx.RoundEntranceOutCh)
 
 		vrv := sfx.EmptyVRV(1, 0)
 		pb1 := sfx.Fx.NextProposedBlock([]byte("app_data_1"), 1)
@@ -937,7 +937,7 @@ func TestStateMachine_decidePrecommit(t *testing.T) {
 		_ = cStrat.ExpectEnterRound(1, 0, nil)
 
 		// Channel is 1-buffered, don't have to select.
-		as.StateResponse <- tmeil.StateUpdate{VRV: vrv}
+		re.Response <- tmeil.RoundEntranceResponse{VRV: vrv}
 
 		// Since there was already a majority prevote for a block,
 		// we don't need to submit our prevote -- we jump straight into the precommit decision.
@@ -947,7 +947,7 @@ func TestStateMachine_decidePrecommit(t *testing.T) {
 		// And when the consensus strategy responds, the state machine forwards it to the mirror.
 		gtest.SendSoon(t, cReq.ChoiceHash, string(pb1.Block.Hash))
 
-		act := gtest.ReceiveSoon(t, as.Actions)
+		act := gtest.ReceiveSoon(t, re.Actions)
 		require.NotEmpty(t, act.Precommit.Sig)
 
 		precommitSignContent, err := tmconsensus.PrecommitSignBytes(tmconsensus.VoteTarget{
@@ -977,7 +977,7 @@ func TestStateMachine_decidePrecommit(t *testing.T) {
 		defer sm.Wait()
 		defer cancel()
 
-		as := gtest.ReceiveSoon(t, sfx.ToMirrorCh)
+		re := gtest.ReceiveSoon(t, sfx.RoundEntranceOutCh)
 
 		// Set up consensus strategy expectation before mocking the response.
 		cStrat := sfx.CStrat
@@ -990,7 +990,7 @@ func TestStateMachine_decidePrecommit(t *testing.T) {
 		pb1 := sfx.Fx.NextProposedBlock([]byte("app_data_1"), 3)
 		vrv.ProposedBlocks = []tmconsensus.ProposedBlock{pb1}
 		// Channel is 1-buffered, don't have to select.
-		as.StateResponse <- tmeil.StateUpdate{VRV: vrv} // No PrevBlockHash at initial height.
+		re.Response <- tmeil.RoundEntranceResponse{VRV: vrv} // No PrevBlockHash at initial height.
 
 		// This causes a Consider request to the consensus strategy,
 		// and we will prevote for the block.
@@ -999,7 +999,7 @@ func TestStateMachine_decidePrecommit(t *testing.T) {
 
 		// The choice is sent to the mirror as an action.
 		// We have other coverage asserting it sends the hash correctly.
-		_ = gtest.ReceiveSoon(t, as.Actions)
+		_ = gtest.ReceiveSoon(t, re.Actions)
 
 		// Now when the mirror responds, we are at 75% votes without consensus.
 		vrv = sfx.Fx.UpdateVRVPrevotes(ctx, vrv, map[string][]int{
@@ -1021,7 +1021,7 @@ func TestStateMachine_decidePrecommit(t *testing.T) {
 		gtest.SendSoon(t, req.ChoiceHash, "")
 
 		// That precommit is sent to the mirror.
-		act := gtest.ReceiveSoon(t, as.Actions)
+		act := gtest.ReceiveSoon(t, re.Actions)
 		require.NotEmpty(t, act.Precommit.Sig)
 
 		precommitSignContent, err := tmconsensus.PrecommitSignBytes(tmconsensus.VoteTarget{
@@ -1050,7 +1050,7 @@ func TestStateMachine_decidePrecommit(t *testing.T) {
 		defer sm.Wait()
 		defer cancel()
 
-		as := gtest.ReceiveSoon(t, sfx.ToMirrorCh)
+		re := gtest.ReceiveSoon(t, sfx.RoundEntranceOutCh)
 
 		// Set up consensus strategy expectation before mocking the response.
 		cStrat := sfx.CStrat
@@ -1063,7 +1063,7 @@ func TestStateMachine_decidePrecommit(t *testing.T) {
 		pb1 := sfx.Fx.NextProposedBlock([]byte("app_data_1"), 3)
 		vrv.ProposedBlocks = []tmconsensus.ProposedBlock{pb1}
 		// Channel is 1-buffered, don't have to select.
-		as.StateResponse <- tmeil.StateUpdate{VRV: vrv} // No PrevBlockHash at initial height.
+		re.Response <- tmeil.RoundEntranceResponse{VRV: vrv} // No PrevBlockHash at initial height.
 
 		// This causes a Consider request to the consensus strategy,
 		// and we will prevote for the block.
@@ -1072,7 +1072,7 @@ func TestStateMachine_decidePrecommit(t *testing.T) {
 
 		// The choice is sent to the mirror as an action.
 		// We have other coverage asserting it sends the hash correctly.
-		_ = gtest.ReceiveSoon(t, as.Actions)
+		_ = gtest.ReceiveSoon(t, re.Actions)
 
 		// Now when the mirror responds, we are at 75% votes without consensus.
 		vrv = sfx.Fx.UpdateVRVPrevotes(ctx, vrv, map[string][]int{
@@ -1104,7 +1104,7 @@ func TestStateMachine_decidePrecommit(t *testing.T) {
 		gtest.SendSoon(t, req.ChoiceHash, string(pb1.Block.Hash))
 
 		// That precommit is sent to the mirror.
-		act := gtest.ReceiveSoon(t, as.Actions)
+		act := gtest.ReceiveSoon(t, re.Actions)
 		require.NotEmpty(t, act.Precommit.Sig)
 
 		precommitSignContent, err := tmconsensus.PrecommitSignBytes(tmconsensus.VoteTarget{
@@ -1134,7 +1134,7 @@ func TestStateMachine_decidePrecommit(t *testing.T) {
 		defer sm.Wait()
 		defer cancel()
 
-		as := gtest.ReceiveSoon(t, sfx.ToMirrorCh)
+		re := gtest.ReceiveSoon(t, sfx.RoundEntranceOutCh)
 
 		// Set up consensus strategy expectation before mocking the response.
 		cStrat := sfx.CStrat
@@ -1145,7 +1145,7 @@ func TestStateMachine_decidePrecommit(t *testing.T) {
 		pb1 := sfx.Fx.NextProposedBlock([]byte("app_data_1"), 3)
 		vrv.ProposedBlocks = []tmconsensus.ProposedBlock{pb1}
 		// Channel is 1-buffered, don't have to select.
-		as.StateResponse <- tmeil.StateUpdate{VRV: vrv} // No PrevBlockHash at initial height.
+		re.Response <- tmeil.RoundEntranceResponse{VRV: vrv} // No PrevBlockHash at initial height.
 
 		// This causes a Consider request to the consensus strategy,
 		// and we will prevote for the block.
@@ -1154,7 +1154,7 @@ func TestStateMachine_decidePrecommit(t *testing.T) {
 
 		// The choice is sent to the mirror as an action.
 		// We have other coverage asserting it sends the hash correctly.
-		_ = gtest.ReceiveSoon(t, as.Actions)
+		_ = gtest.ReceiveSoon(t, re.Actions)
 
 		vrv = sfx.Fx.UpdateVRVPrevotes(ctx, vrv, map[string][]int{
 			string(pb1.Block.Hash): {0, 1, 2, 3},
@@ -1168,7 +1168,7 @@ func TestStateMachine_decidePrecommit(t *testing.T) {
 		gtest.SendSoon(t, req.ChoiceHash, string(pb1.Block.Hash))
 
 		// That precommit is sent to the mirror.
-		act := gtest.ReceiveSoon(t, as.Actions)
+		act := gtest.ReceiveSoon(t, re.Actions)
 		require.NotEmpty(t, act.Precommit.Sig)
 
 		precommitSignContent, err := tmconsensus.PrecommitSignBytes(tmconsensus.VoteTarget{
@@ -1200,7 +1200,7 @@ func TestStateMachine_nilPrecommit(t *testing.T) {
 		defer sm.Wait()
 		defer cancel()
 
-		as := gtest.ReceiveSoon(t, sfx.ToMirrorCh)
+		re := gtest.ReceiveSoon(t, sfx.RoundEntranceOutCh)
 
 		vrv := sfx.EmptyVRV(1, 0)
 		vrv = sfx.Fx.UpdateVRVPrevotes(ctx, vrv, map[string][]int{
@@ -1212,7 +1212,7 @@ func TestStateMachine_nilPrecommit(t *testing.T) {
 		_ = cStrat.ExpectEnterRound(1, 0, nil)
 
 		// Channel is 1-buffered, don't have to select.
-		as.StateResponse <- tmeil.StateUpdate{VRV: vrv}
+		re.Response <- tmeil.RoundEntranceResponse{VRV: vrv}
 
 		// Since there was already a majority prevote for a block,
 		// we don't need to submit our prevote -- we jump straight into the precommit decision.
@@ -1222,7 +1222,7 @@ func TestStateMachine_nilPrecommit(t *testing.T) {
 		// And when the consensus strategy responds, the state machine forwards it to the mirror.
 		gtest.SendSoon(t, cReq.ChoiceHash, "")
 
-		act := gtest.ReceiveSoon(t, as.Actions)
+		act := gtest.ReceiveSoon(t, re.Actions)
 		require.NotEmpty(t, act.Precommit.Sig)
 
 		// Once the full nil precommits arrive, we will go to the next round.
@@ -1235,9 +1235,9 @@ func TestStateMachine_nilPrecommit(t *testing.T) {
 		gtest.SendSoon(t, sfx.RoundViewInCh, vrv)
 
 		// The state machine requests any existing state at 1/1 first.
-		as = gtest.ReceiveSoon(t, sfx.ToMirrorCh)
+		re = gtest.ReceiveSoon(t, sfx.RoundEntranceOutCh)
 		vrv = sfx.EmptyVRV(1, 1)
-		as.StateResponse <- tmeil.StateUpdate{VRV: vrv}
+		re.Response <- tmeil.RoundEntranceResponse{VRV: vrv}
 
 		// Then it calls enter round on the gossip strategy.
 		// We already set an expectation for this.
@@ -1259,7 +1259,7 @@ func TestStateMachine_nilPrecommit(t *testing.T) {
 		defer sm.Wait()
 		defer cancel()
 
-		as := gtest.ReceiveSoon(t, sfx.ToMirrorCh)
+		re := gtest.ReceiveSoon(t, sfx.RoundEntranceOutCh)
 
 		pb1 := sfx.Fx.NextProposedBlock([]byte("app_data_1"), 3)
 		vrv := sfx.EmptyVRV(1, 0)
@@ -1273,7 +1273,7 @@ func TestStateMachine_nilPrecommit(t *testing.T) {
 		_ = cStrat.ExpectEnterRound(1, 0, nil)
 
 		// Channel is 1-buffered, don't have to select.
-		as.StateResponse <- tmeil.StateUpdate{VRV: vrv}
+		re.Response <- tmeil.RoundEntranceResponse{VRV: vrv}
 
 		// Since there was already a majority prevote for a block,
 		// we don't need to submit our prevote -- we jump straight into the precommit decision.
@@ -1283,7 +1283,7 @@ func TestStateMachine_nilPrecommit(t *testing.T) {
 		// And when the consensus strategy responds, the state machine forwards it to the mirror.
 		gtest.SendSoon(t, cReq.ChoiceHash, string(pb1.Block.Hash))
 
-		act := gtest.ReceiveSoon(t, as.Actions)
+		act := gtest.ReceiveSoon(t, re.Actions)
 		require.NotEmpty(t, act.Precommit.Sig)
 
 		// We expect a precommit delay due to how the precommits arrive.
@@ -1310,10 +1310,10 @@ func TestStateMachine_nilPrecommit(t *testing.T) {
 		gtest.SendSoon(t, sfx.RoundViewInCh, vrv)
 
 		// Once the full nil precommits arrive, we will go to the next round.
-		as11 := gtest.ReceiveSoon(t, sfx.ToMirrorCh)
+		as11 := gtest.ReceiveSoon(t, sfx.RoundEntranceOutCh)
 		require.Equal(t, uint64(1), as11.H)
 		require.Equal(t, uint32(1), as11.R)
-		as11.StateResponse <- tmeil.StateUpdate{VRV: sfx.EmptyVRV(1, 1)}
+		as11.Response <- tmeil.RoundEntranceResponse{VRV: sfx.EmptyVRV(1, 1)}
 
 		_ = gtest.ReceiveSoon(t, ercCh)
 
@@ -1336,7 +1336,7 @@ func TestStateMachine_unexpectedSteps(t *testing.T) {
 		defer sm.Wait()
 		defer cancel()
 
-		as := gtest.ReceiveSoon(t, sfx.ToMirrorCh)
+		re := gtest.ReceiveSoon(t, sfx.RoundEntranceOutCh)
 
 		pb1 := sfx.Fx.NextProposedBlock([]byte("app_data_1"), 3)
 		vrv := sfx.EmptyVRV(1, 0)
@@ -1350,7 +1350,7 @@ func TestStateMachine_unexpectedSteps(t *testing.T) {
 		_ = cStrat.ExpectEnterRound(1, 0, nil)
 
 		// Channel is 1-buffered, don't have to select.
-		as.StateResponse <- tmeil.StateUpdate{VRV: vrv}
+		re.Response <- tmeil.RoundEntranceResponse{VRV: vrv}
 
 		// Since there was already a majority prevote for a block,
 		// we don't need to submit our prevote -- we jump straight into the precommit decision.
@@ -1360,7 +1360,7 @@ func TestStateMachine_unexpectedSteps(t *testing.T) {
 		// And when the consensus strategy responds, the state machine forwards it to the mirror.
 		gtest.SendSoon(t, cReq.ChoiceHash, string(pb1.Block.Hash))
 
-		act := gtest.ReceiveSoon(t, as.Actions)
+		act := gtest.ReceiveSoon(t, re.Actions)
 		require.NotEmpty(t, act.Precommit.Sig)
 
 		// We expect commit wait timer after we get the 3/4 precommits.
@@ -1405,7 +1405,7 @@ func TestStateMachine_unexpectedSteps(t *testing.T) {
 		defer sm.Wait()
 		defer cancel()
 
-		as := gtest.ReceiveSoon(t, sfx.ToMirrorCh)
+		re := gtest.ReceiveSoon(t, sfx.RoundEntranceOutCh)
 
 		pb1 := sfx.Fx.NextProposedBlock([]byte("app_data_1"), 3)
 		vrv := sfx.EmptyVRV(1, 0)
@@ -1419,7 +1419,7 @@ func TestStateMachine_unexpectedSteps(t *testing.T) {
 		_ = cStrat.ExpectEnterRound(1, 0, nil)
 
 		// Channel is 1-buffered, don't have to select.
-		as.StateResponse <- tmeil.StateUpdate{VRV: vrv}
+		re.Response <- tmeil.RoundEntranceResponse{VRV: vrv}
 
 		// Since there was already a majority prevote for a block,
 		// we don't need to submit our prevote -- we jump straight into the precommit decision.
@@ -1429,7 +1429,7 @@ func TestStateMachine_unexpectedSteps(t *testing.T) {
 		// And when the consensus strategy responds, the state machine forwards it to the mirror.
 		gtest.SendSoon(t, cReq.ChoiceHash, string(pb1.Block.Hash))
 
-		act := gtest.ReceiveSoon(t, as.Actions)
+		act := gtest.ReceiveSoon(t, re.Actions)
 		require.NotEmpty(t, act.Precommit.Sig)
 
 		// We expect commit wait timer after we get the 3/4 precommits.
@@ -1479,7 +1479,7 @@ func TestStateMachine_finalization(t *testing.T) {
 		defer sm.Wait()
 		defer cancel()
 
-		as := gtest.ReceiveSoon(t, sfx.ToMirrorCh)
+		re := gtest.ReceiveSoon(t, sfx.RoundEntranceOutCh)
 
 		vrv := sfx.EmptyVRV(1, 0)
 		pb1 := sfx.Fx.NextProposedBlock([]byte("app_data_1"), 1)
@@ -1493,7 +1493,7 @@ func TestStateMachine_finalization(t *testing.T) {
 		_ = cStrat.ExpectEnterRound(1, 0, nil)
 
 		// Channel is 1-buffered, don't have to select.
-		as.StateResponse <- tmeil.StateUpdate{VRV: vrv}
+		re.Response <- tmeil.RoundEntranceResponse{VRV: vrv}
 
 		// Since there was already a majority precommit for a block,
 		// we don't need to submit our precommit -- we jump straight into the finalization request.
@@ -1534,16 +1534,16 @@ func TestStateMachine_finalization(t *testing.T) {
 
 		// Then the state machine will have completed the round,
 		// and it will submit a new action set to the mirror.
-		as2 := gtest.ReceiveSoon(t, sfx.ToMirrorCh)
-		require.Equal(t, uint64(2), as2.H)
-		require.Zero(t, as2.R)
-		require.True(t, sfx.Cfg.Signer.PubKey().Equal(as2.PubKey))
+		re2 := gtest.ReceiveSoon(t, sfx.RoundEntranceOutCh)
+		require.Equal(t, uint64(2), re2.H)
+		require.Zero(t, re2.R)
+		require.True(t, sfx.Cfg.Signer.PubKey().Equal(re2.PubKey))
 
 		// Actions channel is buffered so state machine doesn't block sending to mirror.
-		require.Equal(t, 3, cap(as2.Actions))
+		require.Equal(t, 3, cap(re2.Actions))
 
 		// State response is buffered so state machine doesn't risk blocking on send.
-		require.Equal(t, 1, cap(as2.StateResponse))
+		require.Equal(t, 1, cap(re2.Response))
 
 		// And now that the state machine has sent the action set,
 		// we can be sure the finalization store has the finalization for height 1.
@@ -1567,7 +1567,7 @@ func TestStateMachine_finalization(t *testing.T) {
 		defer sm.Wait()
 		defer cancel()
 
-		as := gtest.ReceiveSoon(t, sfx.ToMirrorCh)
+		re := gtest.ReceiveSoon(t, sfx.RoundEntranceOutCh)
 
 		vrv := sfx.EmptyVRV(1, 0)
 		pb1 := sfx.Fx.NextProposedBlock([]byte("app_data_1"), 1)
@@ -1581,7 +1581,7 @@ func TestStateMachine_finalization(t *testing.T) {
 		_ = cStrat.ExpectEnterRound(1, 0, nil)
 
 		// Channel is 1-buffered, don't have to select.
-		as.StateResponse <- tmeil.StateUpdate{VRV: vrv}
+		re.Response <- tmeil.RoundEntranceResponse{VRV: vrv}
 
 		// Since there was already a majority prevote for a block,
 		// we don't need to submit our prevote -- we jump straight into the precommit decision.
@@ -1591,7 +1591,7 @@ func TestStateMachine_finalization(t *testing.T) {
 		// And when the consensus strategy responds, the state machine forwards it to the mirror.
 		gtest.SendSoon(t, cReq.ChoiceHash, string(pb1.Block.Hash))
 
-		act := gtest.ReceiveSoon(t, as.Actions)
+		act := gtest.ReceiveSoon(t, re.Actions)
 		require.NotEmpty(t, act.Precommit.Sig)
 
 		// Now we get a live update with everyone's precommit.
@@ -1632,16 +1632,16 @@ func TestStateMachine_finalization(t *testing.T) {
 
 		// Then the state machine will have completed the round,
 		// and it will submit a new action set to the mirror.
-		as2 := gtest.ReceiveSoon(t, sfx.ToMirrorCh)
-		require.Equal(t, uint64(2), as2.H)
-		require.Zero(t, as2.R)
-		require.True(t, sfx.Cfg.Signer.PubKey().Equal(as2.PubKey))
+		re2 := gtest.ReceiveSoon(t, sfx.RoundEntranceOutCh)
+		require.Equal(t, uint64(2), re2.H)
+		require.Zero(t, re2.R)
+		require.True(t, sfx.Cfg.Signer.PubKey().Equal(re2.PubKey))
 
 		// Actions channel is buffered so state machine doesn't block sending to mirror.
-		require.Equal(t, 3, cap(as2.Actions))
+		require.Equal(t, 3, cap(re2.Actions))
 
 		// State response is buffered so state machine doesn't risk blocking on send.
-		require.Equal(t, 1, cap(as2.StateResponse))
+		require.Equal(t, 1, cap(re2.Response))
 
 		// And now that the state machine has sent the action set,
 		// we can be sure the finalization store has the finalization for height 1.
@@ -1665,7 +1665,7 @@ func TestStateMachine_finalization(t *testing.T) {
 		defer sm.Wait()
 		defer cancel()
 
-		as := gtest.ReceiveSoon(t, sfx.ToMirrorCh)
+		re := gtest.ReceiveSoon(t, sfx.RoundEntranceOutCh)
 
 		vrv := sfx.EmptyVRV(1, 0)
 		pb1 := sfx.Fx.NextProposedBlock([]byte("app_data_1"), 1)
@@ -1679,7 +1679,7 @@ func TestStateMachine_finalization(t *testing.T) {
 		_ = cStrat.ExpectEnterRound(1, 0, nil)
 
 		// Channel is 1-buffered, don't have to select.
-		as.StateResponse <- tmeil.StateUpdate{VRV: vrv}
+		re.Response <- tmeil.RoundEntranceResponse{VRV: vrv}
 
 		// Since there was already a majority prevote for a block,
 		// we don't need to submit our prevote -- we jump straight into the precommit decision.
@@ -1689,7 +1689,7 @@ func TestStateMachine_finalization(t *testing.T) {
 		// And when the consensus strategy responds, the state machine forwards it to the mirror.
 		gtest.SendSoon(t, cReq.ChoiceHash, string(pb1.Block.Hash))
 
-		act := gtest.ReceiveSoon(t, as.Actions)
+		act := gtest.ReceiveSoon(t, re.Actions)
 		require.NotEmpty(t, act.Precommit.Sig)
 
 		precommitDelayTimerStarted := sfx.RoundTimer.PrecommitDelayStartNotification(1, 0)
@@ -1739,16 +1739,16 @@ func TestStateMachine_finalization(t *testing.T) {
 
 		// Then the state machine will have completed the round,
 		// and it will submit a new action set to the mirror.
-		as2 := gtest.ReceiveSoon(t, sfx.ToMirrorCh)
-		require.Equal(t, uint64(2), as2.H)
-		require.Zero(t, as2.R)
-		require.True(t, sfx.Cfg.Signer.PubKey().Equal(as2.PubKey))
+		re2 := gtest.ReceiveSoon(t, sfx.RoundEntranceOutCh)
+		require.Equal(t, uint64(2), re2.H)
+		require.Zero(t, re2.R)
+		require.True(t, sfx.Cfg.Signer.PubKey().Equal(re2.PubKey))
 
 		// Actions channel is buffered so state machine doesn't block sending to mirror.
-		require.Equal(t, 3, cap(as2.Actions))
+		require.Equal(t, 3, cap(re2.Actions))
 
 		// State response is buffered so state machine doesn't risk blocking on send.
-		require.Equal(t, 1, cap(as2.StateResponse))
+		require.Equal(t, 1, cap(re2.Response))
 
 		// And now that the state machine has sent the action set,
 		// we can be sure the finalization store has the finalization for height 1.
@@ -1772,7 +1772,7 @@ func TestStateMachine_finalization(t *testing.T) {
 		defer sm.Wait()
 		defer cancel()
 
-		as := gtest.ReceiveSoon(t, sfx.ToMirrorCh)
+		re := gtest.ReceiveSoon(t, sfx.RoundEntranceOutCh)
 
 		vrv := sfx.EmptyVRV(1, 0)
 		pb1 := sfx.Fx.NextProposedBlock([]byte("app_data_1"), 1)
@@ -1786,7 +1786,7 @@ func TestStateMachine_finalization(t *testing.T) {
 		_ = cStrat.ExpectEnterRound(1, 0, nil)
 
 		// Channel is 1-buffered, don't have to select.
-		as.StateResponse <- tmeil.StateUpdate{VRV: vrv}
+		re.Response <- tmeil.RoundEntranceResponse{VRV: vrv}
 
 		// Since there was already a majority prevote for a block,
 		// we don't need to submit our prevote -- we jump straight into the precommit decision.
@@ -1796,7 +1796,7 @@ func TestStateMachine_finalization(t *testing.T) {
 		// And when the consensus strategy responds, the state machine forwards it to the mirror.
 		gtest.SendSoon(t, cReq.ChoiceHash, string(pb1.Block.Hash))
 
-		act := gtest.ReceiveSoon(t, as.Actions)
+		act := gtest.ReceiveSoon(t, re.Actions)
 		require.NotEmpty(t, act.Precommit.Sig)
 
 		// Now we get a live update with everyone's precommit.
@@ -1823,9 +1823,9 @@ func TestStateMachine_finalization(t *testing.T) {
 		}
 
 		// The state machine tells the mirror we are on the next height.
-		as = gtest.ReceiveSoon(t, sfx.ToMirrorCh)
-		require.Equal(t, uint64(2), as.H)
-		require.Zero(t, as.R)
+		re = gtest.ReceiveSoon(t, sfx.RoundEntranceOutCh)
+		require.Equal(t, uint64(2), re.H)
+		require.Zero(t, re.R)
 	})
 
 	t.Run("when proposed block is missing and it is time to finalize", func(t *testing.T) {
@@ -1840,7 +1840,7 @@ func TestStateMachine_finalization(t *testing.T) {
 		defer sm.Wait()
 		defer cancel()
 
-		as := gtest.ReceiveSoon(t, sfx.ToMirrorCh)
+		re := gtest.ReceiveSoon(t, sfx.RoundEntranceOutCh)
 
 		// Make the proposed block but don't set it in the vrv yet.
 		pb1 := sfx.Fx.NextProposedBlock([]byte("app_data_1"), 1)
@@ -1855,7 +1855,7 @@ func TestStateMachine_finalization(t *testing.T) {
 		_ = cStrat.ExpectEnterRound(1, 0, nil)
 
 		// Channel is 1-buffered, don't have to select.
-		as.StateResponse <- tmeil.StateUpdate{VRV: vrv}
+		re.Response <- tmeil.RoundEntranceResponse{VRV: vrv}
 
 		// Since there was already a majority prevote for a block,
 		// we don't need to submit our prevote -- we jump straight into the precommit decision.
@@ -1865,7 +1865,7 @@ func TestStateMachine_finalization(t *testing.T) {
 		// And when the consensus strategy responds, the state machine forwards it to the mirror.
 		gtest.SendSoon(t, cReq.ChoiceHash, string(pb1.Block.Hash))
 
-		act := gtest.ReceiveSoon(t, as.Actions)
+		act := gtest.ReceiveSoon(t, re.Actions)
 		require.NotEmpty(t, act.Precommit.Sig)
 
 		// Now we get a live update with everyone's precommit.
@@ -1909,9 +1909,9 @@ func TestStateMachine_finalization(t *testing.T) {
 		}
 
 		// Then the state machine tells the mirror we are on the next height.
-		as = gtest.ReceiveSoon(t, sfx.ToMirrorCh)
-		require.Equal(t, uint64(2), as.H)
-		require.Zero(t, as.R)
+		re = gtest.ReceiveSoon(t, sfx.RoundEntranceOutCh)
+		require.Equal(t, uint64(2), re.H)
+		require.Zero(t, re.R)
 	})
 
 	// Regression test for a case where the finalization response channel was being set to nil
@@ -1935,11 +1935,11 @@ func TestStateMachine_finalization(t *testing.T) {
 		_ = cStrat.ExpectEnterRound(2, 0, nil)
 		_ = cStrat.ExpectEnterRound(3, 0, nil)
 
-		as := gtest.ReceiveSoon(t, sfx.ToMirrorCh)
+		re := gtest.ReceiveSoon(t, sfx.RoundEntranceOutCh)
 
 		// Send an empty state response so we aren't sending a committable state for the initial state.
 		vrv := sfx.EmptyVRV(1, 0)
-		as.StateResponse <- tmeil.StateUpdate{VRV: vrv}
+		re.Response <- tmeil.RoundEntranceResponse{VRV: vrv}
 
 		pb1 := sfx.Fx.NextProposedBlock([]byte("app_data_1"), 0)
 		sfx.Fx.SignProposal(ctx, &pb1, 0)
@@ -1970,11 +1970,11 @@ func TestStateMachine_finalization(t *testing.T) {
 		require.NoError(t, sfx.RoundTimer.ElapseCommitWaitTimer(1, 0))
 
 		// Now for height 2, same initial setup.
-		as = gtest.ReceiveSoon(t, sfx.ToMirrorCh)
-		require.Equal(t, uint64(2), as.H)
+		re = gtest.ReceiveSoon(t, sfx.RoundEntranceOutCh)
+		require.Equal(t, uint64(2), re.H)
 
 		vrv = sfx.EmptyVRV(2, 0)
-		as.StateResponse <- tmeil.StateUpdate{VRV: vrv}
+		re.Response <- tmeil.RoundEntranceResponse{VRV: vrv}
 
 		sfx.Fx.CommitBlock(pb1.Block, []byte("state_1"), 0, map[string]gcrypto.CommonMessageSignatureProof{
 			string(pb1.Block.Hash): sfx.Fx.PrecommitSignatureProof(ctx, tmconsensus.VoteTarget{
@@ -2013,11 +2013,11 @@ func TestStateMachine_finalization(t *testing.T) {
 		}
 
 		// Now one more finalization, to ensure that either finalize-timeout order does not break finalizations.
-		as = gtest.ReceiveSoon(t, sfx.ToMirrorCh)
-		require.Equal(t, uint64(3), as.H)
+		re = gtest.ReceiveSoon(t, sfx.RoundEntranceOutCh)
+		require.Equal(t, uint64(3), re.H)
 
 		vrv = sfx.EmptyVRV(3, 0)
-		as.StateResponse <- tmeil.StateUpdate{VRV: vrv}
+		re.Response <- tmeil.RoundEntranceResponse{VRV: vrv}
 
 		sfx.Fx.CommitBlock(pb2.Block, []byte("state_2"), 0, map[string]gcrypto.CommonMessageSignatureProof{
 			string(pb2.Block.Hash): sfx.Fx.PrecommitSignatureProof(ctx, tmconsensus.VoteTarget{
@@ -2046,7 +2046,7 @@ func TestStateMachine_finalization(t *testing.T) {
 			Validators:   sfx.Fx.Vals(),
 			AppStateHash: []byte("state_3"),
 		}
-		_ = gtest.ReceiveSoon(t, sfx.ToMirrorCh)
+		_ = gtest.ReceiveSoon(t, sfx.RoundEntranceOutCh)
 	})
 }
 
@@ -2064,14 +2064,14 @@ func TestStateMachine_followerMode(t *testing.T) {
 		defer sm.Wait()
 		defer cancel()
 
-		as := gtest.ReceiveSoon(t, sfx.ToMirrorCh)
+		re := gtest.ReceiveSoon(t, sfx.RoundEntranceOutCh)
 
 		// Still expect consensus strategy calls, for any local state.
 		cStrat := sfx.CStrat
 		_ = cStrat.ExpectEnterRound(1, 0, nil)
 
 		vrv := sfx.EmptyVRV(1, 0)
-		as.StateResponse <- tmeil.StateUpdate{VRV: vrv} // No PrevBlockHash at initial height.
+		re.Response <- tmeil.RoundEntranceResponse{VRV: vrv} // No PrevBlockHash at initial height.
 
 		pb := sfx.Fx.NextProposedBlock([]byte("app_data_1"), 1)
 
@@ -2139,17 +2139,17 @@ func TestStateMachine_followerMode(t *testing.T) {
 
 		// Then the state machine will have completed the round,
 		// and it will submit a new action set to the mirror.
-		as2 := gtest.ReceiveSoon(t, sfx.ToMirrorCh)
-		require.Equal(t, uint64(2), as2.H)
-		require.Zero(t, as2.R)
-		require.Nil(t, as2.PubKey)
+		re2 := gtest.ReceiveSoon(t, sfx.RoundEntranceOutCh)
+		require.Equal(t, uint64(2), re2.H)
+		require.Zero(t, re2.R)
+		require.Nil(t, re2.PubKey)
 
 		// Actions channel is nil in follower mode.
-		require.Nil(t, as2.Actions)
+		require.Nil(t, re2.Actions)
 
 		// State response is buffered so state machine doesn't risk blocking on send.
 		// Not nil even in follower mode.
-		require.Equal(t, 1, cap(as2.StateResponse))
+		require.Equal(t, 1, cap(re2.Response))
 	})
 }
 
@@ -2167,7 +2167,7 @@ func TestStateMachine_timers(t *testing.T) {
 			defer sm.Wait()
 			defer cancel()
 
-			as := gtest.ReceiveSoon(t, sfx.ToMirrorCh)
+			re := gtest.ReceiveSoon(t, sfx.RoundEntranceOutCh)
 
 			// Set up consensus strategy expectation before mocking the response.
 			cStrat := sfx.CStrat
@@ -2176,7 +2176,7 @@ func TestStateMachine_timers(t *testing.T) {
 			proposalTimerStarted := sfx.RoundTimer.ProposalStartNotification(1, 0)
 
 			// Channel is 1-buffered, don't have to select.
-			as.StateResponse <- tmeil.StateUpdate{VRV: sfx.EmptyVRV(1, 0)} // No PrevBlockHash at initial height.
+			re.Response <- tmeil.RoundEntranceResponse{VRV: sfx.EmptyVRV(1, 0)} // No PrevBlockHash at initial height.
 
 			// Synchronize on proposal timer starting.
 			_ = gtest.ReceiveSoon(t, proposalTimerStarted)
@@ -2191,7 +2191,7 @@ func TestStateMachine_timers(t *testing.T) {
 			// And if the strategy makes a choice, it gets sent to the mirror.
 			gtest.SendSoon(t, choosePBReq.ChoiceHash, "")
 
-			action := gtest.ReceiveSoon(t, as.Actions)
+			action := gtest.ReceiveSoon(t, re.Actions)
 			prevote := action.Prevote
 			require.Empty(t, prevote.TargetHash)
 			require.True(t, sfx.Cfg.Signer.PubKey().Verify(prevote.SignContent, prevote.Sig))
@@ -2209,7 +2209,7 @@ func TestStateMachine_timers(t *testing.T) {
 			defer sm.Wait()
 			defer cancel()
 
-			as := gtest.ReceiveSoon(t, sfx.ToMirrorCh)
+			re := gtest.ReceiveSoon(t, sfx.RoundEntranceOutCh)
 
 			// Set up consensus strategy expectation before mocking the response.
 			cStrat := sfx.CStrat
@@ -2217,7 +2217,7 @@ func TestStateMachine_timers(t *testing.T) {
 
 			// Channel is 1-buffered, don't have to select.
 			vrv := sfx.EmptyVRV(1, 0)
-			as.StateResponse <- tmeil.StateUpdate{VRV: vrv} // No PrevBlockHash at initial height.
+			re.Response <- tmeil.RoundEntranceResponse{VRV: vrv} // No PrevBlockHash at initial height.
 
 			pbs := []tmconsensus.ProposedBlock{
 				sfx.Fx.NextProposedBlock([]byte("val1"), 1),
@@ -2241,7 +2241,7 @@ func TestStateMachine_timers(t *testing.T) {
 			// Now choosing one of the PBs causes if the strategy makes a choice, it gets sent to the mirror.
 			gtest.SendSoon(t, choosePBReq.ChoiceHash, string(pbs[0].Block.Hash))
 
-			action := gtest.ReceiveSoon(t, as.Actions)
+			action := gtest.ReceiveSoon(t, re.Actions)
 			prevote := action.Prevote
 			require.Equal(t, string(pbs[0].Block.Hash), prevote.TargetHash)
 			require.True(t, sfx.Cfg.Signer.PubKey().Verify(prevote.SignContent, prevote.Sig))
@@ -2259,7 +2259,7 @@ func TestStateMachine_timers(t *testing.T) {
 			defer sm.Wait()
 			defer cancel()
 
-			as := gtest.ReceiveSoon(t, sfx.ToMirrorCh)
+			re := gtest.ReceiveSoon(t, sfx.RoundEntranceOutCh)
 
 			// Set up consensus strategy expectation before mocking the response.
 			cStrat := sfx.CStrat
@@ -2267,7 +2267,7 @@ func TestStateMachine_timers(t *testing.T) {
 
 			// Channel is 1-buffered, don't have to select.
 			vrv := sfx.EmptyVRV(1, 0)
-			as.StateResponse <- tmeil.StateUpdate{VRV: vrv} // No PrevBlockHash at initial height.
+			re.Response <- tmeil.RoundEntranceResponse{VRV: vrv} // No PrevBlockHash at initial height.
 
 			pb := sfx.Fx.NextProposedBlock([]byte("app_data_1"), 1)
 
@@ -2285,7 +2285,7 @@ func TestStateMachine_timers(t *testing.T) {
 			gtest.SendSoon(t, considerReq.ChoiceHash, string(pb.Block.Hash))
 
 			// Making a decision causes the prevote to be submitted.
-			action := gtest.ReceiveSoon(t, as.Actions)
+			action := gtest.ReceiveSoon(t, re.Actions)
 			prevote := action.Prevote
 			require.Equal(t, string(pb.Block.Hash), prevote.TargetHash)
 			require.True(t, sfx.Cfg.Signer.PubKey().Verify(prevote.SignContent, prevote.Sig))
@@ -2306,7 +2306,7 @@ func TestStateMachine_timers(t *testing.T) {
 			defer sm.Wait()
 			defer cancel()
 
-			as := gtest.ReceiveSoon(t, sfx.ToMirrorCh)
+			re := gtest.ReceiveSoon(t, sfx.RoundEntranceOutCh)
 
 			// Set up consensus strategy expectation before mocking the response.
 			cStrat := sfx.CStrat
@@ -2314,7 +2314,7 @@ func TestStateMachine_timers(t *testing.T) {
 
 			// Channel is 1-buffered, don't have to select.
 			vrv := sfx.EmptyVRV(1, 0)
-			as.StateResponse <- tmeil.StateUpdate{VRV: vrv} // No PrevBlockHash at initial height.
+			re.Response <- tmeil.RoundEntranceResponse{VRV: vrv} // No PrevBlockHash at initial height.
 
 			vrv = sfx.Fx.UpdateVRVPrevotes(ctx, vrv, map[string][]int{"": {1}}) // A quarter of the votes.
 
@@ -2352,7 +2352,7 @@ func TestStateMachine_timers(t *testing.T) {
 			defer sm.Wait()
 			defer cancel()
 
-			as := gtest.ReceiveSoon(t, sfx.ToMirrorCh)
+			re := gtest.ReceiveSoon(t, sfx.RoundEntranceOutCh)
 
 			// Set up consensus strategy expectation before mocking the response.
 			cStrat := sfx.CStrat
@@ -2360,7 +2360,7 @@ func TestStateMachine_timers(t *testing.T) {
 
 			// Channel is 1-buffered, don't have to select.
 			vrv := sfx.EmptyVRV(1, 0)
-			as.StateResponse <- tmeil.StateUpdate{VRV: vrv} // No PrevBlockHash at initial height.
+			re.Response <- tmeil.RoundEntranceResponse{VRV: vrv} // No PrevBlockHash at initial height.
 
 			vrv = sfx.Fx.UpdateVRVPrevotes(ctx, vrv, map[string][]int{"": {1}}) // A quarter of the votes.
 
@@ -2398,7 +2398,7 @@ func TestStateMachine_timers(t *testing.T) {
 			defer sm.Wait()
 			defer cancel()
 
-			as := gtest.ReceiveSoon(t, sfx.ToMirrorCh)
+			re := gtest.ReceiveSoon(t, sfx.RoundEntranceOutCh)
 
 			// Set up consensus strategy expectation before mocking the response.
 			cStrat := sfx.CStrat
@@ -2416,7 +2416,7 @@ func TestStateMachine_timers(t *testing.T) {
 			prevoteDelayTimerStarted := sfx.RoundTimer.PrevoteDelayStartNotification(1, 0)
 
 			// Channel is 1-buffered, don't have to select.
-			as.StateResponse <- tmeil.StateUpdate{VRV: vrv} // No PrevBlockHash at initial height.
+			re.Response <- tmeil.RoundEntranceResponse{VRV: vrv} // No PrevBlockHash at initial height.
 
 			// Our validator votes for the proposed block.
 			considerPBReq := gtest.ReceiveSoon(t, cStrat.ConsiderProposedBlockRequests)
@@ -2424,7 +2424,7 @@ func TestStateMachine_timers(t *testing.T) {
 			gtest.SendSoon(t, considerPBReq.ChoiceHash, string(pb1.Block.Hash))
 
 			// Just drain the action; we have other coverage that this behaves correctly.
-			_ = gtest.ReceiveSoon(t, as.Actions)
+			_ = gtest.ReceiveSoon(t, re.Actions)
 
 			// At this point, with only 12.5% or 25% of prevotes in, there should be no active timer.
 			// But we don't have a good synchronization point to match this.
@@ -2459,7 +2459,7 @@ func TestStateMachine_timers(t *testing.T) {
 			defer sm.Wait()
 			defer cancel()
 
-			as := gtest.ReceiveSoon(t, sfx.ToMirrorCh)
+			re := gtest.ReceiveSoon(t, sfx.RoundEntranceOutCh)
 
 			// Set up consensus strategy expectation before mocking the response.
 			cStrat := sfx.CStrat
@@ -2477,7 +2477,7 @@ func TestStateMachine_timers(t *testing.T) {
 			precommitDelayTimerStarted := sfx.RoundTimer.PrecommitDelayStartNotification(1, 0)
 
 			// Channel is 1-buffered, don't have to select.
-			as.StateResponse <- tmeil.StateUpdate{VRV: vrv} // No PrevBlockHash at initial height.
+			re.Response <- tmeil.RoundEntranceResponse{VRV: vrv} // No PrevBlockHash at initial height.
 
 			// Since there are majority prevotes, we go straight to precommit.
 			decidePrecommitReq := gtest.ReceiveSoon(t, cStrat.DecidePrecommitRequests)
@@ -2499,8 +2499,8 @@ func TestStateMachine_timers(t *testing.T) {
 			require.NoError(t, sfx.RoundTimer.ElapsePrecommitDelayTimer(1, 0))
 
 			// Elapsing advances to the next round now.
-			as11 := gtest.ReceiveSoon(t, sfx.ToMirrorCh)
-			as11.StateResponse <- tmeil.StateUpdate{VRV: sfx.EmptyVRV(1, 1)}
+			as11 := gtest.ReceiveSoon(t, sfx.RoundEntranceOutCh)
+			as11.Response <- tmeil.RoundEntranceResponse{VRV: sfx.EmptyVRV(1, 1)}
 
 			erc := gtest.ReceiveSoon(t, ercCh)
 			require.Equal(t, uint64(1), erc.RV.Height)

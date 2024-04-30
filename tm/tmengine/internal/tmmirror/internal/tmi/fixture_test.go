@@ -37,8 +37,8 @@ type KernelFixture struct {
 	AddPrevoteRequests   chan tmi.AddPrevoteRequest
 	AddPrecommitRequests chan tmi.AddPrecommitRequest
 
-	StateMachineRoundActionsIn chan tmeil.StateMachineRoundActionSet
-	StateMachineViewOut        chan tmconsensus.VersionedRoundView
+	StateMachineRoundEntranceIn chan tmeil.StateMachineRoundEntrance
+	StateMachineViewOut         chan tmconsensus.VersionedRoundView
 
 	Cfg tmi.KernelConfig
 
@@ -68,7 +68,7 @@ func NewKernelFixture(ctx context.Context, t *testing.T, nVals int) *KernelFixtu
 	addPrecommitRequests := make(chan tmi.AddPrecommitRequest)
 
 	// Okay to be unbuffered, this request would block reading from the response regardless.
-	smActionsIn := make(chan tmeil.StateMachineRoundActionSet)
+	smRoundEntranceIn := make(chan tmeil.StateMachineRoundEntrance)
 
 	// Must be unbuffered so kernel knows exactly what was sent to state machine.
 	smViewOut := make(chan tmconsensus.VersionedRoundView)
@@ -95,8 +95,8 @@ func NewKernelFixture(ctx context.Context, t *testing.T, nVals int) *KernelFixtu
 		AddPrevoteRequests:   addPrevoteRequests,
 		AddPrecommitRequests: addPrecommitRequests,
 
-		StateMachineRoundActionsIn: smActionsIn,
-		StateMachineViewOut:        smViewOut,
+		StateMachineRoundEntranceIn: smRoundEntranceIn,
+		StateMachineViewOut:         smViewOut,
 
 		Cfg: tmi.KernelConfig{
 			Store:          tmmemstore.NewMirrorStore(),
@@ -111,9 +111,9 @@ func NewKernelFixture(ctx context.Context, t *testing.T, nVals int) *KernelFixtu
 			SignatureScheme:                   fx.SignatureScheme,
 			CommonMessageSignatureProofScheme: fx.CommonMessageSignatureProofScheme,
 
-			GossipStrategyOut:          gso,
-			StateMachineRoundActionsIn: smActionsIn,
-			StateMachineViewOut:        smViewOut,
+			GossipStrategyOut:           gso,
+			StateMachineRoundEntranceIn: smRoundEntranceIn,
+			StateMachineViewOut:         smViewOut,
 
 			NHRRequests:        nhrRequests,
 			SnapshotRequests:   snapshotRequests,

@@ -24,7 +24,7 @@ type stateMachineView struct {
 
 	// The local state machine's height and round,
 	// and the channel it may use to send its actions.
-	roundActionSet tmeil.StateMachineRoundActionSet
+	roundEntrance tmeil.StateMachineRoundEntrance
 
 	// How we separately track the version we've sent,
 	// to know if we need to send a new view.
@@ -54,8 +54,8 @@ func (v *stateMachineView) Output(s *kState) stateMachineOutput {
 		}
 	}
 
-	if v.roundActionSet.H == s.Voting.VRV.Height &&
-		v.roundActionSet.R == s.Voting.VRV.Round &&
+	if v.roundEntrance.H == s.Voting.VRV.Height &&
+		v.roundEntrance.R == s.Voting.VRV.Round &&
 		v.lastSentVersion < s.Voting.VRV.Version {
 		return stateMachineOutput{
 			v:           v,
@@ -65,8 +65,8 @@ func (v *stateMachineView) Output(s *kState) stateMachineOutput {
 		}
 	}
 
-	if v.roundActionSet.H == s.Committing.VRV.Height &&
-		v.roundActionSet.R == s.Committing.VRV.Round &&
+	if v.roundEntrance.H == s.Committing.VRV.Height &&
+		v.roundEntrance.R == s.Committing.VRV.Round &&
 		v.lastSentVersion < s.Committing.VRV.Version {
 		return stateMachineOutput{
 			v:           v,
@@ -102,23 +102,23 @@ New value: %#v`,
 }
 
 func (v *stateMachineView) H() uint64 {
-	return v.roundActionSet.H
+	return v.roundEntrance.H
 }
 
 func (v *stateMachineView) R() uint32 {
-	return v.roundActionSet.R
+	return v.roundEntrance.R
 }
 
 func (v *stateMachineView) Actions() <-chan tmeil.StateMachineRoundAction {
-	return v.roundActionSet.Actions
+	return v.roundEntrance.Actions
 }
 
 func (v *stateMachineView) PubKey() gcrypto.PubKey {
-	return v.roundActionSet.PubKey
+	return v.roundEntrance.PubKey
 }
 
-func (v *stateMachineView) Reset(as tmeil.StateMachineRoundActionSet) {
-	v.roundActionSet = as
+func (v *stateMachineView) Reset(re tmeil.StateMachineRoundEntrance) {
+	v.roundEntrance = re
 	v.lastSentVersion = 0
 }
 
