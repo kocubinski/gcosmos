@@ -272,7 +272,7 @@ func TestKernel_initialStateUpdateToStateMachineUsesVRVClone(t *testing.T) {
 
 	gtest.SendSoon(t, kfx.AddPBRequests, pb1)
 
-	vrv := gtest.ReceiveSoon(t, kfx.StateMachineViewOut)
+	vrv := gtest.ReceiveSoon(t, kfx.StateMachineRoundViewOut).VRV
 
 	// It didn't keep our version change.
 	require.Equal(t, origVersion+1, vrv.Version)

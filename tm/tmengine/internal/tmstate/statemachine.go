@@ -38,7 +38,7 @@ type StateMachine struct {
 
 	wd *gwatchdog.Watchdog
 
-	viewInCh               <-chan tmconsensus.VersionedRoundView
+	viewInCh               <-chan tmeil.StateMachineRoundView
 	roundEntranceOutCh     chan<- tmeil.StateMachineRoundEntrance
 	finalizeBlockRequestCh chan<- tmapp.FinalizeBlockRequest
 
@@ -60,7 +60,7 @@ type StateMachineConfig struct {
 
 	ConsensusStrategy tmconsensus.ConsensusStrategy
 
-	RoundViewInCh      <-chan tmconsensus.VersionedRoundView
+	RoundViewInCh      <-chan tmeil.StateMachineRoundView
 	RoundEntranceOutCh chan<- tmeil.StateMachineRoundEntrance
 
 	FinalizeBlockRequestCh chan<- tmapp.FinalizeBlockRequest
@@ -182,8 +182,8 @@ func (m *StateMachine) handleLiveEvent(
 		)
 		return false
 
-	case vrv := <-m.viewInCh:
-		m.handleViewUpdate(ctx, rlc, vrv)
+	case v := <-m.viewInCh:
+		m.handleViewUpdate(ctx, rlc, v)
 
 	case p := <-rlc.ProposalCh:
 		if !m.recordProposedBlock(ctx, *rlc, p) {
@@ -462,9 +462,14 @@ func (m *StateMachine) sendInitialActionSet(ctx context.Context) (
 func (m *StateMachine) handleViewUpdate(
 	ctx context.Context,
 	rlc *tsi.RoundLifecycle,
-	vrv tmconsensus.VersionedRoundView,
+	v tmeil.StateMachineRoundView,
 ) {
 	defer trace.StartRegion(ctx, "handleViewUpdate").End()
+
+	vrv := v.VRV
+	if vrv.Height == 0 {
+		panic("TODO: handle view update where VRV is not set")
+	}
 
 	if vrv.Height != rlc.H || vrv.Round != rlc.R {
 		m.log.Debug(

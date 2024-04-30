@@ -122,7 +122,7 @@ func TestStateMachine_initialization(t *testing.T) {
 		vrv.Version++
 
 		// Sending an updated set of proposed blocks...
-		gtest.SendSoon(t, sfx.RoundViewInCh, vrv)
+		gtest.SendSoon(t, sfx.RoundViewInCh, tmeil.StateMachineRoundView{VRV: vrv})
 
 		// ... forces the consensus strategy to consider the available proposed blocks.
 		pbReq := gtest.ReceiveSoon(t, cStrat.ConsiderProposedBlockRequests)
@@ -197,7 +197,7 @@ func TestStateMachine_initialization(t *testing.T) {
 		vrv = sfx.Fx.UpdateVRVPrevotes(ctx, vrv, map[string][]int{
 			string(pb1.Block.Hash): {0, 1, 2},
 		})
-		gtest.SendSoon(t, sfx.RoundViewInCh, vrv)
+		gtest.SendSoon(t, sfx.RoundViewInCh, tmeil.StateMachineRoundView{VRV: vrv})
 
 		// That is majority prevote for one block,
 		// so the state machine expects a precommit.
@@ -351,7 +351,7 @@ func TestStateMachine_stateTransitions(t *testing.T) {
 				vrv = sfx.Fx.UpdateVRVPrevotes(ctx, vrv, map[string][]int{
 					"": tc.externalPrevotingVals,
 				})
-				gtest.SendSoon(t, sfx.RoundViewInCh, vrv)
+				gtest.SendSoon(t, sfx.RoundViewInCh, tmeil.StateMachineRoundView{VRV: vrv})
 
 				// Then if we receive another proposed block we will consider it,
 				// because we are still considered to be awaiting a proposal.
@@ -360,7 +360,7 @@ func TestStateMachine_stateTransitions(t *testing.T) {
 				vrv = vrv.Clone()
 				vrv.ProposedBlocks = []tmconsensus.ProposedBlock{pb}
 				vrv.Version++
-				gtest.SendSoon(t, sfx.RoundViewInCh, vrv)
+				gtest.SendSoon(t, sfx.RoundViewInCh, tmeil.StateMachineRoundView{VRV: vrv})
 
 				considerReq := gtest.ReceiveSoon(t, cStrat.ConsiderProposedBlockRequests)
 				require.Equal(t, vrv.ProposedBlocks, considerReq.Input)
@@ -396,7 +396,7 @@ func TestStateMachine_stateTransitions(t *testing.T) {
 				vrv = sfx.Fx.UpdateVRVPrevotes(ctx, vrv, map[string][]int{
 					"": {1, 2, 3}, // 75% in favor of nil.
 				})
-				gtest.SendSoon(t, sfx.RoundViewInCh, vrv)
+				gtest.SendSoon(t, sfx.RoundViewInCh, tmeil.StateMachineRoundView{VRV: vrv})
 
 				// With 75% prevotes, we are going to immediately choose a proposed block.
 
@@ -436,7 +436,7 @@ func TestStateMachine_stateTransitions(t *testing.T) {
 					"":                    {2, 3},
 				})
 				vrv.ProposedBlocks = []tmconsensus.ProposedBlock{pb}
-				gtest.SendSoon(t, sfx.RoundViewInCh, vrv)
+				gtest.SendSoon(t, sfx.RoundViewInCh, tmeil.StateMachineRoundView{VRV: vrv})
 
 				// With 75% prevotes, but not consensus, we consider the proposed block and start prevote delay.
 				_ = gtest.ReceiveSoon(t, prevoteDelayStarted)
@@ -483,7 +483,7 @@ func TestStateMachine_stateTransitions(t *testing.T) {
 				})
 				vrv.ProposedBlocks = []tmconsensus.ProposedBlock{pb}
 
-				gtest.SendSoon(t, sfx.RoundViewInCh, vrv)
+				gtest.SendSoon(t, sfx.RoundViewInCh, tmeil.StateMachineRoundView{VRV: vrv})
 
 				// With 75% precommits, but not consensus, we need to decide our own precommit.
 				// We do not submit a prevote.
@@ -523,7 +523,7 @@ func TestStateMachine_stateTransitions(t *testing.T) {
 					"": {1, 2, 3, 4, 5, 6},
 				})
 
-				gtest.SendSoon(t, sfx.RoundViewInCh, vrv)
+				gtest.SendSoon(t, sfx.RoundViewInCh, tmeil.StateMachineRoundView{VRV: vrv})
 
 				// Upon receiving the 75% precommit for nil,
 				// the state machine advances the round.
@@ -573,7 +573,7 @@ func TestStateMachine_stateTransitions(t *testing.T) {
 				})
 				vrv.ProposedBlocks = []tmconsensus.ProposedBlock{pb}
 
-				gtest.SendSoon(t, sfx.RoundViewInCh, vrv)
+				gtest.SendSoon(t, sfx.RoundViewInCh, tmeil.StateMachineRoundView{VRV: vrv})
 
 				// For now, we don't submit our own precommit because we are jumping ahead.
 				// That will probably change in the future.
@@ -617,7 +617,7 @@ func TestStateMachine_stateTransitions(t *testing.T) {
 				})
 				vrv.ProposedBlocks = []tmconsensus.ProposedBlock{pb}
 
-				gtest.SendSoon(t, sfx.RoundViewInCh, vrv)
+				gtest.SendSoon(t, sfx.RoundViewInCh, tmeil.StateMachineRoundView{VRV: vrv})
 
 				// Even though we haven't sent our own prevote,
 				// the rest of the network clearly wasn't waiting for us.
@@ -664,7 +664,7 @@ func TestStateMachine_stateTransitions(t *testing.T) {
 			vrv = sfx.Fx.UpdateVRVPrevotes(ctx, vrv, map[string][]int{
 				string(pb.Block.Hash): {0},
 			})
-			gtest.SendSoon(t, sfx.RoundViewInCh, vrv)
+			gtest.SendSoon(t, sfx.RoundViewInCh, tmeil.StateMachineRoundView{VRV: vrv})
 
 			// Next there is an update with a mix of precommits.
 			// We didn't see the prevotes but we don't need them at this point.
@@ -673,7 +673,7 @@ func TestStateMachine_stateTransitions(t *testing.T) {
 				string(pb.Block.Hash): {1, 2, 3},
 				"":                    {4, 5, 6},
 			})
-			gtest.SendSoon(t, sfx.RoundViewInCh, vrv)
+			gtest.SendSoon(t, sfx.RoundViewInCh, tmeil.StateMachineRoundView{VRV: vrv})
 
 			// This update causes both the precommit delay to start
 			// and a precommit decision request.
@@ -718,7 +718,7 @@ func TestStateMachine_stateTransitions(t *testing.T) {
 			vrv = sfx.Fx.UpdateVRVPrevotes(ctx, vrv, map[string][]int{
 				"": {0},
 			})
-			gtest.SendSoon(t, sfx.RoundViewInCh, vrv)
+			gtest.SendSoon(t, sfx.RoundViewInCh, tmeil.StateMachineRoundView{VRV: vrv})
 
 			// Now there is an update with majority but not 100% precommits for nil.
 			vrv = sfx.Fx.UpdateVRVPrecommits(ctx, vrv, map[string][]int{
@@ -726,7 +726,7 @@ func TestStateMachine_stateTransitions(t *testing.T) {
 			})
 
 			erc11Ch := cStrat.ExpectEnterRound(1, 1, nil)
-			gtest.SendSoon(t, sfx.RoundViewInCh, vrv)
+			gtest.SendSoon(t, sfx.RoundViewInCh, tmeil.StateMachineRoundView{VRV: vrv})
 
 			// For now, we don't submit our own precommit because we are jumping ahead.
 			// That will probably change in the future.
@@ -778,14 +778,14 @@ func TestStateMachine_stateTransitions(t *testing.T) {
 			vrv = sfx.Fx.UpdateVRVPrevotes(ctx, vrv, map[string][]int{
 				string(pb.Block.Hash): {0},
 			})
-			gtest.SendSoon(t, sfx.RoundViewInCh, vrv)
+			gtest.SendSoon(t, sfx.RoundViewInCh, tmeil.StateMachineRoundView{VRV: vrv})
 
 			// Now there is an update with majority but not 100% precommits for the block.
 			vrv = sfx.Fx.UpdateVRVPrecommits(ctx, vrv, map[string][]int{
 				string(pb.Block.Hash): {0, 1, 2, 3, 4, 5},
 			})
 
-			gtest.SendSoon(t, sfx.RoundViewInCh, vrv)
+			gtest.SendSoon(t, sfx.RoundViewInCh, tmeil.StateMachineRoundView{VRV: vrv})
 
 			// For now, we don't submit our own precommit because we are jumping ahead.
 			// That will probably change in the future.
@@ -1007,7 +1007,7 @@ func TestStateMachine_decidePrecommit(t *testing.T) {
 			"":                     {2},
 		})
 
-		gtest.SendSoon(t, sfx.RoundViewInCh, vrv)
+		gtest.SendSoon(t, sfx.RoundViewInCh, tmeil.StateMachineRoundView{VRV: vrv})
 
 		// Synchronize on the prevote delay starting, then make it elapse.
 		_ = gtest.ReceiveSoon(t, prevoteDelayTimerStarted)
@@ -1079,7 +1079,7 @@ func TestStateMachine_decidePrecommit(t *testing.T) {
 			string(pb1.Block.Hash): {0, 1},
 			"":                     {2},
 		})
-		gtest.SendSoon(t, sfx.RoundViewInCh, vrv)
+		gtest.SendSoon(t, sfx.RoundViewInCh, tmeil.StateMachineRoundView{VRV: vrv})
 
 		// We don't have a synchronization point to detect the active prevote delay timer.
 		// Poll for it to be active, then make it elapse.
@@ -1090,7 +1090,7 @@ func TestStateMachine_decidePrecommit(t *testing.T) {
 			string(pb1.Block.Hash): {0, 1, 3},
 			"":                     {2},
 		})
-		gtest.SendSoon(t, sfx.RoundViewInCh, vrv)
+		gtest.SendSoon(t, sfx.RoundViewInCh, tmeil.StateMachineRoundView{VRV: vrv})
 
 		// The state machine makes a decide precommit request.
 		req := gtest.ReceiveSoon(t, cStrat.DecidePrecommitRequests)
@@ -1160,7 +1160,7 @@ func TestStateMachine_decidePrecommit(t *testing.T) {
 			string(pb1.Block.Hash): {0, 1, 2, 3},
 		})
 
-		gtest.SendSoon(t, sfx.RoundViewInCh, vrv)
+		gtest.SendSoon(t, sfx.RoundViewInCh, tmeil.StateMachineRoundView{VRV: vrv})
 
 		// With full prevotes present, the state machine makes a decide precommit request.
 		req := gtest.ReceiveSoon(t, cStrat.DecidePrecommitRequests)
@@ -1232,7 +1232,7 @@ func TestStateMachine_nilPrecommit(t *testing.T) {
 		vrv = sfx.Fx.UpdateVRVPrecommits(ctx, vrv, map[string][]int{
 			"": {0, 1, 2, 3},
 		})
-		gtest.SendSoon(t, sfx.RoundViewInCh, vrv)
+		gtest.SendSoon(t, sfx.RoundViewInCh, tmeil.StateMachineRoundView{VRV: vrv})
 
 		// The state machine requests any existing state at 1/1 first.
 		re = gtest.ReceiveSoon(t, sfx.RoundEntranceOutCh)
@@ -1294,7 +1294,7 @@ func TestStateMachine_nilPrecommit(t *testing.T) {
 			string(pb1.Block.Hash): {0, 3},
 			"":                     {1},
 		})
-		gtest.SendSoon(t, sfx.RoundViewInCh, vrv)
+		gtest.SendSoon(t, sfx.RoundViewInCh, tmeil.StateMachineRoundView{VRV: vrv})
 
 		// This causes a precommit delay.
 		_ = gtest.ReceiveSoon(t, precommitDelayStarted)
@@ -1307,7 +1307,7 @@ func TestStateMachine_nilPrecommit(t *testing.T) {
 			string(pb1.Block.Hash): {0, 3},
 			"":                     {1, 2},
 		})
-		gtest.SendSoon(t, sfx.RoundViewInCh, vrv)
+		gtest.SendSoon(t, sfx.RoundViewInCh, tmeil.StateMachineRoundView{VRV: vrv})
 
 		// Once the full nil precommits arrive, we will go to the next round.
 		as11 := gtest.ReceiveSoon(t, sfx.RoundEntranceOutCh)
@@ -1370,7 +1370,7 @@ func TestStateMachine_unexpectedSteps(t *testing.T) {
 		vrv = sfx.Fx.UpdateVRVPrecommits(ctx, vrv, map[string][]int{
 			string(pb1.Block.Hash): {0, 1, 2},
 		})
-		gtest.SendSoon(t, sfx.RoundViewInCh, vrv)
+		gtest.SendSoon(t, sfx.RoundViewInCh, tmeil.StateMachineRoundView{VRV: vrv})
 
 		// Upon receiving that update, we are in commit wait.
 		gtest.ReceiveSoon(t, commitWaitStarted)
@@ -1384,7 +1384,7 @@ func TestStateMachine_unexpectedSteps(t *testing.T) {
 		vrv = sfx.Fx.UpdateVRVPrecommits(ctx, vrv, map[string][]int{
 			string(pb1.Block.Hash): {0, 1, 2, 3},
 		})
-		gtest.SendSoon(t, sfx.RoundViewInCh, vrv)
+		gtest.SendSoon(t, sfx.RoundViewInCh, tmeil.StateMachineRoundView{VRV: vrv})
 
 		// Just handling the view update successfully at least means
 		// there is general handling for view updates while in commit wait.
@@ -1439,7 +1439,7 @@ func TestStateMachine_unexpectedSteps(t *testing.T) {
 		vrv = sfx.Fx.UpdateVRVPrecommits(ctx, vrv, map[string][]int{
 			string(pb1.Block.Hash): {0, 1, 2},
 		})
-		gtest.SendSoon(t, sfx.RoundViewInCh, vrv)
+		gtest.SendSoon(t, sfx.RoundViewInCh, tmeil.StateMachineRoundView{VRV: vrv})
 
 		// Upon receiving that update, we are in commit wait.
 		gtest.ReceiveSoon(t, commitWaitStarted)
@@ -1456,7 +1456,7 @@ func TestStateMachine_unexpectedSteps(t *testing.T) {
 		vrv = sfx.Fx.UpdateVRVPrecommits(ctx, vrv, map[string][]int{
 			string(pb1.Block.Hash): {0, 1, 2, 3},
 		})
-		gtest.SendSoon(t, sfx.RoundViewInCh, vrv)
+		gtest.SendSoon(t, sfx.RoundViewInCh, tmeil.StateMachineRoundView{VRV: vrv})
 
 		// Just handling the view update successfully at least means
 		// there is general handling for view updates while in commit wait.
@@ -1598,7 +1598,7 @@ func TestStateMachine_finalization(t *testing.T) {
 		vrv = sfx.Fx.UpdateVRVPrecommits(ctx, vrv, map[string][]int{
 			string(pb1.Block.Hash): {0, 1, 2, 3},
 		})
-		gtest.SendSoon(t, sfx.RoundViewInCh, vrv)
+		gtest.SendSoon(t, sfx.RoundViewInCh, tmeil.StateMachineRoundView{VRV: vrv})
 
 		// This causes a finalization request.
 		finReq := gtest.ReceiveSoon(t, sfx.FinalizeBlockRequests)
@@ -1700,7 +1700,7 @@ func TestStateMachine_finalization(t *testing.T) {
 			string(pb1.Block.Hash): {0, 1},
 			"":                     {3},
 		})
-		gtest.SendSoon(t, sfx.RoundViewInCh, vrv)
+		gtest.SendSoon(t, sfx.RoundViewInCh, tmeil.StateMachineRoundView{VRV: vrv})
 
 		_ = gtest.ReceiveSoon(t, precommitDelayTimerStarted)
 
@@ -1709,7 +1709,7 @@ func TestStateMachine_finalization(t *testing.T) {
 			string(pb1.Block.Hash): {0, 1, 2},
 			"":                     {3},
 		})
-		gtest.SendSoon(t, sfx.RoundViewInCh, vrv)
+		gtest.SendSoon(t, sfx.RoundViewInCh, tmeil.StateMachineRoundView{VRV: vrv})
 
 		// This causes a finalization request.
 		finReq := gtest.ReceiveSoon(t, sfx.FinalizeBlockRequests)
@@ -1803,7 +1803,7 @@ func TestStateMachine_finalization(t *testing.T) {
 		vrv = sfx.Fx.UpdateVRVPrecommits(ctx, vrv, map[string][]int{
 			string(pb1.Block.Hash): {0, 1, 2, 3},
 		})
-		gtest.SendSoon(t, sfx.RoundViewInCh, vrv)
+		gtest.SendSoon(t, sfx.RoundViewInCh, tmeil.StateMachineRoundView{VRV: vrv})
 
 		// This causes a finalization request.
 		finReq := gtest.ReceiveSoon(t, sfx.FinalizeBlockRequests)
@@ -1875,7 +1875,7 @@ func TestStateMachine_finalization(t *testing.T) {
 		vrv = sfx.Fx.UpdateVRVPrecommits(ctx, vrv, map[string][]int{
 			string(pb1.Block.Hash): {0, 1, 2, 3},
 		})
-		gtest.SendSoon(t, sfx.RoundViewInCh, vrv)
+		gtest.SendSoon(t, sfx.RoundViewInCh, tmeil.StateMachineRoundView{VRV: vrv})
 		gtest.ReceiveSoon(t, commitWaitStarted)
 
 		// Normally this would cause a finalization request,
@@ -1893,7 +1893,7 @@ func TestStateMachine_finalization(t *testing.T) {
 		vrv = vrv.Clone()
 		vrv.ProposedBlocks = []tmconsensus.ProposedBlock{pb1}
 		vrv.Version++
-		gtest.SendSoon(t, sfx.RoundViewInCh, vrv)
+		gtest.SendSoon(t, sfx.RoundViewInCh, tmeil.StateMachineRoundView{VRV: vrv})
 
 		finReq := gtest.ReceiveSoon(t, sfx.FinalizeBlockRequests)
 		sfx.RoundTimer.RequireNoActiveTimer(t)
@@ -1951,7 +1951,7 @@ func TestStateMachine_finalization(t *testing.T) {
 		vrv = sfx.Fx.UpdateVRVPrecommits(ctx, vrv, map[string][]int{
 			string(pb1.Block.Hash): {0, 1, 2},
 		})
-		gtest.SendSoon(t, sfx.RoundViewInCh, vrv)
+		gtest.SendSoon(t, sfx.RoundViewInCh, tmeil.StateMachineRoundView{VRV: vrv})
 
 		// On the first height, we send the finalize response first and then elapse the commit wait timer.
 		finReq := gtest.ReceiveSoon(t, sfx.FinalizeBlockRequests)
@@ -1993,7 +1993,7 @@ func TestStateMachine_finalization(t *testing.T) {
 		vrv = sfx.Fx.UpdateVRVPrecommits(ctx, vrv, map[string][]int{
 			string(pb2.Block.Hash): {0, 1, 2},
 		})
-		gtest.SendSoon(t, sfx.RoundViewInCh, vrv)
+		gtest.SendSoon(t, sfx.RoundViewInCh, tmeil.StateMachineRoundView{VRV: vrv})
 
 		// For the second height, we elapse the commit wait timer first and then send the finalization request,
 		// the opposite order of the first height.
@@ -2036,7 +2036,7 @@ func TestStateMachine_finalization(t *testing.T) {
 		vrv = sfx.Fx.UpdateVRVPrecommits(ctx, vrv, map[string][]int{
 			string(pb3.Block.Hash): {0, 1, 2},
 		})
-		gtest.SendSoon(t, sfx.RoundViewInCh, vrv)
+		gtest.SendSoon(t, sfx.RoundViewInCh, tmeil.StateMachineRoundView{VRV: vrv})
 
 		finReq = gtest.ReceiveSoon(t, sfx.FinalizeBlockRequests)
 		require.NoError(t, sfx.RoundTimer.ElapseCommitWaitTimer(3, 0))
@@ -2079,7 +2079,7 @@ func TestStateMachine_followerMode(t *testing.T) {
 		vrv.ProposedBlocks = []tmconsensus.ProposedBlock{pb}
 		vrv.Version++
 
-		gtest.SendSoon(t, sfx.RoundViewInCh, vrv)
+		gtest.SendSoon(t, sfx.RoundViewInCh, tmeil.StateMachineRoundView{VRV: vrv})
 
 		// This causes a Consider call.
 		// Even in follower mode, the state machine is allowed to consider and choose proposed blocks.
@@ -2098,7 +2098,7 @@ func TestStateMachine_followerMode(t *testing.T) {
 
 		// The majority of the network also prevotes for the block.
 		vrv = sfx.Fx.UpdateVRVPrevotes(ctx, vrv, map[string][]int{string(pb.Block.Hash): {0, 1, 2}})
-		gtest.SendSoon(t, sfx.RoundViewInCh, vrv)
+		gtest.SendSoon(t, sfx.RoundViewInCh, tmeil.StateMachineRoundView{VRV: vrv})
 
 		// Now that we have majority prevotes, the state machine makes a precommit decision request.
 		precommitReq := gtest.ReceiveSoon(t, cStrat.DecidePrecommitRequests)
@@ -2108,7 +2108,7 @@ func TestStateMachine_followerMode(t *testing.T) {
 
 		// Then the rest of the precommits arrive.
 		vrv = sfx.Fx.UpdateVRVPrecommits(ctx, vrv, map[string][]int{string(pb.Block.Hash): {0, 1, 2, 3}})
-		gtest.SendSoon(t, sfx.RoundViewInCh, vrv)
+		gtest.SendSoon(t, sfx.RoundViewInCh, tmeil.StateMachineRoundView{VRV: vrv})
 
 		// This causes a finalize block request.
 		finReq := gtest.ReceiveSoon(t, sfx.FinalizeBlockRequests)
@@ -2228,7 +2228,7 @@ func TestStateMachine_timers(t *testing.T) {
 			vrv.ProposedBlocks = slices.Clone(pbs)
 			vrv.Version++
 
-			gtest.SendSoon(t, sfx.RoundViewInCh, vrv)
+			gtest.SendSoon(t, sfx.RoundViewInCh, tmeil.StateMachineRoundView{VRV: vrv})
 
 			// This causes a Consider call, and we won't pick one at this point.
 			considerReq := gtest.ReceiveSoon(t, cStrat.ConsiderProposedBlockRequests)
@@ -2275,7 +2275,7 @@ func TestStateMachine_timers(t *testing.T) {
 			vrv.ProposedBlocks = []tmconsensus.ProposedBlock{pb}
 			vrv.Version++
 
-			gtest.SendSoon(t, sfx.RoundViewInCh, vrv)
+			gtest.SendSoon(t, sfx.RoundViewInCh, tmeil.StateMachineRoundView{VRV: vrv})
 
 			// This causes a Consider call.
 			considerReq := gtest.ReceiveSoon(t, cStrat.ConsiderProposedBlockRequests)
@@ -2318,7 +2318,7 @@ func TestStateMachine_timers(t *testing.T) {
 
 			vrv = sfx.Fx.UpdateVRVPrevotes(ctx, vrv, map[string][]int{"": {1}}) // A quarter of the votes.
 
-			gtest.SendSoon(t, sfx.RoundViewInCh, vrv)
+			gtest.SendSoon(t, sfx.RoundViewInCh, tmeil.StateMachineRoundView{VRV: vrv})
 
 			// After the first prevote, the proposal timer is still active,
 			// and no PB requests have started.
@@ -2329,7 +2329,7 @@ func TestStateMachine_timers(t *testing.T) {
 			// Now more nil prevotes arrive, which tells the state machine that
 			// it is time to prevote.
 			vrv = sfx.Fx.UpdateVRVPrevotes(ctx, vrv, map[string][]int{"": {1, 2, 3}})
-			gtest.SendSoon(t, sfx.RoundViewInCh, vrv)
+			gtest.SendSoon(t, sfx.RoundViewInCh, tmeil.StateMachineRoundView{VRV: vrv})
 
 			// Seeing the >1/3 prevotes causes a ChooseProposedBlock request
 			// (with an empty set of proposed blocks since the VRV doesn't have any).
@@ -2364,7 +2364,7 @@ func TestStateMachine_timers(t *testing.T) {
 
 			vrv = sfx.Fx.UpdateVRVPrevotes(ctx, vrv, map[string][]int{"": {1}}) // A quarter of the votes.
 
-			gtest.SendSoon(t, sfx.RoundViewInCh, vrv)
+			gtest.SendSoon(t, sfx.RoundViewInCh, tmeil.StateMachineRoundView{VRV: vrv})
 
 			// After the first prevote, the proposal timer is still active,
 			// and no PB requests have started.
@@ -2375,7 +2375,7 @@ func TestStateMachine_timers(t *testing.T) {
 			// Now another prevote arrives and we are at 50% prevotes,
 			// above the minority threshold but below majority.
 			vrv = sfx.Fx.UpdateVRVPrevotes(ctx, vrv, map[string][]int{"": {1, 2}})
-			gtest.SendSoon(t, sfx.RoundViewInCh, vrv)
+			gtest.SendSoon(t, sfx.RoundViewInCh, tmeil.StateMachineRoundView{VRV: vrv})
 
 			// We are still waiting for proposals,
 			// and there is no new consider or choose request.
@@ -2434,7 +2434,7 @@ func TestStateMachine_timers(t *testing.T) {
 				string(pb1.Block.Hash): {0, 1, 2},
 				"":                     {3, 4, 5},
 			})
-			gtest.SendSoon(t, sfx.RoundViewInCh, vrv)
+			gtest.SendSoon(t, sfx.RoundViewInCh, tmeil.StateMachineRoundView{VRV: vrv})
 
 			// Then we have an active prevote delay timer.
 			_ = gtest.ReceiveSoon(t, prevoteDelayTimerStarted)
@@ -2488,7 +2488,7 @@ func TestStateMachine_timers(t *testing.T) {
 				string(pb1.Block.Hash): {0, 1, 2},
 				"":                     {3, 4, 5},
 			})
-			gtest.SendSoon(t, sfx.RoundViewInCh, vrv)
+			gtest.SendSoon(t, sfx.RoundViewInCh, tmeil.StateMachineRoundView{VRV: vrv})
 
 			// Then we have an active prevote delay timer.
 			_ = gtest.ReceiveSoon(t, precommitDelayTimerStarted)

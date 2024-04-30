@@ -1944,7 +1944,7 @@ func TestMirror_stateMachineActions(t *testing.T) {
 		mfx.Fx.SignProposal(ctx, &pb, 1)
 		require.Equal(t, tmconsensus.HandleProposedBlockAccepted, m.HandleProposedBlock(ctx, pb))
 
-		smv := gtest.ReceiveSoon(t, mfx.StateMachineViewOut)
+		smv := gtest.ReceiveSoon(t, mfx.StateMachineRoundViewOut).VRV
 		require.Equal(t, []tmconsensus.ProposedBlock{pb}, smv.ProposedBlocks)
 
 		// Then the state machine submits its valid prevote to the mirror.
@@ -1965,7 +1965,7 @@ func TestMirror_stateMachineActions(t *testing.T) {
 		}
 
 		// The mirror repeats the vote back to the state machine.
-		smv = gtest.ReceiveSoon(t, mfx.StateMachineViewOut)
+		smv = gtest.ReceiveSoon(t, mfx.StateMachineRoundViewOut).VRV
 		require.Equal(t, uint(1), smv.PrevoteProofs[pbHash].SignatureBitSet().Count())
 
 		// Now the mirror receives the remainder of the prevotes over the network.
@@ -1983,7 +1983,7 @@ func TestMirror_stateMachineActions(t *testing.T) {
 		require.Equal(t, tmconsensus.HandleVoteProofsAccepted, m.HandlePrevoteProofs(ctx, prevoteProof))
 
 		// The state machine sees the 100% prevote update.
-		smv = gtest.ReceiveSoon(t, mfx.StateMachineViewOut)
+		smv = gtest.ReceiveSoon(t, mfx.StateMachineRoundViewOut).VRV
 		require.Equal(t, uint(4), smv.PrevoteProofs[pbHash].SignatureBitSet().Count())
 
 		// Now the mirror receives everyone else's precommit over the network.
@@ -1997,7 +1997,7 @@ func TestMirror_stateMachineActions(t *testing.T) {
 		require.Equal(t, tmconsensus.HandleVoteProofsAccepted, m.HandlePrecommitProofs(ctx, precommitProof))
 
 		// The state machine sees the committing update.
-		smv = gtest.ReceiveSoon(t, mfx.StateMachineViewOut)
+		smv = gtest.ReceiveSoon(t, mfx.StateMachineRoundViewOut).VRV
 		require.Equal(t, uint(3), smv.PrecommitProofs[pbHash].SignatureBitSet().Count())
 
 		// And as a sanity check, the gossip strategy output indicates that 1/0 is now in committing.
@@ -2071,7 +2071,7 @@ func TestMirror_stateMachineActions(t *testing.T) {
 		}
 
 		// The mirror repeats the vote back to the state machine.
-		smv := gtest.ReceiveSoon(t, mfx.StateMachineViewOut)
+		smv := gtest.ReceiveSoon(t, mfx.StateMachineRoundViewOut).VRV
 		require.Equal(t, uint(1), smv.PrevoteProofs[""].SignatureBitSet().Count())
 
 		// Now the mirror receives the remainder of the prevotes over the network.
@@ -2089,7 +2089,7 @@ func TestMirror_stateMachineActions(t *testing.T) {
 		require.Equal(t, tmconsensus.HandleVoteProofsAccepted, m.HandlePrevoteProofs(ctx, prevoteProof))
 
 		// The state machine sees the 100% prevote update.
-		smv = gtest.ReceiveSoon(t, mfx.StateMachineViewOut)
+		smv = gtest.ReceiveSoon(t, mfx.StateMachineRoundViewOut).VRV
 		require.Equal(t, uint(4), smv.PrevoteProofs[""].SignatureBitSet().Count())
 
 		// Now the mirror receives everyone else's precommit over the network.
@@ -2131,12 +2131,12 @@ func TestMirror_stateMachineActions(t *testing.T) {
 		// the state machine's own action, as that view was orphaned.
 		// If that changes in the future, then we will need to either add a synchronizatoin point
 		// or handle the first read being either a 3 or a 4.
-		smv = gtest.ReceiveSoon(t, mfx.StateMachineViewOut)
+		smv = gtest.ReceiveSoon(t, mfx.StateMachineRoundViewOut).VRV
 		require.Equal(t, uint(3), smv.PrecommitProofs[""].SignatureBitSet().Count())
 	})
 }
 
-func TestMirror_StateMachineViewOut(t *testing.T) {
+func TestMirror_StateMachineRoundViewOut(t *testing.T) {
 	t.Parallel()
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -2149,7 +2149,7 @@ func TestMirror_StateMachineViewOut(t *testing.T) {
 	defer cancel()
 
 	// Before the state machine starts, no value is sending.
-	gtest.NotSending(t, mfx.StateMachineViewOut)
+	gtest.NotSending(t, mfx.StateMachineRoundViewOut)
 
 	// Add a proposed block to the mirror before the state machine starts.
 	pb11 := mfx.Fx.NextProposedBlock([]byte("app_data_1_1"), 1)
@@ -2157,7 +2157,7 @@ func TestMirror_StateMachineViewOut(t *testing.T) {
 	require.Equal(t, tmconsensus.HandleProposedBlockAccepted, m.HandleProposedBlock(ctx, pb11))
 
 	// The state machine still hasn't started, so there is still nothing being sent.
-	gtest.NotSending(t, mfx.StateMachineViewOut)
+	gtest.NotSending(t, mfx.StateMachineRoundViewOut)
 
 	// Now the state machine starts.
 	actionCh := make(chan tmeil.StateMachineRoundAction, 3)
@@ -2175,13 +2175,13 @@ func TestMirror_StateMachineViewOut(t *testing.T) {
 
 	// And because the initial state update consumed the state machine view,
 	// there is still nothing sent on the state machine view out channel.
-	gtest.NotSending(t, mfx.StateMachineViewOut)
+	gtest.NotSending(t, mfx.StateMachineRoundViewOut)
 
 	// But now if another proposed block arrives, it will reach the state machine view out.
 	pb12 := mfx.Fx.NextProposedBlock([]byte("app_data_1_2"), 2)
 	mfx.Fx.SignProposal(ctx, &pb12, 2)
 	require.Equal(t, tmconsensus.HandleProposedBlockAccepted, m.HandleProposedBlock(ctx, pb12))
-	vrv := gtest.ReceiveSoon(t, mfx.StateMachineViewOut)
+	vrv := gtest.ReceiveSoon(t, mfx.StateMachineRoundViewOut).VRV
 	_ = vrv
 }
 
@@ -2247,7 +2247,7 @@ func TestMirror_VoteSummaryReset(t *testing.T) {
 	require.Equal(t, tmconsensus.HandleVoteProofsAccepted, m.HandlePrecommitProofs(ctx, precommitProof))
 
 	// That update is sent to the state machine.
-	vrv10 := gtest.ReceiveSoon(t, mfx.StateMachineViewOut)
+	vrv10 := gtest.ReceiveSoon(t, mfx.StateMachineRoundViewOut).VRV
 	require.Len(t, vrv10.PrecommitProofs, 2)
 
 	// And the state machine enters 1/1.
@@ -2289,7 +2289,7 @@ func TestMirror_VoteSummaryReset(t *testing.T) {
 	}
 	require.Equal(t, tmconsensus.HandleVoteProofsAccepted, m.HandlePrecommitProofs(ctx, precommitProof))
 
-	vrv11 := gtest.ReceiveSoon(t, mfx.StateMachineViewOut)
+	vrv11 := gtest.ReceiveSoon(t, mfx.StateMachineRoundViewOut).VRV
 	require.Len(t, vrv11.PrecommitProofs, 2)
 
 	// Now the state machine enters 1/2.
@@ -2354,7 +2354,7 @@ func TestMirror_nilCommitSentToGossipStrategy(t *testing.T) {
 	}
 
 	// The mirror repeats the vote back to the state machine.
-	smv := gtest.ReceiveSoon(t, mfx.StateMachineViewOut)
+	smv := gtest.ReceiveSoon(t, mfx.StateMachineRoundViewOut).VRV
 	require.Equal(t, uint(1), smv.PrevoteProofs[""].SignatureBitSet().Count())
 
 	// Now the mirror receives the remainder of the prevotes over the network.
@@ -2385,7 +2385,7 @@ func TestMirror_nilCommitSentToGossipStrategy(t *testing.T) {
 	require.Equal(t, uint(3), gso.Voting.PrecommitProofs[""].SignatureBitSet().Count())
 
 	// Same thing reported to the state machine.
-	smv = gtest.ReceiveSoon(t, mfx.StateMachineViewOut)
+	smv = gtest.ReceiveSoon(t, mfx.StateMachineRoundViewOut).VRV
 	require.Equal(t, uint(3), smv.PrecommitProofs[""].SignatureBitSet().Count())
 
 	// Now, the state machine reports its nil precommit,

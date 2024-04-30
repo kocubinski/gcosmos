@@ -46,15 +46,15 @@ type Engine struct {
 
 func New(ctx context.Context, log *slog.Logger, opts ...Opt) (*Engine, error) {
 	// These channels must be unbuffered so that all communication is synchronized.
-	smViewCh := make(chan tmconsensus.VersionedRoundView)
+	smViewCh := make(chan tmeil.StateMachineRoundView)
 	gsCh := make(chan tmelink.NetworkViewUpdate)
 
 	e := &Engine{
 		log: log,
 
 		mCfg: tmmirror.MirrorConfig{
-			GossipStrategyOut:   gsCh,
-			StateMachineViewOut: smViewCh,
+			GossipStrategyOut:        gsCh,
+			StateMachineRoundViewOut: smViewCh,
 		},
 	}
 

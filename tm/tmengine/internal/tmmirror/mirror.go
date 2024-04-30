@@ -58,7 +58,7 @@ type MirrorConfig struct {
 
 	GossipStrategyOut chan<- tmelink.NetworkViewUpdate
 
-	StateMachineViewOut chan<- tmconsensus.VersionedRoundView
+	StateMachineRoundViewOut chan<- tmeil.StateMachineRoundView
 
 	StateMachineRoundEntranceIn <-chan tmeil.StateMachineRoundEntrance
 
@@ -85,7 +85,7 @@ func (c MirrorConfig) toKernelConfig() tmi.KernelConfig {
 		GossipStrategyOut: c.GossipStrategyOut,
 
 		StateMachineRoundEntranceIn: c.StateMachineRoundEntranceIn,
-		StateMachineViewOut:         c.StateMachineViewOut,
+		StateMachineRoundViewOut:    c.StateMachineRoundViewOut,
 
 		Watchdog: c.Watchdog,
 	}

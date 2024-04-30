@@ -79,7 +79,7 @@ type KernelConfig struct {
 	// but it will occasionally "blip" to the committing view
 	// when the Mirror considers a round committed
 	// while the state machine is in a Commit Wait phase.
-	StateMachineViewOut chan<- tmconsensus.VersionedRoundView
+	StateMachineRoundViewOut chan<- tmeil.StateMachineRoundView
 
 	NHRRequests        <-chan chan NetworkHeightRound
 	SnapshotRequests   <-chan SnapshotRequest
@@ -174,7 +174,7 @@ func NewKernel(ctx context.Context, log *slog.Logger, cfg KernelConfig) (*Kernel
 
 		InFlightFetchPBs: make(map[string]context.CancelFunc),
 
-		StateMachineView: newStateMachineView(cfg.StateMachineViewOut),
+		StateMachineViewManager: newStateMachineViewManager(cfg.StateMachineRoundViewOut),
 	}
 
 	// Have to load the committing view first,
@@ -234,7 +234,7 @@ func (k *Kernel) mainLoop(ctx context.Context, s *kState, wd *gwatchdog.Watchdog
 	})
 
 	for {
-		smOut := s.StateMachineView.Output(s)
+		smOut := s.StateMachineViewManager.Output(s)
 
 		gsOut := k.gossipStrategyOutput(s)
 
@@ -248,8 +248,8 @@ func (k *Kernel) mainLoop(ctx context.Context, s *kState, wd *gwatchdog.Watchdog
 				"voting_height", s.Voting.VRV.Height,
 				"voting_round", s.Voting.VRV.Round,
 				"voting_vote_summary", s.Voting.VRV.VoteSummary,
-				"state_machine_height", s.StateMachineView.H(),
-				"state_machine_round", s.StateMachineView.R(),
+				"state_machine_height", s.StateMachineViewManager.H(),
+				"state_machine_round", s.StateMachineViewManager.R(),
 			)
 			return
 
@@ -294,7 +294,7 @@ func (k *Kernel) mainLoop(ctx context.Context, s *kState, wd *gwatchdog.Watchdog
 		case re := <-k.stateMachineRoundEntranceIn:
 			k.handleStateMachineRoundEntrance(ctx, s, re)
 
-		case act := <-s.StateMachineView.Actions():
+		case act := <-s.StateMachineViewManager.Actions():
 			k.handleStateMachineAction(ctx, s, act)
 
 		case sig := <-wSig:
@@ -1010,14 +1010,14 @@ func (k *Kernel) checkMissingPBs(ctx context.Context, s *kState, proofs map[stri
 func (k *Kernel) advanceVotingRound(s *kState) error {
 	// If the round is advancing and the state machine is still pointing at the voting round,
 	// we need to ensure the view with sufficient commit information is sent to the state machine.
-	if s.StateMachineView.H() == s.Voting.VRV.Height &&
-		s.StateMachineView.R() == s.Voting.VRV.Round {
+	if s.StateMachineViewManager.H() == s.Voting.VRV.Height &&
+		s.StateMachineViewManager.R() == s.Voting.VRV.Round {
 		clone := s.Voting.VRV.Clone()
 		// It ought to be okay to force the send here.
 		// Getting the initial nil proofs should never fail,
 		// and even if it did, that would have no bearing on the existing voting view
 		// being sent to the state machine.
-		s.StateMachineView.ForceSend(&clone)
+		s.StateMachineViewManager.ForceSend(&clone)
 	}
 
 	// And, we always set the NilVotedRound on the state here,
@@ -1398,7 +1398,7 @@ func (k *Kernel) handleStateMachineRoundEntrance(ctx context.Context, s *kState,
 	defer trace.StartRegion(ctx, "handleStateMachineRoundEntrance").End()
 
 	// We have received an updated height and round, and new action channels.
-	s.StateMachineView.Reset(re)
+	s.StateMachineViewManager.Reset(re)
 
 	// And now we need to respond with the matching view.
 	view, vID, status := s.FindView(re.H, re.R, "(*Kernel).handleStateMachineRoundEntrance")
@@ -1444,7 +1444,7 @@ func (k *Kernel) handleStateMachineRoundEntrance(ctx context.Context, s *kState,
 
 	// Response channel is 1-buffered so it is safe to send this without a select.
 	re.Response <- r
-	s.StateMachineView.MarkFirstSentVersion(r.VRV.Version)
+	s.StateMachineViewManager.MarkFirstSentVersion(r.VRV.Version)
 }
 
 func (k *Kernel) handleStateMachineAction(ctx context.Context, s *kState, act tmeil.StateMachineRoundAction) {
@@ -1475,7 +1475,7 @@ func (k *Kernel) handleStateMachineAction(ctx context.Context, s *kState, act tm
 	// For votes, we have to duplicate some of the logic that happens in the mirror.
 	// Specifically, we have to get the current state so we can produce an accurate VoteUpdate.
 
-	h, r := s.StateMachineView.H(), s.StateMachineView.R()
+	h, r := s.StateMachineViewManager.H(), s.StateMachineViewManager.R()
 	v, vID, _ := s.FindView(h, r, "(*Kernel).handleStateMachineAction")
 	if v == nil || (vID != ViewIDVoting && vID != ViewIDCommitting) {
 		k.log.Info(
@@ -1523,7 +1523,7 @@ func (k *Kernel) handleStateMachineAction(ctx context.Context, s *kState, act tm
 			// But we will clone it first in case something goes wrong.
 			updatedVote = existingVote.Clone()
 		}
-		if err := updatedVote.AddSignature(act.Prevote.Sig, s.StateMachineView.PubKey()); err != nil {
+		if err := updatedVote.AddSignature(act.Prevote.Sig, s.StateMachineViewManager.PubKey()); err != nil {
 			k.log.Error(
 				"Failed to add prevote signature from state machine",
 				"prevote_h", h,
@@ -1574,7 +1574,7 @@ func (k *Kernel) handleStateMachineAction(ctx context.Context, s *kState, act tm
 	} else {
 		updatedVote = existingVote.Clone()
 	}
-	if err := updatedVote.AddSignature(act.Precommit.Sig, s.StateMachineView.PubKey()); err != nil {
+	if err := updatedVote.AddSignature(act.Precommit.Sig, s.StateMachineViewManager.PubKey()); err != nil {
 		k.log.Error(
 			"Failed to add precommit signature from state machine",
 			"precommit_h", h,

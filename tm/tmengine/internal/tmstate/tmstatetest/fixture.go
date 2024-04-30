@@ -27,7 +27,7 @@ type Fixture struct {
 
 	RoundTimer *MockRoundTimer
 
-	RoundViewInCh         chan tmconsensus.VersionedRoundView
+	RoundViewInCh         chan tmeil.StateMachineRoundView
 	RoundEntranceOutCh    chan tmeil.StateMachineRoundEntrance
 	FinalizeBlockRequests chan tmapp.FinalizeBlockRequest
 
@@ -43,7 +43,7 @@ func NewFixture(ctx context.Context, t *testing.T, nVals int) *Fixture {
 
 	rt := new(MockRoundTimer)
 
-	roundViewInCh := make(chan tmconsensus.VersionedRoundView)
+	roundViewInCh := make(chan tmeil.StateMachineRoundView)
 	roundEntranceOutCh := make(chan tmeil.StateMachineRoundEntrance)
 	finReq := make(chan tmapp.FinalizeBlockRequest)
 

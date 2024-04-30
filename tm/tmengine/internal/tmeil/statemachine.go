@@ -60,7 +60,7 @@ type ScopedSignature struct {
 // following a state machine's updated [StateMachineRoundEntrance],
 // which is the result of the state machine changing rounds.
 //
-// After a round sync, the mirror sends [StateMachineUpdate] values.
+// After a round sync, the mirror sends [StateMachineRoundView] values.
 type RoundEntranceResponse struct {
 	VRV tmconsensus.VersionedRoundView
 	// Only set when VRV is also set. Empty string at initial height.
@@ -82,4 +82,27 @@ func (r RoundEntranceResponse) IsVRV() bool {
 // by checking for a non-zero height on r.CB.
 func (r RoundEntranceResponse) IsCB() bool {
 	return r.CB.Block.Height > 0
+}
+
+// StateMachineRoundView is the set of values the mirror sends to the state machine
+// regularly throughout a single round, as the mirror receives updates from tne network.
+type StateMachineRoundView struct {
+	// The VRV for the state machine's current round.
+	// Value, not pointer, since it is almost always set.
+	VRV tmconsensus.VersionedRoundView
+
+	// When the mirror sees sufficient votes for a future round within the same height,
+	// it sets the JumpAheadRoundView to the details of that round.
+	// At that point, the state machine should assume no further round view updates,
+	// and it should enter the round specified by this field.
+	//
+	// Pointer because it is rarely set.
+	JumpAheadRoundView *tmconsensus.VersionedRoundView
+
+	// If the state machine has fallen behind to the point where
+	// the height it was on has been committed,
+	// the mirror will send a committed block on the round view update channel.
+	//
+	// Pointer because it is rarely set.
+	CB *tmconsensus.CommittedBlock
 }

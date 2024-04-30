@@ -28,7 +28,7 @@ type Fixture struct {
 
 	// These channels are bidirectional in the fixture,
 	// because they are write-only in the config.
-	StateMachineViewOut chan tmconsensus.VersionedRoundView
+	StateMachineRoundViewOut chan tmeil.StateMachineRoundView
 
 	GossipStrategyOut chan tmelink.NetworkViewUpdate
 
@@ -43,7 +43,7 @@ func NewFixture(ctx context.Context, t *testing.T, nVals int) *Fixture {
 	fx := tmconsensustest.NewStandardFixture(nVals)
 	gso := make(chan tmelink.NetworkViewUpdate)
 	smIn := make(chan tmeil.StateMachineRoundEntrance, 1)
-	smViewOut := make(chan tmconsensus.VersionedRoundView) // Unbuffered.
+	smViewOut := make(chan tmeil.StateMachineRoundView) // Unbuffered.
 
 	log := gtest.NewLogger(t)
 	wd, wCtx := gwatchdog.NewNopWatchdog(ctx, log.With("sys", "watchdog"))
@@ -57,7 +57,7 @@ func NewFixture(ctx context.Context, t *testing.T, nVals int) *Fixture {
 
 		Fx: fx,
 
-		StateMachineViewOut: smViewOut,
+		StateMachineRoundViewOut: smViewOut,
 
 		GossipStrategyOut: gso,
 
@@ -83,7 +83,7 @@ func NewFixture(ctx context.Context, t *testing.T, nVals int) *Fixture {
 
 			GossipStrategyOut: gso,
 
-			StateMachineViewOut: smViewOut,
+			StateMachineRoundViewOut: smViewOut,
 
 			StateMachineRoundEntranceIn: smIn,
 

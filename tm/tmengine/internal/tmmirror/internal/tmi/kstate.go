@@ -35,7 +35,7 @@ type kState struct {
 	// There is a dedicated manager for the view to send to the state machine.
 	// The views we send to the gossip strategy are effectively stateless,
 	// but the state machine has some subtle edge cases that need to be handled.
-	StateMachineView stateMachineView
+	StateMachineViewManager stateMachineViewManager
 }
 
 // FindView finds the view in s matching the given height and round,

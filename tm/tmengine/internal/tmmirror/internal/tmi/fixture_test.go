@@ -38,7 +38,7 @@ type KernelFixture struct {
 	AddPrecommitRequests chan tmi.AddPrecommitRequest
 
 	StateMachineRoundEntranceIn chan tmeil.StateMachineRoundEntrance
-	StateMachineViewOut         chan tmconsensus.VersionedRoundView
+	StateMachineRoundViewOut    chan tmeil.StateMachineRoundView
 
 	Cfg tmi.KernelConfig
 
@@ -71,7 +71,7 @@ func NewKernelFixture(ctx context.Context, t *testing.T, nVals int) *KernelFixtu
 	smRoundEntranceIn := make(chan tmeil.StateMachineRoundEntrance)
 
 	// Must be unbuffered so kernel knows exactly what was sent to state machine.
-	smViewOut := make(chan tmconsensus.VersionedRoundView)
+	smViewOut := make(chan tmeil.StateMachineRoundView)
 
 	log := gtest.NewLogger(t)
 	wd, wCtx := gwatchdog.NewNopWatchdog(ctx, log.With("sys", "watchdog"))
@@ -96,7 +96,7 @@ func NewKernelFixture(ctx context.Context, t *testing.T, nVals int) *KernelFixtu
 		AddPrecommitRequests: addPrecommitRequests,
 
 		StateMachineRoundEntranceIn: smRoundEntranceIn,
-		StateMachineViewOut:         smViewOut,
+		StateMachineRoundViewOut:    smViewOut,
 
 		Cfg: tmi.KernelConfig{
 			Store:          tmmemstore.NewMirrorStore(),
@@ -113,7 +113,7 @@ func NewKernelFixture(ctx context.Context, t *testing.T, nVals int) *KernelFixtu
 
 			GossipStrategyOut:           gso,
 			StateMachineRoundEntranceIn: smRoundEntranceIn,
-			StateMachineViewOut:         smViewOut,
+			StateMachineRoundViewOut:    smViewOut,
 
 			NHRRequests:        nhrRequests,
 			SnapshotRequests:   snapshotRequests,
