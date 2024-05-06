@@ -63,11 +63,6 @@ type ScopedSignature struct {
 // After a round sync, the mirror sends [StateMachineRoundView] values.
 type RoundEntranceResponse struct {
 	VRV tmconsensus.VersionedRoundView
-	// Only set when VRV is also set. Empty string at initial height.
-	// The state machine depends on this value when proposing a block.
-	// Actually... the state machine should be able to retrieve the previous finalization,
-	// so we probably do not need this field.
-	PrevBlockHash string
 
 	CB tmconsensus.CommittedBlock
 }

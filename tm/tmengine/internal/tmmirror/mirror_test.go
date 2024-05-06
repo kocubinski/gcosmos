@@ -261,6 +261,105 @@ func TestMirror_Initialization(t *testing.T) {
 	})
 }
 
+// Checking values on the outputs that don't necessarily fit with other tests.
+func TestMirror_Outputs(t *testing.T) {
+	t.Run("at genesis", func(t *testing.T) {
+		t.Parallel()
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		mfx := tmmirrortest.NewFixture(ctx, t, 4)
+
+		m := mfx.NewMirror()
+		defer m.Wait()
+		defer cancel()
+
+		keyHash, powHash := mfx.Fx.ValidatorHashes()
+
+		gso := gtest.ReceiveSoon(t, mfx.GossipStrategyOut)
+
+		require.Nil(t, gso.Committing)
+
+		require.Equal(t, keyHash, gso.Voting.ValidatorPubKeyHash)
+		require.Equal(t, powHash, gso.Voting.ValidatorVotePowerHash)
+
+		require.Equal(t, keyHash, gso.NextRound.ValidatorPubKeyHash)
+		require.Equal(t, powHash, gso.NextRound.ValidatorVotePowerHash)
+	})
+
+	t.Run("starting past initial height", func(t *testing.T) {
+		t.Parallel()
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		mfx := tmmirrortest.NewFixture(ctx, t, 4)
+
+		mfx.CommitInitialHeight(ctx, []byte("app_data_1"), 0, []int{0, 1, 2, 3})
+
+		m := mfx.NewMirror()
+		defer m.Wait()
+		defer cancel()
+
+		keyHash, powHash := mfx.Fx.ValidatorHashes()
+
+		gso := gtest.ReceiveSoon(t, mfx.GossipStrategyOut)
+
+		require.Equal(t, keyHash, gso.Committing.ValidatorPubKeyHash)
+		require.Equal(t, powHash, gso.Committing.ValidatorVotePowerHash)
+
+		require.Equal(t, keyHash, gso.Voting.ValidatorPubKeyHash)
+		require.Equal(t, powHash, gso.Voting.ValidatorVotePowerHash)
+
+		require.Equal(t, keyHash, gso.NextRound.ValidatorPubKeyHash)
+		require.Equal(t, powHash, gso.NextRound.ValidatorVotePowerHash)
+	})
+
+	t.Run("after a live commit", func(t *testing.T) {
+		t.Parallel()
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		mfx := tmmirrortest.NewFixture(ctx, t, 4)
+
+		m := mfx.NewMirror()
+		defer m.Wait()
+		defer cancel()
+
+		// Drain initial gossip strategy output.
+		_ = gtest.ReceiveSoon(t, mfx.GossipStrategyOut)
+
+		pb1 := mfx.Fx.NextProposedBlock([]byte("app_data_1"), 0)
+		mfx.Fx.SignProposal(ctx, &pb1, 0)
+		require.Equal(t, tmconsensus.HandleProposedBlockAccepted, m.HandleProposedBlock(ctx, pb1))
+		keyHash, powHash := mfx.Fx.ValidatorHashes()
+
+		voteMap := map[string][]int{
+			string(pb1.Block.Hash): {0, 1, 2, 3},
+		}
+		precommitProof := tmconsensus.PrecommitSparseProof{
+			Height:     1,
+			Round:      0,
+			PubKeyHash: keyHash,
+			Proofs:     mfx.Fx.SparsePrecommitProofMap(ctx, 1, 0, voteMap),
+		}
+		require.Equal(t, tmconsensus.HandleVoteProofsAccepted, m.HandlePrecommitProofs(ctx, precommitProof))
+
+		gso := gtest.ReceiveSoon(t, mfx.GossipStrategyOut)
+
+		require.Equal(t, keyHash, gso.Committing.ValidatorPubKeyHash)
+		require.Equal(t, powHash, gso.Committing.ValidatorVotePowerHash)
+
+		require.Equal(t, keyHash, gso.Voting.ValidatorPubKeyHash)
+		require.Equal(t, powHash, gso.Voting.ValidatorVotePowerHash)
+
+		require.Equal(t, keyHash, gso.NextRound.ValidatorPubKeyHash)
+		require.Equal(t, powHash, gso.NextRound.ValidatorVotePowerHash)
+	})
+}
+
 func TestMirror_HandleProposedBlock(t *testing.T) {
 	t.Run("adds valid proposed block in voting round to gossip strategy output and round store", func(t *testing.T) {
 		t.Parallel()
@@ -1097,7 +1196,7 @@ func TestMirror_CommitToBlockStore(t *testing.T) {
 	precommitProofs1 := mfx.Fx.PrecommitProofMap(ctx, 1, 0, voteMap1)
 	mfx.Fx.CommitBlock(pb1.Block, []byte("app_state_height_1"), 0, precommitProofs1)
 
-	// And advance the mirror.
+	// And advance the mirror by submitting a full set of precommits.
 	keyHash, _ := mfx.Fx.ValidatorHashes()
 	require.Equal(t, tmconsensus.HandleVoteProofsAccepted, m.HandlePrecommitProofs(ctx, tmconsensus.PrecommitSparseProof{
 		Height: 1,
@@ -1150,6 +1249,8 @@ func TestMirror_CommitToBlockStore(t *testing.T) {
 	// This means height 1 must be in the block store.
 	cb1, err := mfx.Cfg.BlockStore.LoadBlock(ctx, 1)
 	require.NoError(t, err)
+	require.Equal(t, pb1.Block, cb1.Block)
+	require.Equal(t, pb2.Block.PrevCommitProof, cb1.Proof)
 	require.Equal(t, tmconsensus.CommittedBlock{
 		Block: pb1.Block,
 		Proof: pb2.Block.PrevCommitProof,
@@ -1196,7 +1297,7 @@ func TestMirror_nilPrecommitAdvancesRound(t *testing.T) {
 
 	// And the voting view output reflects the new round.
 	vv := gtest.ReceiveSoon(t, mfx.GossipStrategyOut).Voting
-	require.Equal(t, uint32(1), vv.Version)
+	require.Equal(t, uint32(2), vv.Version) // Would have been version 1 except it was shifted from NextRound.
 	require.Equal(t, uint64(1), vv.Height)
 	require.Equal(t, uint32(1), vv.Round)
 
@@ -1241,9 +1342,16 @@ func TestMirror_advanceRoundOnMixedPrecommit(t *testing.T) {
 		// The voting view advanced to the next round.
 		gso := gtest.ReceiveSoon(t, mfx.GossipStrategyOut)
 		vv := gso.Voting
-		require.Equal(t, uint32(1), vv.Version)
+
+		// It may seem like this should be Version 1 since the entire voting view is empty at this point:
+		// it doesn't have any proposed blocks or votes.
+		// But it was a NextRound value which started at Version 1,
+		// and we increment the version again when the otherwise-unchanged view
+		// gets shifted from NextRound to Voting.
+		require.Equal(t, uint32(2), vv.Version)
 		require.Equal(t, uint64(1), vv.Height)
 		require.Equal(t, uint32(1), vv.Round)
+		require.Empty(t, vv.ProposedBlocks)
 
 		// The nil prevote and precommit are present but empty.
 		require.Empty(t, vv.PrevoteProofs)
@@ -1568,7 +1676,7 @@ func TestMirror_nextRound(t *testing.T) {
 
 		mfx := tmmirrortest.NewFixture(ctx, t, 4)
 
-		// We are at 1/0, so a proposed block at 1/1 must be saved to the next round view.
+		// We are at 1/0, so a received proposed block at 1/1 must be saved to the NextRound view.
 		pb11 := mfx.Fx.NextProposedBlock([]byte("app_data_1"), 0)
 		pb11.Round = 1
 		mfx.Fx.RecalculateHash(&pb11.Block)
@@ -1595,11 +1703,11 @@ func TestMirror_nextRound(t *testing.T) {
 		require.Equal(t, uint32(1), nrrv.Round)
 		require.Equal(t, []tmconsensus.ProposedBlock{pb11}, nrrv.ProposedBlocks)
 
-		// Then if we get a full set of nil precommits to advance the round...
+		// Then if we get a full set of nil precommits to advance the round from 0 to 1...
 		voteMapNil := map[string][]int{
 			"": {0, 1, 2, 3},
 		}
-		keyHash, _ := mfx.Fx.ValidatorHashes()
+		keyHash, powHash := mfx.Fx.ValidatorHashes()
 		require.Equal(t, tmconsensus.HandleVoteProofsAccepted, m.HandlePrecommitProofs(ctx, tmconsensus.PrecommitSparseProof{
 			Height: 1,
 			Round:  0,
@@ -1615,6 +1723,8 @@ func TestMirror_nextRound(t *testing.T) {
 		require.Equal(t, uint64(1), vrv.Height)
 		require.Equal(t, uint32(1), vrv.Round)
 		require.Equal(t, []tmconsensus.ProposedBlock{pb11}, vrv.ProposedBlocks)
+		require.Equal(t, keyHash, vrv.ValidatorPubKeyHash)
+		require.Equal(t, powHash, vrv.ValidatorVotePowerHash)
 
 		nrrv = gso.NextRound
 		require.Equal(t, uint64(1), nrrv.Height)
@@ -1719,7 +1829,6 @@ func TestMirror_stateMachineActions(t *testing.T) {
 
 		// This is the initial height so the mirror only populates the round view.
 		rer := gtest.ReceiveSoon(t, re.Response)
-		require.Empty(t, rer.PrevBlockHash)
 		require.Empty(t, rer.CB.Block.Hash)
 		require.Empty(t, rer.CB.Proof.Proofs)
 
@@ -1817,7 +1926,6 @@ func TestMirror_stateMachineActions(t *testing.T) {
 		// A committing block is not the same as a committed block.
 		// We have sufficient info to commit,
 		// but we don't know the canonical commits that will be persisted to chain.
-		require.Empty(t, rer.PrevBlockHash)
 		require.Empty(t, rer.CB.Block.Hash)
 		require.Empty(t, rer.CB.Proof.Proofs)
 
@@ -1869,7 +1977,7 @@ func TestMirror_stateMachineActions(t *testing.T) {
 			Proofs: mfx.Fx.SparsePrecommitProofMap(ctx, 2, 0, voteMap2),
 		}))
 
-		// Ensure we are on height 3.
+		// Ensure the mirror is on height 3.
 		gso := gtest.ReceiveSoon(t, mfx.GossipStrategyOut)
 		vrv := gso.Voting
 		require.Equal(t, uint64(3), vrv.Height)
@@ -1881,8 +1989,7 @@ func TestMirror_stateMachineActions(t *testing.T) {
 		cb, err := mfx.Cfg.BlockStore.LoadBlock(ctx, 1)
 		require.NoError(t, err)
 
-		// So, if the state machine starts up now at height 1...
-		// State machine sends round update.
+		// So, if the state machine starts up now at height 1, by first sending its round entrance...
 		actionCh := make(chan tmeil.StateMachineRoundAction, 3)
 		re := tmeil.StateMachineRoundEntrance{
 			H:        1,
@@ -1901,6 +2008,8 @@ func TestMirror_stateMachineActions(t *testing.T) {
 		// But the committed block matches what was in the store.
 		require.Equal(t, cb, rer.CB)
 
+		// Then if the state machine does all its work behind the scenes
+		// and then enters height 2:
 		re = tmeil.StateMachineRoundEntrance{
 			H:        2,
 			R:        0,
@@ -1911,8 +2020,8 @@ func TestMirror_stateMachineActions(t *testing.T) {
 		gtest.SendSoon(t, mfx.StateMachineRoundEntranceIn, re)
 
 		rer = gtest.ReceiveSoon(t, re.Response)
-		require.Equal(t, string(pb2.Block.PrevBlockHash), rer.PrevBlockHash)
 		require.Empty(t, rer.CB.Block.Hash) // Nothing in the CommittedBlock.
+		require.Equal(t, uint64(2), rer.VRV.Height)
 	})
 
 	t.Run("state machine precommit accepted when it arrives into committing view", func(t *testing.T) {
@@ -2504,7 +2613,7 @@ func TestMirror_gossipStrategyOutStripsEmptyNilVotes(t *testing.T) {
 	require.Nil(t, gso.Committing.PrecommitProofs[""])
 	require.Equal(t, uint(3), gso.Committing.PrecommitProofs[string(pb1.Block.Hash)].SignatureBitSet().Count())
 
-	// And if the last preocmmit arrives, we still don't have any nil proofs on the committing view.
+	// And if the last precommit arrives, we still don't have any nil proofs on the committing view.
 	voteMap[string(pb1.Block.Hash)] = []int{3}
 	precommitProof = tmconsensus.PrecommitSparseProof{
 		Height:     1,

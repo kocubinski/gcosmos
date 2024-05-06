@@ -39,10 +39,18 @@ type stateMachineViewManager struct {
 	// that the kernel is no longer going to track.
 	// See the ForceSend method for more details.
 	forceSend *tmconsensus.VersionedRoundView
+
+	// The plain view that the mirror wants to send to the state machine,
+	// given the current state machine height and round.
+	outgoingView tmconsensus.VersionedRoundView
 }
 
 func newStateMachineViewManager(out chan<- tmeil.StateMachineRoundView) stateMachineViewManager {
 	return stateMachineViewManager{out: out}
+}
+
+func (m *stateMachineViewManager) SetView(v tmconsensus.VersionedRoundView) {
+	m.outgoingView = v.Clone()
 }
 
 // Output returns a stateMachineOutput value
@@ -60,29 +68,16 @@ func (m *stateMachineViewManager) Output(s *kState) stateMachineOutput {
 		}
 	}
 
-	if m.roundEntrance.H == s.Voting.VRV.Height &&
-		m.roundEntrance.R == s.Voting.VRV.Round &&
-		m.lastSentVersion < s.Voting.VRV.Version {
+	if m.outgoingView.Height == m.roundEntrance.H &&
+		m.outgoingView.Round == m.roundEntrance.R &&
+		m.outgoingView.Version > m.lastSentVersion {
 		return stateMachineOutput{
 			m:  m,
 			Ch: m.out,
 			Val: tmeil.StateMachineRoundView{
-				VRV: s.Voting.VRV.Clone(), // TODO: cloning this may be wasteful if it isn't sent this round.
+				VRV: m.outgoingView.Clone(), // TODO: this is probably a wasteful clone.
 			},
-			sentVersion: s.Voting.VRV.Version,
-		}
-	}
-
-	if m.roundEntrance.H == s.Committing.VRV.Height &&
-		m.roundEntrance.R == s.Committing.VRV.Round &&
-		m.lastSentVersion < s.Committing.VRV.Version {
-		return stateMachineOutput{
-			m:  m,
-			Ch: m.out,
-			Val: tmeil.StateMachineRoundView{
-				VRV: s.Committing.VRV.Clone(), // TODO: cloning this may be wasteful if it isn't sent this round.
-			},
-			sentVersion: s.Committing.VRV.Version,
+			sentVersion: m.outgoingView.Version,
 		}
 	}
 
