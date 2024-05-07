@@ -40,6 +40,14 @@ type stateMachineViewManager struct {
 	// See the ForceSend method for more details.
 	forceSend *tmconsensus.VersionedRoundView
 
+	// The mirror may have a minority+ level of votes for a later round,
+	// indicating the network is on that round;
+	// but the mirror may not have sufficient information to nil-commit the current round.
+	// In that event the jumpAhead field is set, via the JumpToRound method.
+	// This indicates to the state machine that there is sufficient information
+	// to move the round forward without "completing" the round.
+	jumpAhead *tmconsensus.VersionedRoundView
+
 	// The plain view that the mirror wants to send to the state machine,
 	// given the current state machine height and round.
 	outgoingView tmconsensus.VersionedRoundView
@@ -51,6 +59,11 @@ func newStateMachineViewManager(out chan<- tmeil.StateMachineRoundView) stateMac
 
 func (m *stateMachineViewManager) SetView(v tmconsensus.VersionedRoundView) {
 	m.outgoingView = v.Clone()
+}
+
+func (m *stateMachineViewManager) JumpToRound(v tmconsensus.VersionedRoundView) {
+	clone := v.Clone()
+	m.jumpAhead = &clone
 }
 
 // Output returns a stateMachineOutput value
@@ -76,6 +89,8 @@ func (m *stateMachineViewManager) Output(s *kState) stateMachineOutput {
 			Ch: m.out,
 			Val: tmeil.StateMachineRoundView{
 				VRV: m.outgoingView.Clone(), // TODO: this is probably a wasteful clone.
+
+				JumpAheadRoundView: m.jumpAhead,
 			},
 			sentVersion: m.outgoingView.Version,
 		}
@@ -156,8 +171,9 @@ func (o *stateMachineOutput) MarkSent() {
 		panic(errors.New("BUG: MarkSent called on no-op stateMachineOutput"))
 	}
 
-	// Always clear the forceSend value when marking sent.
+	// Always clear the pointer values when marking sent.
 	o.m.forceSend = nil
+	o.m.jumpAhead = nil
 
 	o.m.lastSentVersion = o.sentVersion
 }

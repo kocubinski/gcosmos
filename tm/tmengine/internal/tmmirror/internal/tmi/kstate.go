@@ -224,6 +224,34 @@ func (s *kState) AdvanceVotingRound(
 	vClone := s.Voting.Clone()
 	s.GossipViewManager.NilVotedRound = &vClone
 
+	s.incrementVotingRound(nextRoundNilPrevote, nextRoundNilPrecommit)
+}
+
+func (s *kState) JumpVotingRound(
+	nextRoundNilPrevote, nextRoundNilPrecommit gcrypto.CommonMessageSignatureProof,
+) {
+	// In AdvanceVotingRound we set GossipViewManager.NilVotedRound
+	// so we could share the terminal details with the network.
+	// But here since we are jumping forward,
+	// we have to share extra information with the state machine.
+
+	s.incrementVotingRound(nextRoundNilPrevote, nextRoundNilPrecommit)
+
+	// After incrementing the voting round, see if the state machine
+	// is still pointing at the prior voting round.
+	// NOTE: for now this assumes that the state machine and mirror
+	// can only be off by one.
+	// In the future, the mirror will support jumping ahead
+	// more than one round at a time.
+	if s.StateMachineViewManager.H() == s.Voting.Height &&
+		s.StateMachineViewManager.R() == s.Voting.Round-1 {
+		s.StateMachineViewManager.JumpToRound(s.Voting)
+	}
+}
+
+func (s *kState) incrementVotingRound(
+	nextRoundNilPrevote, nextRoundNilPrecommit gcrypto.CommonMessageSignatureProof,
+) {
 	// Swap NextRound and Voting.
 	// Keep the new Voting value but clear out all the new NextRound values.
 	s.Voting, s.NextRound = s.NextRound, s.Voting

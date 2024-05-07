@@ -646,7 +646,7 @@ func (k *Kernel) checkVotingPrecommitViewShift(ctx context.Context, s *kState) e
 		// then we know it doesn't matter where the remaining 5% land --
 		// it will not influence a block to be committed.
 		if vs.TotalPrecommitPower == vs.AvailablePower {
-			if err := k.advanceVotingRound(s); err != nil {
+			if err := k.advanceVotingRound(s); err != nil { // Certain due to 100% precommits present.
 				return err
 			}
 
@@ -664,7 +664,7 @@ func (k *Kernel) checkVotingPrecommitViewShift(ctx context.Context, s *kState) e
 	// At this point, we know the most voted precommit hash has exceeded the majority requirement.
 	if committingHash == "" {
 		// Voted nil, so only update the voting round.
-		if err := k.advanceVotingRound(s); err != nil {
+		if err := k.advanceVotingRound(s); err != nil { // Certain because full nil precommit.
 			return err
 		}
 
@@ -787,8 +787,10 @@ func (k *Kernel) checkNextRoundPrecommitViewShift(ctx context.Context, s *kState
 	oldHeight, oldRound := s.Voting.Height, s.Voting.Round
 
 	// Otherwise at least a minority of the network is precommitting on the target round,
-	// so we need to advance voting to that round.
-	if err := k.advanceVotingRound(s); err != nil {
+	// so we need to jump voting to that round.
+	// This is a jump, not advance, because we actually don't have
+	// sufficient information to treat the current round as a nil commit.
+	if err := k.jumpVotingRound(s); err != nil {
 		return err
 	}
 
@@ -838,8 +840,10 @@ func (k *Kernel) checkPrevoteViewShift(ctx context.Context, s *kState, vID ViewI
 	oldHeight, oldRound := s.Voting.Height, s.Voting.Round
 
 	// Otherwise a minority of the network is prevoting on the target round,
-	// so we need to advance voting to that round.
-	if err := k.advanceVotingRound(s); err != nil {
+	// so we need to jump voting to that round.
+	// This is a jump, not advance, because we actually don't have
+	// sufficient information to treat the current round as a nil commit.
+	if err := k.jumpVotingRound(s); err != nil {
 		return err
 	}
 
@@ -960,7 +964,8 @@ func (k *Kernel) checkMissingPBs(ctx context.Context, s *kState, proofs map[stri
 	}
 }
 
-// advanceVotingRound is called when the kernel knows we need to increase the voting round by one.
+// advanceVotingRound is called when the kernel needs to increase the voting round by one,
+// and when we have sufficient information for the voting round to treat it as a nil commit.
 func (k *Kernel) advanceVotingRound(s *kState) error {
 	h := s.NextRound.Height
 	r := s.NextRound.Round + 1
@@ -973,6 +978,25 @@ func (k *Kernel) advanceVotingRound(s *kState) error {
 	}
 
 	s.AdvanceVotingRound(nilPrevote, nilPrecommit)
+	return nil
+}
+
+// jumpVotingRound is called when the kernel needs to increase the voting round by one,
+// but this is due to timing without receiving a majority nil vote on the round.
+// Compared to [*Kernel.advanceVotingRound], this sends more information to the state machine
+// indicating the kernel's intent to skip the round.
+func (k *Kernel) jumpVotingRound(s *kState) error {
+	h := s.NextRound.Height
+	r := s.NextRound.Round + 1
+	nilPrevote, nilPrecommit, err := k.getInitialNilProofs(h, r, s.NextRound.Validators)
+	if err != nil {
+		return fmt.Errorf(
+			"failed to get initial nil proofs for h=%d/r=%d when jumping voting round",
+			h, r,
+		)
+	}
+
+	s.JumpVotingRound(nilPrevote, nilPrecommit)
 	return nil
 }
 

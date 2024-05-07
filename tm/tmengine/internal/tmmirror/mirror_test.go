@@ -2294,6 +2294,145 @@ func TestMirror_StateMachineRoundViewOut(t *testing.T) {
 	_ = vrv
 }
 
+func TestMirror_stateMachineJumpAhead(t *testing.T) {
+	t.Run("majority prevotes", func(t *testing.T) {
+		t.Parallel()
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		mfx := tmmirrortest.NewFixture(ctx, t, 4)
+
+		m := mfx.NewMirror()
+		defer m.Wait()
+		defer cancel()
+
+		// The state machine starts right away.
+		actionCh := make(chan tmeil.StateMachineRoundAction, 3)
+		re := tmeil.StateMachineRoundEntrance{
+			H: 1, R: 0,
+			Actions:  actionCh,
+			Response: make(chan tmeil.RoundEntranceResponse, 1),
+		}
+		gtest.SendSoon(t, mfx.StateMachineRoundEntranceIn, re)
+
+		// Enqueue a proposed block for the state machine's round, but don't read it from the state machine yet.
+		pb10 := mfx.Fx.NextProposedBlock([]byte("ignored"), 0)
+		mfx.Fx.SignProposal(ctx, &pb10, 0)
+		require.Equal(t, tmconsensus.HandleProposedBlockAccepted, m.HandleProposedBlock(ctx, pb10))
+
+		// Now the mirror sees a majority nil prevote at round 1.
+		keyHash, _ := mfx.Fx.ValidatorHashes()
+		pb11VoteMap := map[string][]int{
+			"": {1, 2, 3},
+		}
+		sparsePrevoteProofMap := mfx.Fx.SparsePrevoteProofMap(ctx, 1, 1, pb11VoteMap)
+		prevoteProof := tmconsensus.PrevoteSparseProof{
+			Height:     1,
+			Round:      1,
+			PubKeyHash: keyHash,
+			Proofs:     sparsePrevoteProofMap,
+		}
+		require.Equal(t, tmconsensus.HandleVoteProofsAccepted, m.HandlePrevoteProofs(ctx, prevoteProof))
+
+		// Now the state machine reads its input from the mirror.
+		smv := gtest.ReceiveSoon(t, mfx.StateMachineRoundViewOut)
+		// It has the proposed block for 1/0 in the main VRV.
+		require.Equal(t, uint64(1), smv.VRV.Height)
+		require.Zero(t, smv.VRV.Round)
+		require.Equal(t, []tmconsensus.ProposedBlock{pb10}, smv.VRV.ProposedBlocks)
+
+		// And it has the jumpahead set.
+		j := smv.JumpAheadRoundView
+		require.NotNil(t, j)
+		require.Equal(t, uint64(1), j.Height)
+		require.Equal(t, uint32(1), j.Round)
+
+		// Now the mirror expects the state machine to enter 1/1.
+		// If we get more information before then, such as a precommit, nothing new is sent to the state machine.
+		pb11VoteMap = map[string][]int{
+			"": {1},
+		}
+		sparsePrecommitProofMap := mfx.Fx.SparsePrecommitProofMap(ctx, 1, 1, pb11VoteMap)
+		precommitProof := tmconsensus.PrecommitSparseProof{
+			Height:     1,
+			Round:      1,
+			PubKeyHash: keyHash,
+			Proofs:     sparsePrecommitProofMap,
+		}
+		require.Equal(t, tmconsensus.HandleVoteProofsAccepted, m.HandlePrecommitProofs(ctx, precommitProof))
+		gtest.NotSending(t, mfx.StateMachineRoundViewOut)
+
+		// Then if the state machine enters the round...
+		actionCh = make(chan tmeil.StateMachineRoundAction, 3)
+		re = tmeil.StateMachineRoundEntrance{
+			H: 1, R: 1,
+			Actions:  actionCh,
+			Response: make(chan tmeil.RoundEntranceResponse, 1),
+		}
+		gtest.SendSoon(t, mfx.StateMachineRoundEntranceIn, re)
+
+		// The entrance response has the 3 prevotes and 1 precommit for 1/1.
+		vrv := gtest.ReceiveSoon(t, re.Response).VRV
+		require.Equal(t, uint64(1), vrv.Height)
+		require.Equal(t, uint32(1), vrv.Round)
+		require.Equal(t, uint(3), vrv.PrevoteProofs[""].SignatureBitSet().Count())
+		require.Equal(t, uint(1), vrv.PrecommitProofs[""].SignatureBitSet().Count())
+	})
+
+	t.Run("minority precommits", func(t *testing.T) {
+		t.Parallel()
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		mfx := tmmirrortest.NewFixture(ctx, t, 4)
+
+		m := mfx.NewMirror()
+		defer m.Wait()
+		defer cancel()
+
+		// The state machine starts right away.
+		actionCh := make(chan tmeil.StateMachineRoundAction, 3)
+		re := tmeil.StateMachineRoundEntrance{
+			H: 1, R: 0,
+			Actions:  actionCh,
+			Response: make(chan tmeil.RoundEntranceResponse, 1),
+		}
+		gtest.SendSoon(t, mfx.StateMachineRoundEntranceIn, re)
+
+		// Enqueue a proposed block for the state machine's round, but don't read it from the state machine yet.
+		pb10 := mfx.Fx.NextProposedBlock([]byte("ignored"), 0)
+		mfx.Fx.SignProposal(ctx, &pb10, 0)
+		require.Equal(t, tmconsensus.HandleProposedBlockAccepted, m.HandleProposedBlock(ctx, pb10))
+
+		// Now the mirror sees a minority nil precommit at round 1.
+		keyHash, _ := mfx.Fx.ValidatorHashes()
+		pb11VoteMap := map[string][]int{
+			"": {2, 3},
+		}
+		sparsePrecommitProofMap := mfx.Fx.SparsePrecommitProofMap(ctx, 1, 1, pb11VoteMap)
+		precommitProof := tmconsensus.PrecommitSparseProof{
+			Height:     1,
+			Round:      1,
+			PubKeyHash: keyHash,
+			Proofs:     sparsePrecommitProofMap,
+		}
+		require.Equal(t, tmconsensus.HandleVoteProofsAccepted, m.HandlePrecommitProofs(ctx, precommitProof))
+
+		// Receiving the 1/0 update includes the jump ahead details.
+		smv := gtest.ReceiveSoon(t, mfx.StateMachineRoundViewOut)
+		require.Equal(t, []tmconsensus.ProposedBlock{pb10}, smv.VRV.ProposedBlocks)
+
+		j := smv.JumpAheadRoundView
+		require.NotNil(t, j)
+		require.Equal(t, uint64(1), j.Height)
+		require.Equal(t, uint32(1), j.Round)
+		require.True(t, j.PrevoteProofs[""].SignatureBitSet().None())
+		require.Equal(t, uint(2), j.PrecommitProofs[""].SignatureBitSet().Count())
+	})
+}
+
 func TestMirror_VoteSummaryReset(t *testing.T) {
 	t.Parallel()
 
