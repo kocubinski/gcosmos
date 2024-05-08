@@ -2508,3 +2508,103 @@ func TestStateMachine_timers(t *testing.T) {
 		})
 	})
 }
+
+func TestStateMachine_jumpAhead(t *testing.T) {
+	t.Run("without a current VRV update", func(t *testing.T) {
+		t.Parallel()
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		sfx := tmstatetest.NewFixture(ctx, t, 4)
+
+		sm := sfx.NewStateMachine()
+		defer sm.Wait()
+		defer cancel()
+
+		re := gtest.ReceiveSoon(t, sfx.RoundEntranceOutCh)
+
+		cStrat := sfx.CStrat
+		_ = cStrat.ExpectEnterRound(1, 0, nil)
+
+		vrv := sfx.EmptyVRV(1, 0)
+
+		re.Response <- tmeil.RoundEntranceResponse{VRV: vrv}
+
+		er11Ch := cStrat.ExpectEnterRound(1, 1, nil)
+
+		nextVRV := sfx.EmptyVRV(1, 1)
+		nextVRV = sfx.Fx.UpdateVRVPrevotes(ctx, nextVRV, map[string][]int{
+			"": {1, 2, 3},
+		})
+
+		gtest.SendSoon(t, sfx.RoundViewInCh, tmeil.StateMachineRoundView{
+			// No VRV details supplied.
+
+			JumpAheadRoundView: &nextVRV,
+		})
+
+		re = gtest.ReceiveSoon(t, sfx.RoundEntranceOutCh)
+		require.Equal(t, uint64(1), re.H)
+		require.Equal(t, uint32(1), re.R)
+		re.Response <- tmeil.RoundEntranceResponse{VRV: nextVRV}
+
+		_ = gtest.ReceiveSoon(t, er11Ch)
+	})
+
+	t.Run("including a current VRV update", func(t *testing.T) {
+		t.Parallel()
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		sfx := tmstatetest.NewFixture(ctx, t, 4)
+
+		sm := sfx.NewStateMachine()
+		defer sm.Wait()
+		defer cancel()
+
+		re := gtest.ReceiveSoon(t, sfx.RoundEntranceOutCh)
+
+		cStrat := sfx.CStrat
+		er10Ch := cStrat.ExpectEnterRound(1, 0, nil)
+
+		vrv := sfx.EmptyVRV(1, 0)
+		re.Response <- tmeil.RoundEntranceResponse{VRV: vrv}
+
+		_ = gtest.ReceiveSoon(t, er10Ch)
+
+		// Now update the original VRV with a proposed block.
+		pb1 := sfx.Fx.NextProposedBlock([]byte("app_data_1"), 3)
+		sfx.Fx.SignProposal(ctx, &pb1, 3)
+		vrv = vrv.Clone()
+		vrv.ProposedBlocks = []tmconsensus.ProposedBlock{pb1}
+		vrv.Version++
+
+		er11Ch := cStrat.ExpectEnterRound(1, 1, nil)
+
+		nextVRV := sfx.EmptyVRV(1, 1)
+		nextVRV = sfx.Fx.UpdateVRVPrevotes(ctx, nextVRV, map[string][]int{
+			"": {1, 2, 3},
+		})
+
+		gtest.SendSoon(t, sfx.RoundViewInCh, tmeil.StateMachineRoundView{
+			VRV: vrv.Clone(),
+
+			JumpAheadRoundView: &nextVRV,
+		})
+
+		// The state machine will want to handle the round entrance,
+		// but the mock consensus strategy may be blocked on the proposed block for 1/0,
+		// so unblock that in order to allow the round entrance to proceed.
+		cbReq := gtest.ReceiveSoon(t, cStrat.ConsiderProposedBlockRequests)
+		gtest.SendSoon(t, cbReq.ChoiceHash, "")
+
+		re = gtest.ReceiveSoon(t, sfx.RoundEntranceOutCh)
+		require.Equal(t, uint64(1), re.H)
+		require.Equal(t, uint32(1), re.R)
+		re.Response <- tmeil.RoundEntranceResponse{VRV: nextVRV}
+
+		_ = gtest.ReceiveSoon(t, er11Ch)
+	})
+}

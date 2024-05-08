@@ -76,23 +76,35 @@ func (m *stateMachineViewManager) Output(s *kState) stateMachineOutput {
 			Ch: m.out,
 			Val: tmeil.StateMachineRoundView{
 				VRV: *m.forceSend,
+				// TODO: Would we ever have m.jumpAhead set during a forced send?
 			},
 			sentVersion: m.forceSend.Version,
 		}
 	}
 
 	if m.outgoingView.Height == m.roundEntrance.H &&
-		m.outgoingView.Round == m.roundEntrance.R &&
-		m.outgoingView.Version > m.lastSentVersion {
-		return stateMachineOutput{
-			m:  m,
-			Ch: m.out,
-			Val: tmeil.StateMachineRoundView{
-				VRV: m.outgoingView.Clone(), // TODO: this is probably a wasteful clone.
+		m.outgoingView.Round == m.roundEntrance.R {
+		// We might send here, if we have either a new VRV or a jump ahead.
+		var val tmeil.StateMachineRoundView
+		var sentVersion uint32
 
-				JumpAheadRoundView: m.jumpAhead,
-			},
-			sentVersion: m.outgoingView.Version,
+		if m.jumpAhead != nil {
+			val.JumpAheadRoundView = m.jumpAhead
+			sentVersion = m.lastSentVersion
+		}
+
+		if m.outgoingView.Version > m.lastSentVersion {
+			val.VRV = m.outgoingView.Clone() // TODO: this is probably a wasteful clone.
+			sentVersion = m.outgoingView.Version
+		}
+
+		if sentVersion > 0 {
+			return stateMachineOutput{
+				m:           m,
+				Ch:          m.out,
+				Val:         val,
+				sentVersion: sentVersion,
+			}
 		}
 	}
 

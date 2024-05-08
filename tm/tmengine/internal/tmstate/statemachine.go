@@ -2,6 +2,7 @@ package tmstate
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"runtime/trace"
@@ -468,7 +469,12 @@ func (m *StateMachine) handleViewUpdate(
 
 	vrv := v.VRV
 	if vrv.Height == 0 {
-		panic("TODO: handle view update where VRV is not set")
+		if v.JumpAheadRoundView == nil {
+			panic(errors.New("BUG: received view update with empty VRV and nil JumpAheadRoundView"))
+		}
+
+		m.handleJumpAhead(ctx, rlc, *v.JumpAheadRoundView)
+		return
 	}
 
 	if vrv.Height != rlc.H || vrv.Round != rlc.R {
@@ -518,6 +524,15 @@ func (m *StateMachine) handleViewUpdate(
 
 		// Assuming it's okay to take ownership of vrv as opposed to copying in to our value.
 		rlc.PrevVRV = &vrv
+	}
+
+	if v.JumpAheadRoundView != nil {
+		// If the state machine was slow to read,
+		// we may have received an update with a VRV and a jump ahead signal.
+		// If it was necessary to jump ahead,
+		// the VRV value would not have advanced the round,
+		// so the call here should be safe.
+		m.handleJumpAhead(ctx, rlc, *v.JumpAheadRoundView)
 	}
 }
 
@@ -1342,4 +1357,33 @@ func (m *StateMachine) advanceRound(ctx context.Context, rlc *tsi.RoundLifecycle
 	}
 
 	return true
+}
+
+func (m *StateMachine) handleJumpAhead(
+	ctx context.Context,
+	rlc *tsi.RoundLifecycle,
+	vrv tmconsensus.VersionedRoundView,
+) {
+	if vrv.Height != rlc.H {
+		panic(fmt.Errorf(
+			"BUG: attempted to jump ahead to height %d when on height %d",
+			vrv.Height, rlc.H,
+		))
+	}
+
+	if vrv.Round <= rlc.R {
+		panic(fmt.Errorf(
+			"BUG: attempted to jump ahead to round %d when on height %d, round %d",
+			vrv.Round, rlc.H, rlc.R,
+		))
+	}
+
+	// It's a valid round-forward move.
+	oldRound := rlc.R
+	_ = m.advanceRound(ctx, rlc)
+	m.log.Info(
+		"Jumped ahead following signal from mirror",
+		"height", rlc.H,
+		"old_round", oldRound, "new_round", rlc.R,
+	)
 }

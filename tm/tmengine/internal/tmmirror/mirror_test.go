@@ -2431,6 +2431,70 @@ func TestMirror_stateMachineJumpAhead(t *testing.T) {
 		require.True(t, j.PrevoteProofs[""].SignatureBitSet().None())
 		require.Equal(t, uint(2), j.PrecommitProofs[""].SignatureBitSet().Count())
 	})
+
+	t.Run("when there is no current VRV to include", func(t *testing.T) {
+		t.Parallel()
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		mfx := tmmirrortest.NewFixture(ctx, t, 4)
+
+		m := mfx.NewMirror()
+		defer m.Wait()
+		defer cancel()
+
+		// State machine enters round 1/0 immediately.
+		actionCh := make(chan tmeil.StateMachineRoundAction, 3)
+		re := tmeil.StateMachineRoundEntrance{
+			H: 1, R: 0,
+			Actions:  actionCh,
+			Response: make(chan tmeil.RoundEntranceResponse, 1),
+		}
+		gtest.SendSoon(t, mfx.StateMachineRoundEntranceIn, re)
+
+		// All the prevotes arrive and half the precommits arrive.
+		voteMap := map[string][]int{
+			"": {0, 1, 2, 3},
+		}
+		keyHash, _ := mfx.Fx.ValidatorHashes()
+		prevoteProof := tmconsensus.PrevoteSparseProof{
+			Height:     1,
+			Round:      0,
+			PubKeyHash: keyHash,
+			Proofs:     mfx.Fx.SparsePrevoteProofMap(ctx, 1, 0, voteMap),
+		}
+		require.Equal(t, tmconsensus.HandleVoteProofsAccepted, m.HandlePrevoteProofs(ctx, prevoteProof))
+
+		// Now, the other validators' precommits arrive on the network.
+		voteMap[""] = []int{0, 1}
+		precommitProof := tmconsensus.PrecommitSparseProof{
+			Height:     1,
+			Round:      0,
+			PubKeyHash: keyHash,
+			Proofs:     mfx.Fx.SparsePrecommitProofMap(ctx, 1, 0, voteMap),
+		}
+		require.Equal(t, tmconsensus.HandleVoteProofsAccepted, m.HandlePrecommitProofs(ctx, precommitProof))
+
+		// The state machine receives the current state,
+		// so that there is no VRV when we have a jump ahead signal.
+		_ = gtest.ReceiveSoon(t, mfx.StateMachineRoundViewOut)
+
+		// Now half nil precommits arrive for 1/1.
+		precommitProof = tmconsensus.PrecommitSparseProof{
+			Height:     1,
+			Round:      1,
+			PubKeyHash: keyHash,
+			Proofs:     mfx.Fx.SparsePrecommitProofMap(ctx, 1, 1, voteMap),
+		}
+		require.Equal(t, tmconsensus.HandleVoteProofsAccepted, m.HandlePrecommitProofs(ctx, precommitProof))
+
+		// The state machine receives another update.
+		// This time the VRV is empty but the JumpAheadRoundView is set.
+		smv := gtest.ReceiveSoon(t, mfx.StateMachineRoundViewOut)
+		require.Equal(t, tmconsensus.VersionedRoundView{}, smv.VRV)
+		require.NotNil(t, smv.JumpAheadRoundView)
+	})
 }
 
 func TestMirror_VoteSummaryReset(t *testing.T) {

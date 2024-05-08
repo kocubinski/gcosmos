@@ -969,3 +969,91 @@ func TestEngine_configuration(t *testing.T) {
 		})
 	}
 }
+
+func TestEngine_mirrorSkipsAhead(t *testing.T) {
+	t.Run("skip to next round due to minority prevote", func(t *testing.T) {
+		t.Parallel()
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		efx := tmenginetest.NewFixture(ctx, t, 4)
+
+		var engine *tmengine.Engine
+		eReady := make(chan struct{})
+		go func() {
+			defer close(eReady)
+			opts := efx.SigningOptionMap()
+			delete(opts, "WithSigner")
+			engine = efx.MustNewEngine(opts.ToSlice()...)
+		}()
+
+		defer func() {
+			cancel()
+			<-eReady
+			engine.Wait()
+		}()
+
+		icReq := gtest.ReceiveSoon(t, efx.InitChainCh)
+
+		const initAppStateHash = "app_state_0"
+
+		gtest.SendSoon(t, icReq.Resp, tmapp.InitChainResponse{
+			AppStateHash: []byte(initAppStateHash),
+		})
+
+		// After we send the response, the engine is ready.
+		_ = gtest.ReceiveSoon(t, eReady)
+
+		_ = efx.ConsensusStrategy.ExpectEnterRound(1, 0, nil)
+
+		// At the very beginning, the entire network submits a nil prevote at 1/0.
+		keyHash, _ := efx.Fx.ValidatorHashes()
+		fullPrevotes := efx.Fx.SparsePrevoteProofMap(ctx, 1, 0, map[string][]int{
+			"": {0, 1, 2, 3},
+		})
+		prevoteSparseProof := tmconsensus.PrevoteSparseProof{
+			Height: 1, Round: 0,
+			PubKeyHash: keyHash,
+			Proofs:     fullPrevotes,
+		}
+		require.Equal(t, tmconsensus.HandleVoteProofsAccepted, engine.HandlePrevoteProofs(ctx, prevoteSparseProof))
+
+		// Now we get half precommits, but not enough to proceed.
+		partialPrecommits := efx.Fx.SparsePrecommitProofMap(ctx, 1, 0, map[string][]int{
+			"": {0, 1},
+		})
+		precommitSparseProof := tmconsensus.PrecommitSparseProof{
+			Height: 1, Round: 0,
+			PubKeyHash: keyHash,
+			Proofs:     partialPrecommits,
+		}
+		require.Equal(t, tmconsensus.HandleVoteProofsAccepted, engine.HandlePrecommitProofs(ctx, precommitSparseProof))
+
+		// Now, the state machine is able to handle events, but the mock consensus strategy
+		// is currently blocked on a ChooseProposedBlock call.
+		// It would be better if that had was associated with the round
+		// and had a context that automatically canceled,
+		// but for now we will just respond to unblock the mock consensus strategy.
+		cbReq := gtest.ReceiveSoon(t, efx.ConsensusStrategy.ChooseProposedBlockRequests)
+		gtest.SendSoon(t, cbReq.ChoiceHash, "")
+
+		// Now before completing the precommits at 1/0,
+		// we see half the prevotes for nil at 1/1,
+		// which should cause our state machine to jump ahead.
+		ercCh := efx.ConsensusStrategy.ExpectEnterRound(1, 1, nil)
+
+		partialPrevotes := efx.Fx.SparsePrevoteProofMap(ctx, 1, 1, map[string][]int{
+			"": {2, 3},
+		})
+		prevoteSparseProof = tmconsensus.PrevoteSparseProof{
+			Height: 1, Round: 1,
+			PubKeyHash: keyHash,
+			Proofs:     partialPrevotes,
+		}
+		require.Equal(t, tmconsensus.HandleVoteProofsAccepted, engine.HandlePrevoteProofs(ctx, prevoteSparseProof))
+
+		// Wait for state machine to enter 1/1.
+		_ = gtest.ReceiveSoon(t, ercCh)
+	})
+}
