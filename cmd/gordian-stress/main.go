@@ -154,7 +154,6 @@ func newSeedAddrsCmd(log *slog.Logger) *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("failed to create bootstrap client: %w", err)
 			}
-			defer c.Stop()
 
 			addrs, err := c.SeedAddrs()
 			if err != nil {

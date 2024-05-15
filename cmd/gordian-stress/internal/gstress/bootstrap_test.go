@@ -3,9 +3,11 @@ package gstress_test
 import (
 	"context"
 	"log/slog"
-	"net/textproto"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/rollchains/gordian/cmd/gordian-stress/internal/gstress"
 	"github.com/rollchains/gordian/internal/gtest"
@@ -23,7 +25,6 @@ func TestBootstrap_seedAddrs(t *testing.T) {
 	bfx := newFixture(ctx, t, fixtureConfig{SeedAddrs: seedAddrs})
 
 	c := bfx.NewClient()
-	defer c.Stop()
 
 	addrs, err := c.SeedAddrs()
 	require.NoError(t, err)
@@ -31,24 +32,54 @@ func TestBootstrap_seedAddrs(t *testing.T) {
 	require.Equal(t, seedAddrs, addrs)
 }
 
+func TestBootstrap_chainID(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	beforeSec := time.Now().Unix()
+	bfx := newFixture(ctx, t, fixtureConfig{SeedAddrs: []string{"a"}})
+	afterSec := time.Now().Unix()
+
+	c := bfx.NewClient()
+
+	// Confirm the default ID,
+	// which should be formatted as "gstress%d" % time.Now().Unix().
+	chainID, err := c.ChainID()
+	require.NoError(t, err)
+
+	sec, err := strconv.ParseInt(strings.TrimPrefix(chainID, "gstress"), 10, 64)
+	require.NoError(t, err)
+
+	require.LessOrEqual(t, beforeSec, sec)
+	require.GreaterOrEqual(t, afterSec, sec)
+
+	// Change the chain ID.
+	require.NoError(t, c.SetChainID("foo"))
+
+	chainID, err = c.ChainID()
+	require.NoError(t, err)
+	require.Equal(t, "foo", chainID)
+}
+
 type fixture struct {
 	Log *slog.Logger
 
-	SocketPath string
-
 	Host *gstress.BootstrapHost
+
+	serverSocketPath string
 }
 
 func newFixture(ctx context.Context, t *testing.T, cfg fixtureConfig) *fixture {
 	t.Helper()
 
-	// Put the socket file in a temporary directory so we don't have to manage naming conflicts.
 	dir := t.TempDir()
-	socketPath := filepath.Join(dir, "test.sock")
+	serverSocketPath := filepath.Join(dir, "bootstrap.sock")
 
 	log := gtest.NewLogger(t)
 
-	h, err := gstress.NewBootstrapHost(ctx, log.With("sys", "bootstraphost"), socketPath, cfg.SeedAddrs)
+	h, err := gstress.NewBootstrapHost(ctx, log.With("sys", "bootstraphost"), serverSocketPath, cfg.SeedAddrs)
 	if err != nil {
 		t.Fatalf("failed to create bootstrap host: %v", err)
 		return nil
@@ -57,23 +88,15 @@ func newFixture(ctx context.Context, t *testing.T, cfg fixtureConfig) *fixture {
 	t.Cleanup(h.Wait)
 
 	return &fixture{
-		Log:        log,
-		SocketPath: socketPath,
-		Host:       h,
-	}
-}
+		Log:  log,
+		Host: h,
 
-func (f *fixture) NewRawClientConn() *textproto.Conn {
-	conn, err := textproto.Dial("unix", f.SocketPath)
-	if err != nil {
-		panic(err)
+		serverSocketPath: serverSocketPath,
 	}
-
-	return conn
 }
 
 func (f *fixture) NewClient() *gstress.BootstrapClient {
-	c, err := gstress.NewBootstrapClient(f.Log.With("type", "bootstrapclient"), f.SocketPath)
+	c, err := gstress.NewBootstrapClient(f.Log.With("type", "bootstrapclient"), f.serverSocketPath)
 	if err != nil {
 		panic(err)
 	}
