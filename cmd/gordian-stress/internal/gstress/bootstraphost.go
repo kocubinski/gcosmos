@@ -14,6 +14,8 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/rollchains/gordian/gcrypto"
+	"github.com/rollchains/gordian/tm/tmconsensus"
 )
 
 // BootstrapHost is the host portion for bootstrapping a stress cluster.
@@ -38,7 +40,8 @@ import (
 type BootstrapHost struct {
 	log *slog.Logger
 
-	s bState
+	reg gcrypto.Registry
+	s   bState
 
 	hostAddrs []string
 
@@ -61,6 +64,7 @@ func NewBootstrapHost(
 
 		hostAddrs: hostAddrs,
 	}
+	gcrypto.RegisterEd25519(&h.reg)
 
 	l, err := new(net.ListenConfig).Listen(ctx, "unix", serverSocketPath)
 	if err != nil {
@@ -183,5 +187,61 @@ func (h *BootstrapHost) newMux() http.Handler {
 		return
 	}).Methods("POST")
 
+	r.HandleFunc("/register-validator", h.httpRegisterValidator).Methods("POST")
+	r.HandleFunc("/validators", h.httpValidators).Methods("GET")
+
 	return r
+}
+
+func (h *BootstrapHost) httpRegisterValidator(w http.ResponseWriter, req *http.Request) {
+	dec := json.NewDecoder(req.Body)
+	var jv jsonValidator
+	if err := dec.Decode(&jv); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		h.log.Info("Failed to decode validator", "err", err)
+		return
+	}
+
+	key, err := h.reg.Unmarshal(jv.ValPubKeyBytes)
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		h.log.Info("Failed to unmarshal pub key bytes", "err", err)
+		return
+	}
+
+	h.s.AddValidator(tmconsensus.Validator{
+		PubKey: key,
+		Power:  jv.Power,
+	})
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *BootstrapHost) httpValidators(w http.ResponseWriter, req *http.Request) {
+	vals := h.s.Validators()
+
+	jvs := make([]jsonValidator, len(vals))
+	for i, val := range vals {
+		jvs[i] = jsonValidator{
+			ValPubKeyBytes: h.reg.Marshal(val.PubKey),
+			Power:          val.Power,
+		}
+	}
+
+	if err := json.NewEncoder(w).Encode(jvs); err != nil {
+		// Might fail to write this header if jvs was partially marshaled...
+		w.WriteHeader(http.StatusInternalServerError)
+
+		fmt.Fprint(w, "failed to marshal validators")
+		return
+	}
+}
+
+type jsonValidator struct {
+	ValPubKeyBytes []byte
+
+	// Technically should not json-marshal uint64,
+	// but should be okay for this limited case.
+	// Narrow enough scope to fix later if needed.
+	Power uint64
 }

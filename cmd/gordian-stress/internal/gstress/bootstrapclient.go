@@ -1,6 +1,7 @@
 package gstress
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -9,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rollchains/gordian/gcrypto"
+	"github.com/rollchains/gordian/tm/tmconsensus"
 	"github.com/tv42/httpunix"
 )
 
@@ -18,6 +21,8 @@ import (
 // Method on BootstrapClient are not safe for concurrent use.
 type BootstrapClient struct {
 	log *slog.Logger
+
+	reg gcrypto.Registry
 
 	client *http.Client
 }
@@ -36,11 +41,15 @@ func NewBootstrapClient(log *slog.Logger, serverSocketPath string) (*BootstrapCl
 	// access it through the serverSocketPath.
 	tr.RegisterLocation("bootstraphost", serverSocketPath)
 
-	return &BootstrapClient{
+	c := &BootstrapClient{
 		log: log,
 
 		client: &http.Client{Transport: tr},
-	}, nil
+	}
+
+	gcrypto.RegisterEd25519(&c.reg)
+
+	return c, nil
 }
 
 func (c *BootstrapClient) SeedAddrs() ([]string, error) {
@@ -138,4 +147,63 @@ func (c *BootstrapClient) SetApp(a string) error {
 	}
 
 	return nil
+}
+
+func (c *BootstrapClient) RegisterValidator(v tmconsensus.Validator) error {
+	jv := jsonValidator{
+		ValPubKeyBytes: c.reg.Marshal(v.PubKey),
+		Power:          v.Power,
+	}
+
+	b, err := json.Marshal(jv)
+	if err != nil {
+		return fmt.Errorf("failed to marshal validator: %w", err)
+	}
+
+	resp, err := c.client.Post(
+		bootstrapURL+"/register-validator",
+		"application/json",
+		bytes.NewReader(b),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to post validator: %w", err)
+	}
+
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
+		return fmt.Errorf("got unexpected response status: %d", resp.StatusCode)
+	}
+
+	return nil
+}
+
+func (c *BootstrapClient) Validators() ([]tmconsensus.Validator, error) {
+	resp, err := c.client.Get(bootstrapURL + "/validators")
+	if err != nil {
+		return nil, fmt.Errorf("failed to get validators: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("got unexpected response status: %d", resp.StatusCode)
+	}
+
+	var jvs []jsonValidator
+	if err := json.NewDecoder(resp.Body).Decode(&jvs); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	vals := make([]tmconsensus.Validator, len(jvs))
+	for i, jv := range jvs {
+		pubKey, err := c.reg.Unmarshal(jv.ValPubKeyBytes)
+		if err != nil {
+			return nil, fmt.Errorf("failed decoding validator public key %q: %w", jv.ValPubKeyBytes, err)
+		}
+		vals[i] = tmconsensus.Validator{
+			PubKey: pubKey,
+			Power:  jv.Power,
+		}
+	}
+
+	return vals, nil
 }

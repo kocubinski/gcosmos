@@ -3,7 +3,7 @@ package gstress_test
 import (
 	"context"
 	"log/slog"
-	"path/filepath"
+	"os"
 	"strconv"
 	"strings"
 	"testing"
@@ -11,6 +11,7 @@ import (
 
 	"github.com/rollchains/gordian/cmd/gordian-stress/internal/gstress"
 	"github.com/rollchains/gordian/internal/gtest"
+	"github.com/rollchains/gordian/tm/tmconsensus/tmconsensustest"
 	"github.com/stretchr/testify/require"
 )
 
@@ -89,6 +90,29 @@ func TestBootstrap_app(t *testing.T) {
 	require.Equal(t, "echo", app)
 }
 
+func TestBootstrap_registerValidator(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	bfx := newFixture(ctx, t, fixtureConfig{SeedAddrs: []string{"a"}})
+
+	c := bfx.NewClient()
+
+	// Registering a validator once succeeds.
+	v := tmconsensustest.DeterministicValidatorsEd25519(1)[0].CVal
+	require.NoError(t, c.RegisterValidator(v))
+
+	// Attempting again will cause a panic on one of the bootstrap host goroutines,
+	// so we aren't going to do that in test.
+
+	got, err := c.Validators()
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	require.Equal(t, v, got[0])
+}
+
 type fixture struct {
 	Log *slog.Logger
 
@@ -100,8 +124,31 @@ type fixture struct {
 func newFixture(ctx context.Context, t *testing.T, cfg fixtureConfig) *fixture {
 	t.Helper()
 
-	dir := t.TempDir()
-	serverSocketPath := filepath.Join(dir, "bootstrap.sock")
+	// Normally we would use t.TempDir() to create a temporary diretory for the socket file.
+	// However, that will use a longer-than-necessary path on macOS, e.g.
+	// /var/folders/_m/h25_32y958gbgk67m97141400000gq/T/TestBootstrap_registerVali532062248/001/bootstrap.sock
+	// And it turns out that there is a hardcoded limit to the file paths associated with sockets,
+	// at least on macOS, but probably also on other Unix variants.
+	// So, instead of the longer t.TempDir(), we just use os.CreateTemp()
+	// with the default location of os.TempDir(), resulting in a full socket path like this:
+	// /var/folders/_m/h25_32y958gbgk67m97141400000gq/T/510191397.sock
+	//
+	// We could be a little more considerate by injecting a specific directory for these tests,
+	// but if that is strictly necessary, the user can set the TEMPDIR environment variable
+	// to override the default location where the temporary socket files go.
+	f, err := os.CreateTemp("", "*.sock")
+	if err != nil {
+		panic(err)
+	}
+
+	serverSocketPath := f.Name()
+
+	if err := f.Close(); err != nil {
+		panic(err)
+	}
+	if err := os.Remove(f.Name()); err != nil {
+		panic(err)
+	}
 
 	log := gtest.NewLogger(t)
 
