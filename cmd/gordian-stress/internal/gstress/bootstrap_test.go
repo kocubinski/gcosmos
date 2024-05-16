@@ -9,9 +9,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/libp2p/go-libp2p"
+	libp2phost "github.com/libp2p/go-libp2p/core/host"
+	libp2ppeer "github.com/libp2p/go-libp2p/core/peer"
+	libp2pping "github.com/libp2p/go-libp2p/p2p/protocol/ping"
 	"github.com/rollchains/gordian/cmd/gordian-stress/internal/gstress"
 	"github.com/rollchains/gordian/internal/gtest"
 	"github.com/rollchains/gordian/tm/tmconsensus/tmconsensustest"
+	"github.com/rollchains/gordian/tm/tmp2p/tmlibp2p"
 	"github.com/stretchr/testify/require"
 )
 
@@ -111,6 +116,73 @@ func TestBootstrap_registerValidator(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, got, 1)
 	require.Equal(t, v, got[0])
+}
+
+func TestBootstrap_start(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	seedHost, err := tmlibp2p.NewHost(ctx, tmlibp2p.HostOptions{
+		Options: []libp2p.Option{
+			// Same options as gordian-stress/main.go.
+			libp2p.ListenAddrStrings("/ip4/0.0.0.0/tcp/0"),
+			libp2p.ForceReachabilityPublic(),
+		},
+	})
+	require.NoError(t, err)
+	defer seedHost.Close()
+
+	seedHostInfo := libp2phost.InfoFromHost(seedHost.Libp2pHost())
+	p2pAddrs, err := libp2ppeer.AddrInfoToP2pAddrs(seedHostInfo)
+	require.NoError(t, err)
+
+	var seedHostAddrs []string
+	for _, a := range p2pAddrs {
+		seedHostAddrs = append(seedHostAddrs, a.String())
+	}
+
+	bfx := newFixture(ctx, t, fixtureConfig{SeedAddrs: seedHostAddrs})
+
+	c := bfx.NewClient()
+	gotSeedAddrs, err := c.SeedAddrs()
+	require.NoError(t, err)
+
+	clientHost, err := tmlibp2p.NewHost(ctx, tmlibp2p.HostOptions{
+		Options: []libp2p.Option{
+			// Same options as gordian-stress/main.go.
+			libp2p.ListenAddrStrings("/ip4/0.0.0.0/tcp/0"),
+			libp2p.ForceReachabilityPublic(),
+		},
+	})
+	require.NoError(t, err)
+	defer clientHost.Close()
+
+	connected := false
+	for _, sa := range gotSeedAddrs {
+		ai, err := libp2ppeer.AddrInfoFromString(sa)
+		require.NoError(t, err)
+
+		if err := clientHost.Libp2pHost().Connect(ctx, *ai); err != nil {
+			t.Logf("error connecting to address %q: %v", sa, err)
+			continue
+		}
+
+		connected = true
+		t.Logf("Connected to seed address %s", sa)
+		break
+	}
+
+	require.True(t, connected, "failed to connect to any seed address")
+
+	ch := libp2pping.Ping(ctx, clientHost.Libp2pHost(), seedHost.Libp2pHost().ID())
+
+	res := gtest.ReceiveSoon(t, ch)
+	require.NoError(t, res.Error)
+	// Takes under 200 microseconds on my machine,
+	// so the default ReceiveSoon timeout seems okay.
+	t.Logf("Ping RTT: %s", res.RTT)
 }
 
 type fixture struct {
