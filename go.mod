@@ -4,6 +4,7 @@ go 1.22
 
 require (
 	github.com/bits-and-blooms/bitset v1.13.0
+	github.com/gorilla/mux v1.8.1
 	github.com/libp2p/go-libp2p v0.33.2
 	github.com/libp2p/go-libp2p-kad-dht v0.25.2
 	github.com/libp2p/go-libp2p-pubsub v0.10.0
