@@ -53,6 +53,7 @@ func NewBootstrapHost(
 		log: log,
 
 		s: bState{
+			app:     "echo",
 			chainID: fmt.Sprintf("gstress%d", time.Now().Unix()),
 		},
 
@@ -140,11 +141,56 @@ func (h *BootstrapHost) newMux() *http.ServeMux {
 			newID, ok := strings.CutSuffix(string(b), "\n")
 			if !ok {
 				w.WriteHeader(http.StatusBadRequest)
+				_, _ = fmt.Fprintf(w, "new chain ID %q missing required trailing newline", newID)
 				return
 			}
 
 			w.WriteHeader(http.StatusNoContent)
 			h.s.SetChainID(strings.TrimSpace(string(newID)))
+			return
+		}
+
+		// Didn't return earlier, so this was a bad method.
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	})
+
+	m.HandleFunc("/app", func(w http.ResponseWriter, req *http.Request) {
+		if req.Method == http.MethodGet {
+			// GET: report the current app.
+			if _, err := io.WriteString(w, h.s.App()+"\n"); err != nil {
+				h.log.Info("Failed to write app", "err", err)
+			}
+			return
+		}
+
+		if req.Method == http.MethodPost {
+			// POST: replace the chain ID with what the client supplied.
+			b, err := io.ReadAll(req.Body)
+			if err != nil {
+				w.WriteHeader(http.StatusBadRequest)
+				h.log.Info("Failed to read new app from client", "err", err)
+				return
+			}
+
+			a, ok := strings.CutSuffix(string(b), "\n")
+			if !ok {
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = fmt.Fprintf(w, "new app %q missing required trailing newline", a)
+				return
+			}
+
+			switch a {
+			// There are only a small set of valid apps.
+			case "echo":
+				// Okay.
+			default:
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = fmt.Fprintf(w, "invalid app name %q", a)
+				return
+			}
+
+			w.WriteHeader(http.StatusNoContent)
+			h.s.SetApp(strings.TrimSpace(string(a)))
 			return
 		}
 

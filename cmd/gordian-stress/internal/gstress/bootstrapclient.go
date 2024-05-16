@@ -99,3 +99,43 @@ func (c *BootstrapClient) SetChainID(newID string) error {
 
 	return nil
 }
+
+func (c *BootstrapClient) App() (string, error) {
+	resp, err := c.client.Get(bootstrapURL + "/app")
+	if err != nil {
+		return "", fmt.Errorf("failed to get app: %w", err)
+	}
+
+	defer resp.Body.Close()
+
+	b, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read app response: %w", err)
+	}
+
+	app, ok := strings.CutSuffix(string(b), "\n")
+	if !ok {
+		return "", fmt.Errorf("got malformatted app: %q", b)
+	}
+
+	return app, nil
+}
+
+func (c *BootstrapClient) SetApp(a string) error {
+	resp, err := c.client.Post(
+		bootstrapURL+"/app",
+		"text/plain",
+		strings.NewReader(a+"\n"),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to get app: %w", err)
+	}
+
+	resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
+		return fmt.Errorf("got unexpected response status: %d", resp.StatusCode)
+	}
+
+	return nil
+}

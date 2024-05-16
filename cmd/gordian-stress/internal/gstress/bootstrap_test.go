@@ -63,6 +63,32 @@ func TestBootstrap_chainID(t *testing.T) {
 	require.Equal(t, "foo", chainID)
 }
 
+func TestBootstrap_app(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	bfx := newFixture(ctx, t, fixtureConfig{SeedAddrs: []string{"a"}})
+
+	c := bfx.NewClient()
+
+	// The default app is echo.
+	app, err := c.App()
+	require.NoError(t, err)
+	require.Equal(t, "echo", app)
+
+	// Setting the app to anything else currently fails,
+	// because we don't yet support any other built-in app.
+	// Change the chain ID.
+	require.Error(t, c.SetApp("foo"))
+
+	// Confirm it didn't change.
+	app, err = c.App()
+	require.NoError(t, err)
+	require.Equal(t, "echo", app)
+}
+
 type fixture struct {
 	Log *slog.Logger
 
