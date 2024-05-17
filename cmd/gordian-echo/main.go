@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"crypto/ed25519"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -13,10 +12,10 @@ import (
 
 	"github.com/libp2p/go-libp2p"
 	dht "github.com/libp2p/go-libp2p-kad-dht"
-	libp2pcrypto "github.com/libp2p/go-libp2p/core/crypto"
 	libp2pevent "github.com/libp2p/go-libp2p/core/event"
 	libp2phost "github.com/libp2p/go-libp2p/core/host"
 	libp2ppeer "github.com/libp2p/go-libp2p/core/peer"
+	"github.com/rollchains/gordian/cmd/internal/gcmd"
 	"github.com/rollchains/gordian/gcrypto"
 	"github.com/rollchains/gordian/gwatchdog"
 	"github.com/rollchains/gordian/tm/tmapp"
@@ -29,7 +28,6 @@ import (
 	"github.com/rollchains/gordian/tm/tmp2p/tmlibp2p"
 	"github.com/rollchains/gordian/tm/tmstore/tmmemstore"
 	"github.com/spf13/cobra"
-	"golang.org/x/crypto/blake2b"
 )
 
 func main() {
@@ -105,7 +103,7 @@ func NewValidatorPublicKeyCmd(log *slog.Logger) *cobra.Command {
 		Args: cobra.ExactArgs(1),
 
 		RunE: func(cmd *cobra.Command, args []string) error {
-			signer, err := signerFromInsecurePassphrase(args[0])
+			signer, err := gcmd.SignerFromInsecurePassphrase("gordian-echo|", args[0])
 			if err != nil {
 				return err
 			}
@@ -126,7 +124,7 @@ func NewLibp2pIDCmd(log *slog.Logger) *cobra.Command {
 		Args: cobra.ExactArgs(1),
 
 		RunE: func(cmd *cobra.Command, args []string) error {
-			privKey, err := libp2pKeyFromInsecurePassphrase(args[0])
+			privKey, err := gcmd.Libp2pKeyFromInsecurePassphrase("gordian-echo:network|", args[0])
 			if err != nil {
 				return fmt.Errorf("failed to generate libp2p network key: %w", err)
 			}
@@ -156,7 +154,7 @@ func NewRunP2PRelayerCmd(log *slog.Logger) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
 
-			netPrivKey, err := libp2pKeyFromInsecurePassphrase(args[0])
+			netPrivKey, err := gcmd.Libp2pKeyFromInsecurePassphrase("gordian-echo:network|", args[0])
 			if err != nil {
 				return fmt.Errorf("failed to generate libp2p network key: %w", err)
 			}
@@ -429,7 +427,7 @@ func NewRunEchoValidatorCmd(log *slog.Logger) *cobra.Command {
 		Args: cobra.ExactArgs(2),
 
 		RunE: func(cmd *cobra.Command, args []string) error {
-			signer, err := signerFromInsecurePassphrase(args[0])
+			signer, err := gcmd.SignerFromInsecurePassphrase("gordian-echo|", args[0])
 			if err != nil {
 				return err
 			}
@@ -657,39 +655,6 @@ func runStateMachineV3(
 	log.Info("Shutting down...")
 
 	return nil
-}
-
-func signerFromInsecurePassphrase(insecurePassphrase string) (gcrypto.Ed25519Signer, error) {
-	bh, err := blake2b.New(ed25519.SeedSize, nil)
-	if err != nil {
-		return gcrypto.Ed25519Signer{}, err
-	}
-	bh.Write([]byte("gordian-echo|"))
-	bh.Write([]byte(insecurePassphrase))
-	seed := bh.Sum(nil)
-
-	privKey := ed25519.NewKeyFromSeed(seed)
-
-	return gcrypto.NewEd25519Signer(privKey), nil
-}
-
-func libp2pKeyFromInsecurePassphrase(insecurePassphrase string) (libp2pcrypto.PrivKey, error) {
-	bh, err := blake2b.New(ed25519.SeedSize, nil)
-	if err != nil {
-		return nil, err
-	}
-	bh.Write([]byte("gordian-echo:network|"))
-	bh.Write([]byte(insecurePassphrase))
-	seed := bh.Sum(nil)
-
-	privKey := ed25519.NewKeyFromSeed(seed)
-
-	priv, _, err := libp2pcrypto.KeyPairFromStdKey(&privKey)
-	if err != nil {
-		return nil, err
-	}
-
-	return priv, nil
 }
 
 func logPeerChanges(

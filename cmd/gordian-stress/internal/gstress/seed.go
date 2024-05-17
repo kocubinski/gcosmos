@@ -64,6 +64,7 @@ func (s *SeedService) handler(stream libp2pnetwork.Stream) {
 type RPCGenesisRequest struct{}
 
 type RPCGenesisResponse struct {
+	App        string
 	ChainID    string
 	Validators []tmconsensus.Validator
 
@@ -93,6 +94,7 @@ func (rpc *SeedRPC) Genesis(args RPCGenesisRequest, resp *RPCGenesisResponse) er
 	<-rpc.bh.s.started
 
 	*resp = RPCGenesisResponse{
+		App:        rpc.bh.s.App(),
 		ChainID:    rpc.bh.s.ChainID(),
 		Validators: rpc.bh.s.Validators(),
 	}

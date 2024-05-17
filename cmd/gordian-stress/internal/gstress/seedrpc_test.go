@@ -41,6 +41,7 @@ func TestSeedRPC_Genesis_startFirst(t *testing.T) {
 
 	resp := new(gstress.RPCGenesisResponse)
 	require.NoError(t, rpcClient.Call("SeedRPC.Genesis", gstress.RPCGenesisRequest{}, resp))
+	require.Equal(t, "echo", resp.App)
 	require.Equal(t, "my-chain-id", resp.ChainID)
 	require.Equal(t, vals, resp.Validators)
 }
