@@ -87,7 +87,11 @@ type SeedRPC struct {
 }
 
 // Genesis is the RPC method for getting genesis data from the seed service.
+// This method blocks until the bootstrap host has received a Start call,
+// in order to prevent incomplete genesis data being sent.
 func (rpc *SeedRPC) Genesis(args RPCGenesisRequest, resp *RPCGenesisResponse) error {
+	<-rpc.bh.s.started
+
 	*resp = RPCGenesisResponse{
 		ChainID:    rpc.bh.s.ChainID(),
 		Validators: rpc.bh.s.Validators(),

@@ -58,6 +58,8 @@ func NewBootstrapHost(
 		log: log,
 
 		s: bState{
+			started: make(chan struct{}),
+
 			app:     "echo",
 			chainID: fmt.Sprintf("gstress%d", time.Now().Unix()),
 		},
@@ -189,6 +191,11 @@ func (h *BootstrapHost) newMux() http.Handler {
 
 	r.HandleFunc("/register-validator", h.httpRegisterValidator).Methods("POST")
 	r.HandleFunc("/validators", h.httpValidators).Methods("GET")
+
+	r.HandleFunc("/start", func(w http.ResponseWriter, req *http.Request) {
+		h.s.Start()
+		w.WriteHeader(http.StatusNoContent)
+	}).Methods("POST")
 
 	return r
 }

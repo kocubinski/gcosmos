@@ -207,3 +207,17 @@ func (c *BootstrapClient) Validators() ([]tmconsensus.Validator, error) {
 
 	return vals, nil
 }
+
+func (c *BootstrapClient) Start() error {
+	resp, err := c.client.Post(bootstrapURL+"/start", "", nil)
+	if err != nil {
+		return fmt.Errorf("failed to make start call: %w", err)
+	}
+	resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNoContent {
+		return fmt.Errorf("got unexpected response status: %d", resp.StatusCode)
+	}
+
+	return nil
+}

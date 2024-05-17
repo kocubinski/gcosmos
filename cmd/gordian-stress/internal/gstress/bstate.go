@@ -9,6 +9,9 @@ import (
 )
 
 type bState struct {
+	startOnce sync.Once
+	started   chan struct{}
+
 	mu sync.Mutex
 
 	app        string
@@ -62,4 +65,10 @@ func (s *bState) Validators() []tmconsensus.Validator {
 	defer s.mu.Unlock()
 
 	return slices.Clone(s.validators)
+}
+
+func (s *bState) Start() {
+	s.startOnce.Do(func() {
+		close(s.started)
+	})
 }
