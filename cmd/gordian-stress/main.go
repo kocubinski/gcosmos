@@ -430,8 +430,6 @@ func runStateMachine(
 	rs := tmmemstore.NewRoundStore()
 	vs := tmmemstore.NewValidatorStore(tmconsensustest.SimpleHashScheme{})
 
-	// TODO: should get vals from genesis data!!!
-
 	blockFinCh := make(chan tmapp.FinalizeBlockRequest)
 	initChainCh := make(chan tmapp.InitChainRequest)
 

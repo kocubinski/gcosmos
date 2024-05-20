@@ -9,12 +9,14 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"reflect"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/rollchains/gordian/gcrypto"
+	"github.com/rollchains/gordian/internal/glog"
 	"github.com/rollchains/gordian/tm/tmconsensus"
 )
 
@@ -220,6 +222,7 @@ func (h *BootstrapHost) httpRegisterValidator(w http.ResponseWriter, req *http.R
 		PubKey: key,
 		Power:  jv.Power,
 	})
+	h.log.Info("Registered validator", "pubkey", glog.Hex(key.PubKeyBytes()), "key_type", reflect.TypeOf(key), "power", jv.Power)
 
 	w.WriteHeader(http.StatusNoContent)
 }
