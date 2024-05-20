@@ -100,3 +100,12 @@ func (rpc *SeedRPC) Genesis(args RPCGenesisRequest, resp *RPCGenesisResponse) er
 	}
 	return nil
 }
+
+type RPCHaltRequest struct{}
+type RPCHaltResponse struct{}
+
+// AwaitHalt is the RPC method for a client to wait for a halt instruction from the host.
+func (rpc *SeedRPC) AwaitHalt(args RPCHaltRequest, resp *RPCHaltResponse) error {
+	<-rpc.bh.haltCh
+	return nil
+}

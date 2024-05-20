@@ -72,6 +72,7 @@ Fine-grained as in: fine control of the network participants' configuration.
 		newValidatorCmd(log),
 		newRegisterValidatorCmd(log),
 		newStartCmd(log),
+		newHaltCmd(log),
 	)
 
 	return rootCmd
@@ -92,7 +93,8 @@ func newSeedCmd(log *slog.Logger) *cobra.Command {
 		Args: cobra.RangeArgs(0, 1),
 
 		RunE: func(cmd *cobra.Command, args []string) error {
-			ctx := cmd.Context()
+			ctx, cancel := context.WithCancel(cmd.Context())
+			defer cancel()
 
 			h, err := tmlibp2p.NewHost(
 				ctx,
@@ -145,13 +147,18 @@ func newSeedCmd(log *slog.Logger) *cobra.Command {
 				return fmt.Errorf("failed to initialize discovery host: %w", err)
 			}
 			defer bh.Wait()
+			defer cancel()
 
 			_ = gstress.NewSeedService(log.With("svc", "seed"), host, bh)
 
 			log.Info("Seed host ready", "id", host.ID().String(), "addrs", hostAddrs)
 
-			<-ctx.Done()
-			log.Info("Received ^c")
+			select {
+			case <-ctx.Done():
+				log.Info("Received ^c")
+			case <-bh.Halted():
+				log.Info("Received halt signal")
+			}
 
 			return nil
 		},
@@ -309,14 +316,14 @@ func newValidatorCmd(log *slog.Logger) *cobra.Command {
 				// Otherwise, resp has been populated.
 			}
 
-			log.Info("Got genesis data", "app", resp.App, "chain_id", resp.ChainID, "validators", resp.Validators)
+			haltCall := rpcClient.Go("SeedRPC.Halt", gstress.RPCHaltRequest{}, new(gstress.RPCHaltResponse), nil)
 
 			// Ensure we are on a valid app.
 			if resp.App != "echo" {
 				return fmt.Errorf("unsupported app %q", resp.App)
 			}
 
-			return runStateMachine(log, cmd, h, signer, *resp)
+			return runStateMachine(log, cmd, h, signer, *resp, haltCall.Done)
 		},
 	}
 
@@ -390,6 +397,7 @@ func runStateMachine(
 	h *tmlibp2p.Host,
 	signer gcrypto.Signer,
 	seedGenesis gstress.RPCGenesisResponse,
+	haltCallCh <-chan *rpc.Call,
 ) error {
 	// We need a cancelable context if we fail partway through setup.
 	// Be sure to defer cancel() after other deferred
@@ -401,6 +409,16 @@ func runStateMachine(
 	// Just reassign ctx here because we will not have any further references to the root context,
 	// other than explicit cancel calls to ensure clean shutdown.
 	wd, ctx := gwatchdog.NewWatchdog(ctx, log.With("sys", "watchdog"))
+
+	go func() {
+		select {
+		case <-ctx.Done():
+			// Nothing to do.
+			return
+		case <-haltCallCh:
+			wd.Terminate("received halt signal from seed")
+		}
+	}()
 
 	reg := new(gcrypto.Registry)
 	gcrypto.RegisterEd25519(reg)
@@ -496,4 +514,27 @@ func runStateMachine(
 	log.Info("Shutting down...")
 
 	return nil
+}
+
+func newHaltCmd(log *slog.Logger) *cobra.Command {
+	cmd := &cobra.Command{
+		Use: "halt PATH_TO_SOCKET_FILE",
+
+		Short: "Tell the seed node and its connected validators to halt",
+
+		Args: cobra.ExactArgs(1),
+
+		RunE: func(cmd *cobra.Command, args []string) error {
+			socketPath := args[0]
+
+			c, err := gstress.NewBootstrapClient(log, socketPath)
+			if err != nil {
+				return fmt.Errorf("failed to create bootstrap client: %w", err)
+			}
+
+			return c.Halt()
+		},
+	}
+
+	return cmd
 }

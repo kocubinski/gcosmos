@@ -47,6 +47,9 @@ type BootstrapHost struct {
 
 	hostAddrs []string
 
+	haltOnce sync.Once
+	haltCh   chan struct{}
+
 	wg sync.WaitGroup
 }
 
@@ -67,6 +70,8 @@ func NewBootstrapHost(
 		},
 
 		hostAddrs: hostAddrs,
+
+		haltCh: make(chan struct{}),
 	}
 	gcrypto.RegisterEd25519(&h.reg)
 
@@ -98,6 +103,16 @@ func (h *BootstrapHost) serve(l net.Listener) {
 			h.log.Info("HTTP server shutting down due to error", "err", err)
 		}
 	}
+}
+
+func (h *BootstrapHost) halt() {
+	h.haltOnce.Do(func() {
+		close(h.haltCh)
+	})
+}
+
+func (h *BootstrapHost) Halted() <-chan struct{} {
+	return h.haltCh
 }
 
 // closeListenerOnContextCancel waits for a root context cancellation
@@ -198,6 +213,11 @@ func (h *BootstrapHost) newMux() http.Handler {
 		h.s.Start()
 		w.WriteHeader(http.StatusNoContent)
 	}).Methods("POST")
+
+	r.HandleFunc("/halt", func(w http.ResponseWriter, req *http.Request) {
+		h.halt()
+		w.WriteHeader(http.StatusNoContent)
+	})
 
 	return r
 }

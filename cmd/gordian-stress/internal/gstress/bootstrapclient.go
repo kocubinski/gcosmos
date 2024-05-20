@@ -221,3 +221,17 @@ func (c *BootstrapClient) Start() error {
 
 	return nil
 }
+
+func (c *BootstrapClient) Halt() error {
+	resp, err := c.client.Post(bootstrapURL+"/halt", "", nil)
+	if err != nil {
+		return fmt.Errorf("failed to make halt call: %w", err)
+	}
+	resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNoContent {
+		return fmt.Errorf("got unexpected response status: %d", resp.StatusCode)
+	}
+
+	return nil
+}

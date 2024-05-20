@@ -105,3 +105,38 @@ func TestSeedRPC_Genesis_blocksUntilStart(t *testing.T) {
 	require.Equal(t, "my-chain-id", resp2.ChainID)
 	require.Equal(t, vals, resp2.Validators)
 }
+
+func TestSeedRPC_halt(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	bfx, seedHost := newFixtureWithSeedHost(ctx, t, fixtureConfig{})
+
+	c := bfx.NewBootstrapClient()
+
+	// Open two client streams without calling Start.
+	clientHost := bfx.NewSeedClient(ctx, t)
+
+	seedRPCStream, err := clientHost.Libp2pHost().NewStream(
+		ctx, seedHost.Libp2pHost().ID(), gstress.SeedServiceProtocolID,
+	)
+	require.NoError(t, err)
+
+	rpcClient := rpc.NewClient(seedRPCStream)
+	resp := new(gstress.RPCHaltResponse)
+	call := rpcClient.Go("SeedRPC.AwaitHalt", gstress.RPCHaltRequest{}, resp, nil)
+
+	// Async call outstanding.
+	gtest.NotSending(t, call.Done)
+
+	// Make halt call.
+	require.NoError(t, c.Halt())
+
+	// RPC call completes instantly.
+	call = gtest.ReceiveSoon(t, call.Done)
+	require.NoError(t, call.Error)
+
+	_ = gtest.ReceiveSoon(t, bfx.Host.Halted())
+}
