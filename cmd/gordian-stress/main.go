@@ -316,7 +316,7 @@ func newValidatorCmd(log *slog.Logger) *cobra.Command {
 				// Otherwise, resp has been populated.
 			}
 
-			haltCall := rpcClient.Go("SeedRPC.Halt", gstress.RPCHaltRequest{}, new(gstress.RPCHaltResponse), nil)
+			haltCall := rpcClient.Go("SeedRPC.AwaitHalt", gstress.RPCHaltRequest{}, new(gstress.RPCHaltResponse), nil)
 
 			// Ensure we are on a valid app.
 			if resp.App != "echo" {
