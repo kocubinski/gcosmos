@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 
 	"github.com/libp2p/go-libp2p"
 	dht "github.com/libp2p/go-libp2p-kad-dht"
@@ -15,8 +16,16 @@ import (
 	libp2ppeer "github.com/libp2p/go-libp2p/core/peer"
 	"github.com/rollchains/gordian/cmd/gordian-stress/internal/gstress"
 	"github.com/rollchains/gordian/cmd/internal/gcmd"
+	"github.com/rollchains/gordian/gcrypto"
+	"github.com/rollchains/gordian/gwatchdog"
+	"github.com/rollchains/gordian/tm/tmapp"
+	"github.com/rollchains/gordian/tm/tmcodec/tmjson"
 	"github.com/rollchains/gordian/tm/tmconsensus"
+	"github.com/rollchains/gordian/tm/tmconsensus/tmconsensustest"
+	"github.com/rollchains/gordian/tm/tmengine"
+	"github.com/rollchains/gordian/tm/tmgossip"
 	"github.com/rollchains/gordian/tm/tmp2p/tmlibp2p"
+	"github.com/rollchains/gordian/tm/tmstore/tmmemstore"
 	"github.com/spf13/cobra"
 )
 
@@ -107,6 +116,7 @@ func newSeedCmd(log *slog.Logger) *cobra.Command {
 
 			// We currently rely on the libp2p DHT for peer discovery,
 			// so the seed node needs to run the DHT as well.
+			// The validators connect to the DHT through the tmlibp2p.Connection type.
 			if _, err := dht.New(ctx, host, dht.ProtocolPrefix("/gordian")); err != nil {
 				return fmt.Errorf("failed to create DHT peer for seed: %w", err)
 			}
@@ -301,7 +311,12 @@ func newValidatorCmd(log *slog.Logger) *cobra.Command {
 
 			log.Info("Got genesis data", "app", resp.App, "chain_id", resp.ChainID, "validators", resp.Validators)
 
-			return nil
+			// Ensure we are on a valid app.
+			if resp.App != "echo" {
+				return fmt.Errorf("unsupported app %q", resp.App)
+			}
+
+			return runStateMachine(log, cmd, h, signer, *resp)
 		},
 	}
 
@@ -367,4 +382,120 @@ func newStartCmd(log *slog.Logger) *cobra.Command {
 	}
 
 	return cmd
+}
+
+func runStateMachine(
+	log *slog.Logger,
+	cmd *cobra.Command,
+	h *tmlibp2p.Host,
+	signer gcrypto.Signer,
+	seedGenesis gstress.RPCGenesisResponse,
+) error {
+	// We need a cancelable context if we fail partway through setup.
+	// Be sure to defer cancel() after other deferred
+	// close and cleanup calls, for types dependent on
+	// a parent context cancellation.
+	ctx, cancel := context.WithCancel(cmd.Context())
+	defer cancel()
+
+	// Just reassign ctx here because we will not have any further references to the root context,
+	// other than explicit cancel calls to ensure clean shutdown.
+	wd, ctx := gwatchdog.NewWatchdog(ctx, log.With("sys", "watchdog"))
+
+	reg := new(gcrypto.Registry)
+	gcrypto.RegisterEd25519(reg)
+	codec := tmjson.MarshalCodec{
+		CryptoRegistry: reg,
+	}
+	conn, err := tmlibp2p.NewConnection(
+		ctx,
+		log.With("sys", "libp2pconn"),
+		h,
+		codec,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to build libp2p connection: %w", err)
+	}
+	defer conn.Disconnect()
+	defer cancel()
+
+	var as *tmmemstore.ActionStore
+	if signer != nil {
+		as = tmmemstore.NewActionStore()
+	}
+
+	bs := tmmemstore.NewBlockStore()
+	fs := tmmemstore.NewFinalizationStore()
+	ms := tmmemstore.NewMirrorStore()
+	rs := tmmemstore.NewRoundStore()
+	vs := tmmemstore.NewValidatorStore(tmconsensustest.SimpleHashScheme{})
+
+	// TODO: should get vals from genesis data!!!
+
+	blockFinCh := make(chan tmapp.FinalizeBlockRequest)
+	initChainCh := make(chan tmapp.InitChainRequest)
+
+	app := gcmd.NewEchoApp(ctx, log.With("app", "echo"), initChainCh, blockFinCh)
+	defer app.Wait()
+	defer cancel()
+
+	var signerPubKey gcrypto.PubKey
+	if signer != nil {
+		signerPubKey = signer.PubKey()
+	}
+	cStrat := gcmd.NewEchoConsensusStrategy(log.With("sys", "cstrat"), signerPubKey)
+
+	gs := tmgossip.NewChattyStrategy(ctx, log.With("sys", "chattygossip"), conn)
+
+	e, err := tmengine.New(
+		ctx,
+		log.With("sys", "engine"),
+		tmengine.WithActionStore(as),
+		tmengine.WithBlockStore(bs),
+		tmengine.WithFinalizationStore(fs),
+		tmengine.WithMirrorStore(ms),
+		tmengine.WithRoundStore(rs),
+		tmengine.WithValidatorStore(vs),
+
+		tmengine.WithHashScheme(tmconsensustest.SimpleHashScheme{}),
+		tmengine.WithSignatureScheme(tmconsensustest.SimpleSignatureScheme{}),
+		tmengine.WithCommonMessageSignatureProofScheme(gcrypto.SimpleCommonMessageSignatureProofScheme),
+
+		tmengine.WithConsensusStrategy(cStrat),
+		tmengine.WithGossipStrategy(gs),
+
+		tmengine.WithGenesis(&tmconsensus.ExternalGenesis{
+			ChainID:           seedGenesis.App,
+			InitialHeight:     1,
+			InitialAppState:   strings.NewReader(""), // No initial app state for echo app.
+			GenesisValidators: seedGenesis.Validators,
+		}),
+
+		tmengine.WithTimeoutStrategy(ctx, tmengine.LinearTimeoutStrategy{}),
+
+		tmengine.WithBlockFinalizationChannel(blockFinCh),
+		tmengine.WithInitChainChannel(initChainCh),
+
+		tmengine.WithSigner(signer),
+
+		tmengine.WithWatchdog(wd),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to build engine: %w", err)
+	}
+
+	conn.SetConsensusHandler(ctx, tmconsensus.AcceptAllValidFeedbackMapper{
+		Handler: e,
+	})
+	defer e.Wait()
+
+	if signer == nil {
+		log.Info("Running follower engine...")
+	} else {
+		log.Info("Running engine...")
+	}
+	<-ctx.Done()
+	log.Info("Shutting down...")
+
+	return nil
 }
