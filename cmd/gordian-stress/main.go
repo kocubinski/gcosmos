@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/libp2p/go-libp2p"
 	dht "github.com/libp2p/go-libp2p-kad-dht"
@@ -68,6 +69,7 @@ Fine-grained as in: fine control of the network participants' configuration.
 
 	rootCmd.AddCommand(
 		newSeedCmd(log),
+		newWaitForSeedCmd(log),
 		newSeedAddrsCmd(log),
 		newValidatorCmd(log),
 		newRegisterValidatorCmd(log),
@@ -165,6 +167,37 @@ func newSeedCmd(log *slog.Logger) *cobra.Command {
 	}
 
 	return cmd
+}
+
+func newWaitForSeedCmd(log *slog.Logger) *cobra.Command {
+	return &cobra.Command{
+		Use: "wait-for-seed PATH_TO_SOCKET_FILE",
+
+		Short: "Wait for the seed service to be listening at the given socket path",
+
+		Args: cobra.ExactArgs(1),
+
+		RunE: func(cmd *cobra.Command, args []string) error {
+			socketPath := args[0]
+			socketExists := false
+			for range 200 {
+				if _, err := os.Stat(socketPath); err != nil {
+					// File wasn't ready.
+					// 5ms sleep * 200 = checking for 1 total second.
+					time.Sleep(5 * time.Millisecond)
+					continue
+				}
+				socketExists = true
+				break
+			}
+
+			if !socketExists {
+				return fmt.Errorf("socket file at %s not ready within one second", socketPath)
+			}
+
+			return nil
+		},
+	}
 }
 
 func newSeedAddrsCmd(log *slog.Logger) *cobra.Command {
