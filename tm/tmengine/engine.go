@@ -13,6 +13,7 @@ import (
 	"github.com/rollchains/gordian/tm/tmapp"
 	"github.com/rollchains/gordian/tm/tmconsensus"
 	"github.com/rollchains/gordian/tm/tmengine/internal/tmeil"
+	"github.com/rollchains/gordian/tm/tmengine/internal/tmemetrics"
 	"github.com/rollchains/gordian/tm/tmengine/internal/tmmirror"
 	"github.com/rollchains/gordian/tm/tmengine/internal/tmstate"
 	"github.com/rollchains/gordian/tm/tmengine/tmelink"
@@ -40,6 +41,7 @@ type Engine struct {
 	sm *tmstate.StateMachine
 
 	initChainCh chan<- tmapp.InitChainRequest
+	metricsCh   chan<- Metrics
 
 	watchdog *gwatchdog.Watchdog
 }
@@ -72,6 +74,12 @@ func New(ctx context.Context, log *slog.Logger, opts ...Opt) (*Engine, error) {
 
 	if err := e.validateSettings(smCfg); err != nil {
 		return nil, err
+	}
+
+	if e.metricsCh != nil {
+		mc := tmemetrics.NewCollector(ctx, 4, e.metricsCh)
+		smCfg.MetricsCollector = mc
+		e.mCfg.MetricsCollector = mc
 	}
 
 	// The assigned genesis may be a zero value if the chain was already initialized,
@@ -129,6 +137,9 @@ func (e *Engine) Wait() {
 	}
 	if e.gs != nil {
 		e.gs.Wait()
+	}
+	if e.mCfg.MetricsCollector != nil {
+		e.mCfg.MetricsCollector.Wait()
 	}
 }
 

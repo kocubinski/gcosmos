@@ -13,6 +13,7 @@ import (
 	"github.com/rollchains/gordian/internal/glog"
 	"github.com/rollchains/gordian/tm/tmconsensus"
 	"github.com/rollchains/gordian/tm/tmengine/internal/tmeil"
+	"github.com/rollchains/gordian/tm/tmengine/internal/tmemetrics"
 	"github.com/rollchains/gordian/tm/tmengine/internal/tmmirror/internal/tmi"
 	"github.com/rollchains/gordian/tm/tmengine/tmelink"
 	"github.com/rollchains/gordian/tm/tmstore"
@@ -62,6 +63,8 @@ type MirrorConfig struct {
 
 	StateMachineRoundEntranceIn <-chan tmeil.StateMachineRoundEntrance
 
+	MetricsCollector *tmemetrics.Collector
+
 	Watchdog *gwatchdog.Watchdog
 }
 
@@ -86,6 +89,8 @@ func (c MirrorConfig) toKernelConfig() tmi.KernelConfig {
 
 		StateMachineRoundEntranceIn: c.StateMachineRoundEntranceIn,
 		StateMachineRoundViewOut:    c.StateMachineRoundViewOut,
+
+		MetricsCollector: c.MetricsCollector,
 
 		Watchdog: c.Watchdog,
 	}

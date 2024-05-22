@@ -16,6 +16,7 @@ import (
 	"github.com/rollchains/gordian/internal/glog"
 	"github.com/rollchains/gordian/tm/tmconsensus"
 	"github.com/rollchains/gordian/tm/tmengine/internal/tmeil"
+	"github.com/rollchains/gordian/tm/tmengine/internal/tmemetrics"
 	"github.com/rollchains/gordian/tm/tmengine/tmelink"
 	"github.com/rollchains/gordian/tm/tmstore"
 )
@@ -38,6 +39,7 @@ type Kernel struct {
 	initialVals   []tmconsensus.Validator
 
 	pbf tmelink.ProposedBlockFetcher
+	mc  *tmemetrics.Collector
 
 	gossipOutCh chan<- tmelink.NetworkViewUpdate
 
@@ -90,6 +92,8 @@ type KernelConfig struct {
 	AddPrevoteRequests   <-chan AddPrevoteRequest
 	AddPrecommitRequests <-chan AddPrecommitRequest
 
+	MetricsCollector *tmemetrics.Collector
+
 	Watchdog *gwatchdog.Watchdog
 }
 
@@ -131,6 +135,7 @@ func NewKernel(ctx context.Context, log *slog.Logger, cfg KernelConfig) (*Kernel
 		initialVals:   slices.Clone(cfg.InitialValidators),
 
 		pbf: cfg.ProposedBlockFetcher,
+		mc:  cfg.MetricsCollector,
 
 		// Channels provided through the config,
 		// i.e. channels coordinated by the Engine or Mirror.
@@ -188,6 +193,8 @@ func NewKernel(ctx context.Context, log *slog.Logger, cfg KernelConfig) (*Kernel
 		// Error assumed to be already formatted correctly.
 		return nil, err
 	}
+
+	k.updateMetrics(&initState)
 
 	go k.mainLoop(ctx, &initState, cfg.Watchdog)
 
@@ -761,6 +768,7 @@ func (k *Kernel) checkVotingPrecommitViewShift(ctx context.Context, s *kState) e
 	nhd.VotedBlock = votedBlock
 
 	s.ShiftVotingToCommitting(nhd)
+	k.updateMetrics(s)
 
 	k.log.Info(
 		"Committed block",
@@ -978,6 +986,7 @@ func (k *Kernel) advanceVotingRound(s *kState) error {
 	}
 
 	s.AdvanceVotingRound(nilPrevote, nilPrecommit)
+	k.updateMetrics(s)
 	return nil
 }
 
@@ -997,6 +1006,7 @@ func (k *Kernel) jumpVotingRound(s *kState) error {
 	}
 
 	s.JumpVotingRound(nilPrevote, nilPrecommit)
+	k.updateMetrics(s)
 	return nil
 }
 
@@ -1641,4 +1651,15 @@ func (k *Kernel) loadInitialVotingView(ctx context.Context, s *kState) error {
 	s.MarkNextRoundViewUpdated()
 
 	return nil
+}
+
+func (k *Kernel) updateMetrics(s *kState) {
+	if k.mc == nil {
+		return
+	}
+
+	k.mc.UpdateMirror(tmemetrics.MirrorMetrics{
+		VH: s.Voting.Height, VR: s.Voting.Round,
+		CH: s.Committing.Height, CR: s.Committing.Round,
+	})
 }

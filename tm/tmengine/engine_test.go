@@ -1057,3 +1057,60 @@ func TestEngine_mirrorSkipsAhead(t *testing.T) {
 		_ = gtest.ReceiveSoon(t, ercCh)
 	})
 }
+
+func TestEngine_metrics(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	efx := tmenginetest.NewFixture(ctx, t, 4)
+
+	metricsCh := make(chan tmengine.Metrics)
+	var engine *tmengine.Engine
+	eReady := make(chan struct{})
+	go func() {
+		defer close(eReady)
+		opts := efx.SigningOptionMap().ToSlice()
+		opts = append(opts, tmengine.WithMetricsChannel(metricsCh))
+		engine = efx.MustNewEngine(opts...)
+	}()
+
+	defer func() {
+		cancel()
+		<-eReady
+		engine.Wait()
+	}()
+
+	// Set up the EnterRound expectation before any other actions,
+	// to avoid it happening early and causing a panic.
+	cs := efx.ConsensusStrategy
+	ercCh := cs.ExpectEnterRound(1, 0, nil)
+
+	// It makes an init chain request.
+	icReq := gtest.ReceiveSoon(t, efx.InitChainCh)
+
+	const initAppStateHash = "app_state_0"
+
+	gtest.SendSoon(t, icReq.Resp, tmapp.InitChainResponse{
+		AppStateHash: []byte(initAppStateHash),
+	})
+
+	// After we send the response, the engine is ready.
+	_ = gtest.ReceiveSoon(t, eReady)
+
+	// The network proposes a block and it is received.
+	pb103 := efx.Fx.NextProposedBlock([]byte("app_data_1_0_3"), 3)
+	efx.Fx.SignProposal(ctx, &pb103, 3)
+	require.Equal(t, tmconsensus.HandleProposedBlockAccepted, engine.HandleProposedBlock(ctx, pb103))
+	_ = gtest.ReceiveSoon(t, ercCh)
+
+	// Since the mirror and state machine must have seen the proposed block,
+	// it should be safe to assume they have both reported height 1 and round 0 to the metrics collector.
+	m := gtest.ReceiveSoon(t, metricsCh)
+	require.Equal(t, uint64(1), m.MirrorVotingHeight)
+	require.Zero(t, m.MirrorVotingRound)
+	require.Zero(t, m.MirrorCommittingHeight)
+	require.Equal(t, uint64(1), m.StateMachineHeight)
+	require.Zero(t, m.StateMachineRound)
+}

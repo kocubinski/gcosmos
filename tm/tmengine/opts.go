@@ -2,6 +2,7 @@ package tmengine
 
 import (
 	"context"
+	"errors"
 
 	"github.com/rollchains/gordian/gcrypto"
 	"github.com/rollchains/gordian/gwatchdog"
@@ -188,6 +189,18 @@ func WithWatchdog(wd *gwatchdog.Watchdog) Opt {
 		e.watchdog = wd
 		e.mCfg.Watchdog = wd
 		smc.Watchdog = wd
+		return nil
+	}
+}
+
+// WithMetricsChannel sets the channel where the engine
+// emits metrics for its subsystems.
+func WithMetricsChannel(ch chan<- Metrics) Opt {
+	return func(e *Engine, _ *tmstate.StateMachineConfig) error {
+		if len(ch) != 0 {
+			return errors.New("WithMetricsChannel: ch must be unbuffered")
+		}
+		e.metricsCh = ch
 		return nil
 	}
 }

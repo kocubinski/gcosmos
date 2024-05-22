@@ -16,6 +16,7 @@ import (
 	"github.com/rollchains/gordian/tm/tmapp"
 	"github.com/rollchains/gordian/tm/tmconsensus"
 	"github.com/rollchains/gordian/tm/tmengine/internal/tmeil"
+	"github.com/rollchains/gordian/tm/tmengine/internal/tmemetrics"
 	"github.com/rollchains/gordian/tm/tmengine/internal/tmstate/internal/tsi"
 	"github.com/rollchains/gordian/tm/tmstore"
 )
@@ -36,6 +37,8 @@ type StateMachine struct {
 	rt RoundTimer
 
 	cm *tsi.ConsensusManager
+
+	mc *tmemetrics.Collector
 
 	wd *gwatchdog.Watchdog
 
@@ -66,6 +69,8 @@ type StateMachineConfig struct {
 
 	FinalizeBlockRequestCh chan<- tmapp.FinalizeBlockRequest
 
+	MetricsCollector *tmemetrics.Collector
+
 	Watchdog *gwatchdog.Watchdog
 }
 
@@ -86,6 +91,8 @@ func NewStateMachine(ctx context.Context, log *slog.Logger, cfg StateMachineConf
 		rt: cfg.RoundTimer,
 
 		cm: tsi.NewConsensusManager(ctx, log.With("sm_sys", "consmgr"), cfg.ConsensusStrategy),
+
+		mc: cfg.MetricsCollector,
 
 		wd: cfg.Watchdog,
 
@@ -265,6 +272,14 @@ func (m *StateMachine) initializeRLC(ctx context.Context) (rlc tsi.RoundLifecycl
 func (m *StateMachine) beginRoundLive(
 	ctx context.Context, rlc *tsi.RoundLifecycle, initVRV tmconsensus.VersionedRoundView,
 ) (ok bool) {
+	// Update the state machine's height/round metric,
+	// if we are tracking metrics.
+	if m.mc != nil {
+		m.mc.UpdateStateMachine(tmemetrics.StateMachineMetrics{
+			H: initVRV.Height, R: initVRV.Round,
+		})
+	}
+
 	// Only calculate the step if we are dealing with a round view,
 	// not if we have a committed block.
 	curStep := tsi.GetStepFromVoteSummary(initVRV.VoteSummary)

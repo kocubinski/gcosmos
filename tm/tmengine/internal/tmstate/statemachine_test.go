@@ -11,6 +11,7 @@ import (
 	"github.com/rollchains/gordian/tm/tmapp"
 	"github.com/rollchains/gordian/tm/tmconsensus"
 	"github.com/rollchains/gordian/tm/tmengine/internal/tmeil"
+	"github.com/rollchains/gordian/tm/tmengine/internal/tmemetrics"
 	"github.com/rollchains/gordian/tm/tmengine/internal/tmstate/tmstatetest"
 	"github.com/stretchr/testify/require"
 )
@@ -2607,4 +2608,73 @@ func TestStateMachine_jumpAhead(t *testing.T) {
 
 		_ = gtest.ReceiveSoon(t, er11Ch)
 	})
+}
+
+func TestStateMachine_metrics(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	sfx := tmstatetest.NewFixture(ctx, t, 4)
+
+	mCh := make(chan tmemetrics.Metrics)
+	mc := tmemetrics.NewCollector(ctx, 4, mCh)
+	defer mc.Wait()
+	defer cancel()
+	mc.UpdateMirror(tmemetrics.MirrorMetrics{
+		VH: 1, VR: 0,
+	})
+	sfx.Cfg.MetricsCollector = mc
+
+	sm := sfx.NewStateMachine()
+	defer sm.Wait()
+	defer cancel()
+
+	re := gtest.ReceiveSoon(t, sfx.RoundEntranceOutCh)
+
+	// Set up consensus strategy expectation before mocking the response.
+	cStrat := sfx.CStrat
+	_ = cStrat.ExpectEnterRound(1, 0, nil)
+
+	vrv := sfx.EmptyVRV(1, 0)
+	re.Response <- tmeil.RoundEntranceResponse{VRV: vrv} // No PrevBlockHash at initial height.
+
+	m := gtest.ReceiveSoon(t, mCh)
+	require.Equal(t, uint64(1), m.StateMachineHeight)
+	require.Zero(t, m.StateMachineRound)
+
+	pb1 := sfx.Fx.NextProposedBlock([]byte("app_data_1"), 1)
+	sfx.Fx.SignProposal(ctx, &pb1, 1)
+	vrv.ProposedBlocks = []tmconsensus.ProposedBlock{pb1}
+	vrv.Version++
+
+	vrv = sfx.Fx.UpdateVRVPrevotes(ctx, vrv, map[string][]int{
+		string(pb1.Block.Hash): {0, 1, 2, 3},
+	})
+	vrv = sfx.Fx.UpdateVRVPrecommits(ctx, vrv, map[string][]int{
+		string(pb1.Block.Hash): {0, 1, 2, 3},
+	})
+
+	gtest.SendSoon(t, sfx.RoundViewInCh, tmeil.StateMachineRoundView{VRV: vrv})
+
+	finReq := gtest.ReceiveSoon(t, sfx.FinalizeBlockRequests)
+	finReq.Resp <- tmapp.FinalizeBlockResponse{
+		Height: 1, Round: 0,
+		BlockHash:  pb1.Block.Hash,
+		Validators: pb1.Block.Validators,
+	}
+	require.NoError(t, sfx.RoundTimer.ElapseCommitWaitTimer(1, 0))
+
+	// Don't inspect the metrics again until after the state machine enters the next round.
+	enter2Ch := cStrat.ExpectEnterRound(2, 0, nil)
+
+	re = gtest.ReceiveSoon(t, sfx.RoundEntranceOutCh)
+	re.Response <- tmeil.RoundEntranceResponse{VRV: sfx.EmptyVRV(2, 0)}
+
+	_ = gtest.ReceiveSoon(t, enter2Ch)
+
+	m = gtest.ReceiveSoon(t, mCh)
+	require.Equal(t, uint64(2), m.StateMachineHeight)
+	require.Zero(t, m.StateMachineRound)
 }

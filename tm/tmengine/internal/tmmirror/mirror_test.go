@@ -10,6 +10,7 @@ import (
 	"github.com/rollchains/gordian/tm/tmconsensus"
 	"github.com/rollchains/gordian/tm/tmconsensus/tmconsensustest"
 	"github.com/rollchains/gordian/tm/tmengine/internal/tmeil"
+	"github.com/rollchains/gordian/tm/tmengine/internal/tmemetrics"
 	"github.com/rollchains/gordian/tm/tmengine/internal/tmmirror"
 	"github.com/rollchains/gordian/tm/tmengine/internal/tmmirror/internal/tmi"
 	"github.com/rollchains/gordian/tm/tmengine/internal/tmmirror/tmmirrortest"
@@ -2832,4 +2833,91 @@ func TestMirror_gossipStrategyOutStripsEmptyNilVotes(t *testing.T) {
 	require.Nil(t, gso.Committing.PrevoteProofs[""])
 	require.Nil(t, gso.Committing.PrecommitProofs[""])
 	require.Equal(t, uint(4), gso.Committing.PrecommitProofs[string(pb1.Block.Hash)].SignatureBitSet().Count())
+}
+
+func TestMirror_metrics(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	mfx := tmmirrortest.NewFixture(ctx, t, 4)
+
+	// Set up metrics collection manually, like the engine would do internally.
+	// This way we can set a garbage state machine value,
+	// allowing the metrics output to be emitted.
+	mCh := make(chan tmemetrics.Metrics)
+	mc := tmemetrics.NewCollector(ctx, 4, mCh)
+	defer mc.Wait()
+	defer cancel()
+	mc.UpdateStateMachine(tmemetrics.StateMachineMetrics{
+		H: 1, R: 0,
+	})
+	mfx.Cfg.MetricsCollector = mc
+
+	m := mfx.NewMirror()
+	defer m.Wait()
+	defer cancel()
+
+	// Proposed block first.
+	pb10 := mfx.Fx.NextProposedBlock([]byte("app_data_1_0"), 0)
+	mfx.Fx.SignProposal(ctx, &pb10, 0)
+	require.Equal(t, tmconsensus.HandleProposedBlockAccepted, m.HandleProposedBlock(ctx, pb10))
+
+	keyHash, _ := mfx.Fx.ValidatorHashes()
+
+	// Then 3/4 prevote for the block, 1/4 for nil.
+	pb10Hash := string(pb10.Block.Hash)
+	pb10VoteMap := map[string][]int{
+		pb10Hash: {0, 1, 2},
+		"":       {3},
+	}
+	prevoteProof := tmconsensus.PrevoteSparseProof{
+		Height:     1,
+		Round:      0,
+		PubKeyHash: keyHash,
+		Proofs:     mfx.Fx.SparsePrevoteProofMap(ctx, 1, 0, pb10VoteMap),
+	}
+	require.Equal(t, tmconsensus.HandleVoteProofsAccepted, m.HandlePrevoteProofs(ctx, prevoteProof))
+
+	// Metrics should be at 1/0 still.
+	ms := gtest.ReceiveSoon(t, mCh)
+	require.Equal(t, uint64(1), ms.MirrorVotingHeight)
+	require.Zero(t, ms.MirrorVotingRound)
+	require.Zero(t, ms.MirrorCommittingHeight)
+	require.Zero(t, ms.MirrorCommittingRound)
+
+	// Full precommit for 1/0 now.
+	precommitProof := tmconsensus.PrecommitSparseProof{
+		Height:     1,
+		Round:      0,
+		PubKeyHash: keyHash,
+		Proofs:     mfx.Fx.SparsePrecommitProofMap(ctx, 1, 0, pb10VoteMap),
+	}
+	require.Equal(t, tmconsensus.HandleVoteProofsAccepted, m.HandlePrecommitProofs(ctx, precommitProof))
+
+	// That pushes voting to 2/0 and committing to 1/0.
+	ms = gtest.ReceiveSoon(t, mCh)
+	require.Equal(t, uint64(2), ms.MirrorVotingHeight)
+	require.Zero(t, ms.MirrorVotingRound)
+	require.Equal(t, uint64(1), ms.MirrorCommittingHeight)
+	require.Zero(t, ms.MirrorCommittingRound)
+
+	// Now if we get a nil precommit at 2/0, metrics show 2/1.
+	pb20VoteMap := map[string][]int{
+		"": {0, 1, 2, 3},
+	}
+	precommitProof = tmconsensus.PrecommitSparseProof{
+		Height:     2,
+		Round:      0,
+		PubKeyHash: keyHash,
+		Proofs:     mfx.Fx.SparsePrecommitProofMap(ctx, 2, 0, pb20VoteMap),
+	}
+	require.Equal(t, tmconsensus.HandleVoteProofsAccepted, m.HandlePrecommitProofs(ctx, precommitProof))
+
+	ms = gtest.ReceiveSoon(t, mCh)
+	require.Equal(t, uint64(2), ms.MirrorVotingHeight)
+	require.Equal(t, uint32(1), ms.MirrorVotingRound)
+	require.Equal(t, uint64(1), ms.MirrorCommittingHeight)
+	require.Zero(t, ms.MirrorCommittingRound)
 }
