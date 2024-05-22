@@ -72,7 +72,7 @@ func newFixture(ctx context.Context, t *testing.T, cfg fixtureConfig) *fixture {
 
 func newFixtureWithSeedHost(
 	ctx context.Context, t *testing.T, cfg fixtureConfig,
-) (*fixture, *tmlibp2p.Host) {
+) (*fixture, *tmlibp2p.Host, *gstress.SeedService) {
 	t.Helper()
 
 	if cfg.SeedAddrs != nil {
@@ -99,9 +99,9 @@ func newFixtureWithSeedHost(
 	}
 
 	bfx := newFixture(ctx, t, fixtureConfig{SeedAddrs: seedHostAddrs})
-	_ = gstress.NewSeedService(bfx.Log.With("svc", "seed"), seedHost.Libp2pHost(), bfx.Host)
+	seedSvc := gstress.NewSeedService(bfx.Log.With("svc", "seed"), seedHost.Libp2pHost(), bfx.Host)
 
-	return bfx, seedHost
+	return bfx, seedHost, seedSvc
 }
 
 func (f *fixture) NewBootstrapClient() *gstress.BootstrapClient {

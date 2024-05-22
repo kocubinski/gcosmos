@@ -8,6 +8,7 @@ import (
 	"github.com/rollchains/gordian/cmd/gordian-stress/internal/gstress"
 	"github.com/rollchains/gordian/internal/gtest"
 	"github.com/rollchains/gordian/tm/tmconsensus/tmconsensustest"
+	"github.com/rollchains/gordian/tm/tmengine"
 	"github.com/stretchr/testify/require"
 )
 
@@ -17,7 +18,7 @@ func TestSeedRPC_Genesis_startFirst(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	bfx, seedHost := newFixtureWithSeedHost(ctx, t, fixtureConfig{})
+	bfx, seedHost, _ := newFixtureWithSeedHost(ctx, t, fixtureConfig{})
 
 	c := bfx.NewBootstrapClient()
 
@@ -52,7 +53,7 @@ func TestSeedRPC_Genesis_blocksUntilStart(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	bfx, seedHost := newFixtureWithSeedHost(ctx, t, fixtureConfig{})
+	bfx, seedHost, _ := newFixtureWithSeedHost(ctx, t, fixtureConfig{})
 
 	c := bfx.NewBootstrapClient()
 
@@ -112,11 +113,10 @@ func TestSeedRPC_halt(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	bfx, seedHost := newFixtureWithSeedHost(ctx, t, fixtureConfig{})
+	bfx, seedHost, _ := newFixtureWithSeedHost(ctx, t, fixtureConfig{})
 
 	c := bfx.NewBootstrapClient()
 
-	// Open two client streams without calling Start.
 	clientHost := bfx.NewSeedClient(ctx, t)
 
 	seedRPCStream, err := clientHost.Libp2pHost().NewStream(
@@ -139,4 +139,47 @@ func TestSeedRPC_halt(t *testing.T) {
 	require.NoError(t, call.Error)
 
 	_ = gtest.ReceiveSoon(t, bfx.Host.Halted())
+}
+
+func TestSeed_metrics(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	bfx, seedHost, seedSvc := newFixtureWithSeedHost(ctx, t, fixtureConfig{})
+
+	clientHost := bfx.NewSeedClient(ctx, t)
+
+	seedRPCStream, err := clientHost.Libp2pHost().NewStream(
+		ctx, seedHost.Libp2pHost().ID(), gstress.SeedServiceProtocolID,
+	)
+	require.NoError(t, err)
+
+	m := tmengine.Metrics{
+		StateMachineHeight: 1,
+		StateMachineRound:  1,
+
+		MirrorVotingRound:      2,
+		MirrorVotingHeight:     2,
+		MirrorCommittingRound:  1,
+		MirrorCommittingHeight: 1,
+	}
+	rpcClient := rpc.NewClient(seedRPCStream)
+	require.NoError(t, rpcClient.Call(
+		"SeedRPC.PublishMetrics",
+		gstress.RPCPublishMetricsRequest{Metrics: m},
+		new(gstress.RPCPublishMetricsResponse),
+	))
+
+	gotM := make(map[string]tmengine.Metrics)
+	seedSvc.CopyMetrics(gotM)
+	require.Len(t, gotM, 1)
+
+	var got tmengine.Metrics
+	for _, v := range gotM {
+		got = v
+	}
+
+	require.Equal(t, m, got)
 }

@@ -4,11 +4,14 @@ import (
 	"encoding/gob"
 	"log/slog"
 	"net/rpc"
+	"sync"
 
 	libp2phost "github.com/libp2p/go-libp2p/core/host"
 	libp2pnetwork "github.com/libp2p/go-libp2p/core/network"
+	libp2ppeer "github.com/libp2p/go-libp2p/core/peer"
 	"github.com/rollchains/gordian/gcrypto"
 	"github.com/rollchains/gordian/tm/tmconsensus"
+	"github.com/rollchains/gordian/tm/tmengine"
 )
 
 // SeedService is the libp2p stream handler for the seed service,
@@ -18,6 +21,9 @@ type SeedService struct {
 
 	h  libp2phost.Host
 	bh *BootstrapHost
+
+	mu    sync.Mutex
+	stats map[string]tmengine.Metrics
 }
 
 // Protocol ID for seed host service.
@@ -40,7 +46,11 @@ func NewSeedService(log *slog.Logger, h libp2phost.Host, bh *BootstrapHost) *See
 
 func (s *SeedService) handler(stream libp2pnetwork.Stream) {
 	rs := rpc.NewServer()
-	if err := rs.Register(&SeedRPC{bh: s.bh}); err != nil {
+	if err := rs.Register(&SeedRPC{
+		bh:  s.bh,
+		s:   s,
+		pID: stream.Conn().RemotePeer(),
+	}); err != nil {
 		s.log.Info("Failed to register SeedRPC", "err", err)
 		_ = stream.Reset()
 		return
@@ -59,6 +69,17 @@ func (s *SeedService) handler(stream libp2pnetwork.Stream) {
 	// Block in the handler serving all RPC requests to the stream.
 	rs.ServeConn(stream)
 	_ = stream.Reset()
+}
+
+// CopyMetrics copies s's metrics into dst.
+// It is the caller's responsibility to clear dst before calling CopyMetrics.
+func (s *SeedService) CopyMetrics(dst map[string]tmengine.Metrics) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for k, v := range s.stats {
+		dst[k] = v
+	}
 }
 
 type RPCGenesisRequest struct{}
@@ -85,6 +106,9 @@ func init() {
 
 type SeedRPC struct {
 	bh *BootstrapHost
+	s  *SeedService
+
+	pID libp2ppeer.ID
 }
 
 // Genesis is the RPC method for getting genesis data from the seed service.
@@ -107,5 +131,20 @@ type RPCHaltResponse struct{}
 // AwaitHalt is the RPC method for a client to wait for a halt instruction from the host.
 func (rpc *SeedRPC) AwaitHalt(args RPCHaltRequest, resp *RPCHaltResponse) error {
 	<-rpc.bh.haltCh
+	return nil
+}
+
+type RPCPublishMetricsRequest struct {
+	Metrics tmengine.Metrics
+}
+type RPCPublishMetricsResponse struct{}
+
+func (rpc *SeedRPC) PublishMetrics(args RPCPublishMetricsRequest, resp *RPCPublishMetricsResponse) error {
+	rpc.s.mu.Lock()
+	defer rpc.s.mu.Unlock()
+	if rpc.s.stats == nil {
+		rpc.s.stats = make(map[string]tmengine.Metrics)
+	}
+	rpc.s.stats[rpc.pID.String()] = args.Metrics
 	return nil
 }

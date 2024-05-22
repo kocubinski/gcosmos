@@ -117,7 +117,7 @@ func TestBootstrap_start(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	bfx, seedHost := newFixtureWithSeedHost(ctx, t, fixtureConfig{})
+	bfx, seedHost, _ := newFixtureWithSeedHost(ctx, t, fixtureConfig{})
 
 	clientHost := bfx.NewSeedClient(ctx, t)
 
