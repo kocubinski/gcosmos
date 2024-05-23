@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"math/rand"
 	"net/rpc"
 	"os"
 	"os/signal"
@@ -11,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	petname "github.com/dustinkirkland/golang-petname"
 	"github.com/libp2p/go-libp2p"
 	dht "github.com/libp2p/go-libp2p-kad-dht"
 	libp2phost "github.com/libp2p/go-libp2p/core/host"
@@ -75,6 +77,9 @@ Fine-grained as in: fine control of the network participants' configuration.
 		newRegisterValidatorCmd(log),
 		newStartCmd(log),
 		newHaltCmd(log),
+
+		// Hidden command to generate the petname out of band.
+		newPetnameCmd(),
 	)
 
 	return rootCmd
@@ -82,7 +87,7 @@ Fine-grained as in: fine control of the network participants' configuration.
 
 func newSeedCmd(log *slog.Logger) *cobra.Command {
 	cmd := &cobra.Command{
-		Use: "seed [PATH_TO_SOCKET_FILE=/var/run/gstress.$PID.sock]",
+		Use: "seed [PATH_TO_SOCKET_FILE=/var/run/gstress.$RANDOM_WORDS.$PID.sock]",
 
 		Short: "Run a \"seed node\" that provides a central location for node discovery and coordination",
 
@@ -127,9 +132,14 @@ func newSeedCmd(log *slog.Logger) *cobra.Command {
 
 			var socketPath string
 			if len(args) == 0 {
+				// petname package is still relying on old math/rand,
+				// and requires an explicit seed.
+				rand.Seed(time.Now().UnixNano())
+				randName := petname.Generate(2, "-")
+
 				// Unix sockets don't work on Windows anyway (right?)
 				// so just directly make the path with forward slashes.
-				socketPath = fmt.Sprintf("/var/run/gstress.%d.sock", os.Getpid())
+				socketPath = fmt.Sprintf("/var/run/gstress.%s.%d.sock", randName, os.Getpid())
 			} else {
 				socketPath = args[0]
 			}
@@ -630,4 +640,18 @@ func newHaltCmd(log *slog.Logger) *cobra.Command {
 	}
 
 	return cmd
+}
+
+func newPetnameCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:    "petname",
+		Hidden: true,
+		Args:   cobra.NoArgs,
+		Run: func(cmd *cobra.Command, _ []string) {
+			// petname package is still relying on old math/rand,
+			// and requires an explicit seed.
+			rand.Seed(time.Now().UnixNano())
+			fmt.Fprintln(cmd.OutOrStdout(), petname.Generate(2, "-"))
+		},
+	}
 }

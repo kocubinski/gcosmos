@@ -12,13 +12,13 @@ stress () {
     >&2 echo 'Compiling...'
     go build -o ./bin/gstress ./cmd/gordian-stress
 
-    local time_id
-    readonly time_id="$(date +%s)"
+    local group_id
+    readonly group_id="$(./bin/gstress petname).$(date +%s)"
     local socket_path
-    readonly socket_path="/tmp/gstress.${time_id}.sock"
+    readonly socket_path="/tmp/gstress.${group_id}.sock"
 
     local log_dir
-    readonly log_dir="./bin/gstress-run-${time_id}"
+    readonly log_dir="./bin/gstress-run-${group_id}"
     mkdir "$log_dir"
 
     ./bin/gstress seed "$socket_path" > "${log_dir}/seed.log" 2>&1 &
