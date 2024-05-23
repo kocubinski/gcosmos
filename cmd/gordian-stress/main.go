@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"log/slog"
@@ -8,6 +9,7 @@ import (
 	"net/rpc"
 	"os"
 	"os/signal"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -168,6 +170,8 @@ func newSeedCmd(log *slog.Logger) *cobra.Command {
 			go func() {
 				const pollDur = 10 * time.Second
 				timer := time.NewTimer(pollDur)
+				defer timer.Stop()
+
 				mm := make(map[string]tmengine.Metrics)
 				for {
 					select {
@@ -175,6 +179,11 @@ func newSeedCmd(log *slog.Logger) *cobra.Command {
 						return
 					case <-timer.C:
 						seedSvc.CopyMetrics(mm)
+						if len(mm) < 2 {
+							clear(mm)
+							timer.Reset(pollDur)
+							continue
+						}
 
 						// Slice of any, but the values are all attrs, to call log.Info.
 						attrs := make([]any, 0, len(mm))
@@ -183,7 +192,63 @@ func newSeedCmd(log *slog.Logger) *cobra.Command {
 						}
 						log.Info("Current metrics", attrs...)
 
+						ms := make([]tmengine.Metrics, 0, len(mm))
+						for _, m := range mm {
+							ms = append(ms, m)
+						}
 						clear(mm)
+
+						// Sort by the mirror voting values, ascending, first.
+						slices.SortFunc(ms, func(a, b tmengine.Metrics) int {
+							z := cmp.Compare(a.MirrorVotingHeight, b.MirrorVotingHeight)
+							if z == 0 {
+								z = cmp.Compare(a.MirrorVotingRound, b.MirrorVotingRound)
+							}
+							return z
+						})
+
+						const tolerance = 5
+
+						// Now, if there is an arbitrary >5 difference in mirror voting height,
+						// halt the network.
+						vhDelta := ms[len(ms)-1].MirrorVotingHeight - ms[0].MirrorVotingHeight
+						if vhDelta > tolerance {
+							log.Warn("Halting due to mirror voting height difference", "delta", vhDelta)
+							bh.Halt()
+							go func() { time.Sleep(2 * time.Second); cancel() }()
+							return
+						}
+
+						// If they are on the same height but there is a >5 round difference somehow,
+						// that is also a halt.
+						if vhDelta == 0 {
+							vrDelta := ms[len(ms)-1].MirrorVotingRound - ms[0].MirrorVotingRound
+							if vrDelta > tolerance {
+								log.Warn(
+									"Halting due to mirror voting round difference",
+									"height", ms[0].MirrorVotingHeight,
+									"round_delta", vrDelta,
+								)
+								bh.Halt()
+								go func() { time.Sleep(2 * time.Second); cancel() }()
+								return
+							}
+						}
+
+						// One last halt check: has an individual validator
+						// diverged on its state machine and round heights?
+						for _, m := range ms {
+							if delta := m.MirrorVotingHeight - m.StateMachineHeight; delta > tolerance {
+								log.Warn(
+									"Halting due to state machine and mirror voting height difference",
+									"delta", delta,
+								)
+								bh.Halt()
+								go func() { time.Sleep(2 * time.Second); cancel() }()
+								return
+							}
+						}
+
 					}
 
 					timer.Reset(pollDur)

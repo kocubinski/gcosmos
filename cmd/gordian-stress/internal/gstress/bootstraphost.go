@@ -105,7 +105,7 @@ func (h *BootstrapHost) serve(l net.Listener) {
 	}
 }
 
-func (h *BootstrapHost) halt() {
+func (h *BootstrapHost) Halt() {
 	h.haltOnce.Do(func() {
 		close(h.haltCh)
 	})
@@ -215,7 +215,7 @@ func (h *BootstrapHost) newMux() http.Handler {
 	}).Methods("POST")
 
 	r.HandleFunc("/halt", func(w http.ResponseWriter, req *http.Request) {
-		h.halt()
+		h.Halt()
 		w.WriteHeader(http.StatusNoContent)
 	})
 
