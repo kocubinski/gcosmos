@@ -1292,8 +1292,8 @@ func (k *Kernel) handleStateMachineRoundEntrance(ctx context.Context, s *kState,
 		}
 
 		panic(fmt.Errorf(
-			"TODO: handle view not found (status=%s) when responding to state machine round update",
-			status,
+			"TODO: handle view not found (status=%s) when responding to state machine round update for height/round %d/%d",
+			status, re.H, re.R,
 		))
 	}
 
