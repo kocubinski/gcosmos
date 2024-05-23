@@ -1,6 +1,10 @@
 package tmemetrics
 
-import "context"
+import (
+	"context"
+	"fmt"
+	"log/slog"
+)
 
 // Metrics is the set of metrics for an engine.
 // This type is declared here, but aliased in [tmengine].
@@ -13,6 +17,16 @@ type Metrics struct {
 
 	StateMachineHeight uint64
 	StateMachineRound  uint32
+}
+
+func (m Metrics) LogValue() slog.Value {
+	return slog.GroupValue(
+		slog.String("mirror_committing_hr", fmt.Sprintf("%d/%d", m.MirrorCommittingHeight, m.MirrorCommittingRound)),
+
+		slog.String("mirror_voting_hr", fmt.Sprintf("%d/%d", m.MirrorVotingHeight, m.MirrorVotingRound)),
+
+		slog.String("state_machine_hr", fmt.Sprintf("%d/%d", m.StateMachineHeight, m.StateMachineRound)),
+	)
 }
 
 type MirrorMetrics struct {

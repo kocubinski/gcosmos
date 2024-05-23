@@ -151,9 +151,34 @@ func newSeedCmd(log *slog.Logger) *cobra.Command {
 			defer bh.Wait()
 			defer cancel()
 
-			_ = gstress.NewSeedService(log.With("svc", "seed"), host, bh)
+			seedSvc := gstress.NewSeedService(log.With("svc", "seed"), host, bh)
 
 			log.Info("Seed host ready", "id", host.ID().String(), "addrs", hostAddrs)
+
+			go func() {
+				const pollDur = 10 * time.Second
+				timer := time.NewTimer(pollDur)
+				mm := make(map[string]tmengine.Metrics)
+				for {
+					select {
+					case <-ctx.Done():
+						return
+					case <-timer.C:
+						seedSvc.CopyMetrics(mm)
+
+						// Slice of any, but the values are all attrs, to call log.Info.
+						attrs := make([]any, 0, len(mm))
+						for k, m := range mm {
+							attrs = append(attrs, slog.Attr{Key: k, Value: m.LogValue()})
+						}
+						log.Info("Current metrics", attrs...)
+
+						clear(mm)
+					}
+
+					timer.Reset(pollDur)
+				}
+			}()
 
 			select {
 			case <-ctx.Done():
@@ -300,6 +325,8 @@ func newValidatorCmd(log *slog.Logger) *cobra.Command {
 				return fmt.Errorf("failed to create libp2p host: %w", err)
 			}
 
+			log.Info("Started libp2p host", "id", h.Libp2pHost().ID().String())
+
 			defer func() {
 				if err := h.Close(); err != nil {
 					log.Warn("Error closing libp2p host", "err", err)
@@ -349,14 +376,12 @@ func newValidatorCmd(log *slog.Logger) *cobra.Command {
 				// Otherwise, resp has been populated.
 			}
 
-			haltCall := rpcClient.Go("SeedRPC.AwaitHalt", gstress.RPCHaltRequest{}, new(gstress.RPCHaltResponse), nil)
-
 			// Ensure we are on a valid app.
 			if resp.App != "echo" {
 				return fmt.Errorf("unsupported app %q", resp.App)
 			}
 
-			return runStateMachine(log, cmd, h, signer, *resp, haltCall.Done)
+			return runStateMachine(log, cmd, h, signer, *resp, rpcClient)
 		},
 	}
 
@@ -430,7 +455,7 @@ func runStateMachine(
 	h *tmlibp2p.Host,
 	signer gcrypto.Signer,
 	seedGenesis gstress.RPCGenesisResponse,
-	haltCallCh <-chan *rpc.Call,
+	rpcClient *rpc.Client,
 ) error {
 	// We need a cancelable context if we fail partway through setup.
 	// Be sure to defer cancel() after other deferred
@@ -444,11 +469,12 @@ func runStateMachine(
 	wd, ctx := gwatchdog.NewWatchdog(ctx, log.With("sys", "watchdog"))
 
 	go func() {
+		haltCall := rpcClient.Go("SeedRPC.AwaitHalt", gstress.RPCHaltRequest{}, new(gstress.RPCHaltResponse), nil)
 		select {
 		case <-ctx.Done():
 			// Nothing to do.
 			return
-		case <-haltCallCh:
+		case <-haltCall.Done:
 			wd.Terminate("received halt signal from seed")
 		}
 	}()
@@ -496,6 +522,8 @@ func runStateMachine(
 
 	gs := tmgossip.NewChattyStrategy(ctx, log.With("sys", "chattygossip"), conn)
 
+	metricsCh := make(chan tmengine.Metrics)
+
 	e, err := tmengine.New(
 		ctx,
 		log.With("sys", "engine"),
@@ -527,11 +555,43 @@ func runStateMachine(
 
 		tmengine.WithSigner(signer),
 
+		tmengine.WithMetricsChannel(metricsCh),
+
 		tmengine.WithWatchdog(wd),
 	)
 	if err != nil {
 		return fmt.Errorf("failed to build engine: %w", err)
 	}
+
+	// Periodically publish the metrics.
+	go func() {
+		timer := time.NewTimer(5 * time.Second)
+		defer timer.Stop()
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-timer.C:
+
+				// Quick check for metrics,
+				// only publish if they can be immediately read.
+				select {
+				case m := <-metricsCh:
+					// Attempt to synchronously publish, discard errors.
+					_ = rpcClient.Call(
+						"SeedRPC.PublishMetrics",
+						gstress.RPCPublishMetricsRequest{Metrics: m},
+						new(gstress.RPCPublishMetricsResponse),
+					)
+				default:
+					// Nothing.
+				}
+
+			}
+			timer.Reset(5 * time.Second)
+		}
+	}()
 
 	conn.SetConsensusHandler(ctx, tmconsensus.AcceptAllValidFeedbackMapper{
 		Handler: e,
