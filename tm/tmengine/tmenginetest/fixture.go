@@ -8,9 +8,9 @@ import (
 
 	"github.com/rollchains/gordian/gwatchdog"
 	"github.com/rollchains/gordian/internal/gtest"
-	"github.com/rollchains/gordian/tm/tmapp"
 	"github.com/rollchains/gordian/tm/tmconsensus"
 	"github.com/rollchains/gordian/tm/tmconsensus/tmconsensustest"
+	"github.com/rollchains/gordian/tm/tmdriver"
 	"github.com/rollchains/gordian/tm/tmengine"
 	"github.com/rollchains/gordian/tm/tmengine/internal/tmstate/tmstatetest"
 	"github.com/rollchains/gordian/tm/tmgossip/tmgossiptest"
@@ -32,9 +32,9 @@ type Fixture struct {
 	RoundStore        *tmmemstore.RoundStore
 	ValidatorStore    *tmmemstore.ValidatorStore
 
-	InitChainCh chan tmapp.InitChainRequest
+	InitChainCh chan tmdriver.InitChainRequest
 
-	FinalizeBlockRequests chan tmapp.FinalizeBlockRequest
+	FinalizeBlockRequests chan tmdriver.FinalizeBlockRequest
 
 	RoundTimer *tmstatetest.MockRoundTimer
 
@@ -68,9 +68,9 @@ func NewFixture(ctx context.Context, t *testing.T, nVals int) *Fixture {
 		RoundStore:        tmmemstore.NewRoundStore(),
 		ValidatorStore:    fx.NewMemValidatorStore(),
 
-		InitChainCh: make(chan tmapp.InitChainRequest, 1),
+		InitChainCh: make(chan tmdriver.InitChainRequest, 1),
 
-		FinalizeBlockRequests: make(chan tmapp.FinalizeBlockRequest, 1),
+		FinalizeBlockRequests: make(chan tmdriver.FinalizeBlockRequest, 1),
 
 		RoundTimer: new(tmstatetest.MockRoundTimer),
 

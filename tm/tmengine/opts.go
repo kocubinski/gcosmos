@@ -6,8 +6,8 @@ import (
 
 	"github.com/rollchains/gordian/gcrypto"
 	"github.com/rollchains/gordian/gwatchdog"
-	"github.com/rollchains/gordian/tm/tmapp"
 	"github.com/rollchains/gordian/tm/tmconsensus"
+	"github.com/rollchains/gordian/tm/tmdriver"
 	"github.com/rollchains/gordian/tm/tmengine/internal/tmstate"
 	"github.com/rollchains/gordian/tm/tmgossip"
 	"github.com/rollchains/gordian/tm/tmstore"
@@ -143,7 +143,7 @@ func WithGenesis(g *tmconsensus.ExternalGenesis) Opt {
 
 // WithInitChainChannel sets the init chain channel for the engine to send on.
 // This option is only required if the chain has not yet been initialized.
-func WithInitChainChannel(ch chan<- tmapp.InitChainRequest) Opt {
+func WithInitChainChannel(ch chan<- tmdriver.InitChainRequest) Opt {
 	return func(e *Engine, _ *tmstate.StateMachineConfig) error {
 		e.initChainCh = ch
 		return nil
@@ -154,7 +154,7 @@ func WithInitChainChannel(ch chan<- tmapp.InitChainRequest) Opt {
 // when a block is due to be finalized.
 // The application must receive from this channel.
 // This option is required.
-func WithBlockFinalizationChannel(ch chan<- tmapp.FinalizeBlockRequest) Opt {
+func WithBlockFinalizationChannel(ch chan<- tmdriver.FinalizeBlockRequest) Opt {
 	return func(_ *Engine, smc *tmstate.StateMachineConfig) error {
 		smc.FinalizeBlockRequestCh = ch
 		return nil

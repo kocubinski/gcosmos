@@ -10,8 +10,8 @@ import (
 	"github.com/rollchains/gordian/gwatchdog"
 	"github.com/rollchains/gordian/internal/gchan"
 	"github.com/rollchains/gordian/internal/glog"
-	"github.com/rollchains/gordian/tm/tmapp"
 	"github.com/rollchains/gordian/tm/tmconsensus"
+	"github.com/rollchains/gordian/tm/tmdriver"
 	"github.com/rollchains/gordian/tm/tmengine/internal/tmeil"
 	"github.com/rollchains/gordian/tm/tmengine/internal/tmemetrics"
 	"github.com/rollchains/gordian/tm/tmengine/internal/tmmirror"
@@ -40,7 +40,7 @@ type Engine struct {
 
 	sm *tmstate.StateMachine
 
-	initChainCh chan<- tmapp.InitChainRequest
+	initChainCh chan<- tmdriver.InitChainRequest
 	metricsCh   chan<- Metrics
 
 	watchdog *gwatchdog.Watchdog
@@ -256,8 +256,8 @@ func (e *Engine) maybeInitializeChain(
 
 	// We have a valid init chain channel, so make the request.
 	e.log.Info("Making init chain request to application")
-	respCh := make(chan tmapp.InitChainResponse) // Unbuffered since we block on the read.
-	req := tmapp.InitChainRequest{
+	respCh := make(chan tmdriver.InitChainResponse) // Unbuffered since we block on the read.
+	req := tmdriver.InitChainRequest{
 		Genesis: *e.genesis,
 		Resp:    respCh,
 	}

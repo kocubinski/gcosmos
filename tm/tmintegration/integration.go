@@ -10,10 +10,10 @@ import (
 
 	"github.com/rollchains/gordian/gwatchdog"
 	"github.com/rollchains/gordian/internal/gtest"
-	"github.com/rollchains/gordian/tm/tmapp"
 	"github.com/rollchains/gordian/tm/tmconsensus"
 	"github.com/rollchains/gordian/tm/tmconsensus/tmconsensustest"
 	"github.com/rollchains/gordian/tm/tmdebug"
+	"github.com/rollchains/gordian/tm/tmdriver"
 	"github.com/rollchains/gordian/tm/tmengine"
 	"github.com/rollchains/gordian/tm/tmp2p"
 	"github.com/stretchr/testify/require"
@@ -91,8 +91,8 @@ func RunIntegrationTest(t *testing.T, nf NewFactoryFunc) {
 				PubKey: v.CVal.PubKey,
 			}
 
-			blockFinCh := make(chan tmapp.FinalizeBlockRequest)
-			initChainCh := make(chan tmapp.InitChainRequest)
+			blockFinCh := make(chan tmdriver.FinalizeBlockRequest)
+			initChainCh := make(chan tmdriver.InitChainRequest)
 
 			app := newIdentityApp(
 				ctx, log.With("sys", "app", "idx", i), i,
@@ -246,8 +246,8 @@ func RunIntegrationTest(t *testing.T, nf NewFactoryFunc) {
 				HashScheme: hashScheme,
 			}
 
-			blockFinCh := make(chan tmapp.FinalizeBlockRequest)
-			initChainCh := make(chan tmapp.InitChainRequest)
+			blockFinCh := make(chan tmdriver.FinalizeBlockRequest)
+			initChainCh := make(chan tmdriver.InitChainRequest)
 
 			app := newValShuffleApp(
 				ctx, log.With("sys", "app", "idx", i), i,

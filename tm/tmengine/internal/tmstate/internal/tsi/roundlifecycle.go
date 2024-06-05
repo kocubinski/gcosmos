@@ -3,8 +3,8 @@ package tsi
 import (
 	"context"
 
-	"github.com/rollchains/gordian/tm/tmapp"
 	"github.com/rollchains/gordian/tm/tmconsensus"
+	"github.com/rollchains/gordian/tm/tmdriver"
 	"github.com/rollchains/gordian/tm/tmengine/internal/tmeil"
 )
 
@@ -43,8 +43,8 @@ type RoundLifecycle struct {
 	PrevoteHashCh   chan HashSelection
 	PrecommitHashCh chan HashSelection
 
-	// For the application to write directly.
-	FinalizeRespCh chan tmapp.FinalizeBlockResponse
+	// For the driver to write directly.
+	FinalizeRespCh chan tmdriver.FinalizeBlockResponse
 
 	// Values reported by the application for the finalization of the current round.
 	FinalizedValidators   []tmconsensus.Validator
@@ -76,7 +76,7 @@ func (rlc *RoundLifecycle) Reset(ctx context.Context, h uint64, r uint32) {
 	rlc.PrevoteHashCh = make(chan HashSelection, 1)
 	rlc.PrecommitHashCh = make(chan HashSelection, 1)
 
-	rlc.FinalizeRespCh = make(chan tmapp.FinalizeBlockResponse, 1)
+	rlc.FinalizeRespCh = make(chan tmdriver.FinalizeBlockResponse, 1)
 
 	rlc.CommitWaitElapsed = false
 }

@@ -13,8 +13,8 @@ import (
 	"github.com/rollchains/gordian/gwatchdog"
 	"github.com/rollchains/gordian/internal/gchan"
 	"github.com/rollchains/gordian/internal/glog"
-	"github.com/rollchains/gordian/tm/tmapp"
 	"github.com/rollchains/gordian/tm/tmconsensus"
+	"github.com/rollchains/gordian/tm/tmdriver"
 	"github.com/rollchains/gordian/tm/tmengine/internal/tmeil"
 	"github.com/rollchains/gordian/tm/tmengine/internal/tmemetrics"
 	"github.com/rollchains/gordian/tm/tmengine/internal/tmstate/internal/tsi"
@@ -44,7 +44,7 @@ type StateMachine struct {
 
 	viewInCh               <-chan tmeil.StateMachineRoundView
 	roundEntranceOutCh     chan<- tmeil.StateMachineRoundEntrance
-	finalizeBlockRequestCh chan<- tmapp.FinalizeBlockRequest
+	finalizeBlockRequestCh chan<- tmdriver.FinalizeBlockRequest
 
 	kernelDone chan struct{}
 }
@@ -67,7 +67,7 @@ type StateMachineConfig struct {
 	RoundViewInCh      <-chan tmeil.StateMachineRoundView
 	RoundEntranceOutCh chan<- tmeil.StateMachineRoundEntrance
 
-	FinalizeBlockRequestCh chan<- tmapp.FinalizeBlockRequest
+	FinalizeBlockRequestCh chan<- tmdriver.FinalizeBlockRequest
 
 	MetricsCollector *tmemetrics.Collector
 
@@ -457,8 +457,8 @@ func (m *StateMachine) sendInitialActionSet(ctx context.Context) (
 		// in expectation of handling a replayed block.
 		rlc.Reset(ctx, initRE.H, initRE.R)
 
-		// This is a replay, so we can just tell the app to finalize it.
-		finReq := tmapp.FinalizeBlockRequest{
+		// This is a replay, so we can just tell the driver to finalize it.
+		finReq := tmdriver.FinalizeBlockRequest{
 			Block: rer.CB.Block,
 			Round: rer.CB.Proof.Round,
 
@@ -988,7 +988,7 @@ func (m *StateMachine) handleCommitWaitViewUpdate(
 	// We have a valid index, so we can make the finalization request now.
 	_ = gchan.SendC(
 		ctx, m.log,
-		m.finalizeBlockRequestCh, tmapp.FinalizeBlockRequest{
+		m.finalizeBlockRequestCh, tmdriver.FinalizeBlockRequest{
 			Block: vrv.ProposedBlocks[pbIdx].Block,
 			Round: vrv.Round,
 
@@ -1096,7 +1096,7 @@ func (m *StateMachine) beginCommit(
 
 	return gchan.SendC(
 		ctx, m.log,
-		m.finalizeBlockRequestCh, tmapp.FinalizeBlockRequest{
+		m.finalizeBlockRequestCh, tmdriver.FinalizeBlockRequest{
 			Block: vrv.ProposedBlocks[idx].Block,
 			Round: vrv.Round,
 
@@ -1109,7 +1109,7 @@ func (m *StateMachine) beginCommit(
 func (m *StateMachine) handleFinalization(
 	ctx context.Context,
 	rlc *tsi.RoundLifecycle,
-	resp tmapp.FinalizeBlockResponse,
+	resp tmdriver.FinalizeBlockResponse,
 ) (ok bool) {
 	if len(resp.Validators) == 0 {
 		panic(fmt.Errorf(

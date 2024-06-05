@@ -23,10 +23,10 @@ import (
 	"github.com/rollchains/gordian/cmd/internal/gcmd"
 	"github.com/rollchains/gordian/gcrypto"
 	"github.com/rollchains/gordian/gwatchdog"
-	"github.com/rollchains/gordian/tm/tmapp"
 	"github.com/rollchains/gordian/tm/tmcodec/tmjson"
 	"github.com/rollchains/gordian/tm/tmconsensus"
 	"github.com/rollchains/gordian/tm/tmconsensus/tmconsensustest"
+	"github.com/rollchains/gordian/tm/tmdriver"
 	"github.com/rollchains/gordian/tm/tmengine"
 	"github.com/rollchains/gordian/tm/tmgossip"
 	"github.com/rollchains/gordian/tm/tmp2p/tmlibp2p"
@@ -582,8 +582,8 @@ func runStateMachine(
 	rs := tmmemstore.NewRoundStore()
 	vs := tmmemstore.NewValidatorStore(tmconsensustest.SimpleHashScheme{})
 
-	blockFinCh := make(chan tmapp.FinalizeBlockRequest)
-	initChainCh := make(chan tmapp.InitChainRequest)
+	blockFinCh := make(chan tmdriver.FinalizeBlockRequest)
+	initChainCh := make(chan tmdriver.InitChainRequest)
 
 	app := gcmd.NewEchoApp(ctx, log.With("app", "echo"), initChainCh, blockFinCh)
 	defer app.Wait()

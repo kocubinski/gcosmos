@@ -7,9 +7,9 @@ import (
 
 	"github.com/rollchains/gordian/gwatchdog"
 	"github.com/rollchains/gordian/internal/gtest"
-	"github.com/rollchains/gordian/tm/tmapp"
 	"github.com/rollchains/gordian/tm/tmconsensus"
 	"github.com/rollchains/gordian/tm/tmconsensus/tmconsensustest"
+	"github.com/rollchains/gordian/tm/tmdriver"
 	"github.com/rollchains/gordian/tm/tmengine/internal/tmeil"
 	"github.com/rollchains/gordian/tm/tmengine/internal/tmstate"
 	"github.com/rollchains/gordian/tm/tmstore/tmmemstore"
@@ -29,7 +29,7 @@ type Fixture struct {
 
 	RoundViewInCh         chan tmeil.StateMachineRoundView
 	RoundEntranceOutCh    chan tmeil.StateMachineRoundEntrance
-	FinalizeBlockRequests chan tmapp.FinalizeBlockRequest
+	FinalizeBlockRequests chan tmdriver.FinalizeBlockRequest
 
 	Cfg tmstate.StateMachineConfig
 
@@ -45,7 +45,7 @@ func NewFixture(ctx context.Context, t *testing.T, nVals int) *Fixture {
 
 	roundViewInCh := make(chan tmeil.StateMachineRoundView)
 	roundEntranceOutCh := make(chan tmeil.StateMachineRoundEntrance)
-	finReq := make(chan tmapp.FinalizeBlockRequest)
+	finReq := make(chan tmdriver.FinalizeBlockRequest)
 
 	log := gtest.NewLogger(t)
 	wd, wCtx := gwatchdog.NewNopWatchdog(ctx, log.With("sys", "watchdog"))

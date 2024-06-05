@@ -8,8 +8,8 @@ import (
 
 	"github.com/rollchains/gordian/gcrypto"
 	"github.com/rollchains/gordian/internal/gtest"
-	"github.com/rollchains/gordian/tm/tmapp"
 	"github.com/rollchains/gordian/tm/tmconsensus"
+	"github.com/rollchains/gordian/tm/tmdriver"
 	"github.com/rollchains/gordian/tm/tmengine/internal/tmeil"
 	"github.com/rollchains/gordian/tm/tmengine/internal/tmemetrics"
 	"github.com/rollchains/gordian/tm/tmengine/internal/tmstate/tmstatetest"
@@ -299,7 +299,7 @@ func TestStateMachine_initialization(t *testing.T) {
 
 		require.Equal(t, 1, cap(req.Resp))
 
-		resp := tmapp.FinalizeBlockResponse{
+		resp := tmdriver.FinalizeBlockResponse{
 			Height: 1, Round: 0,
 			BlockHash: pb1.Block.Hash,
 
@@ -1519,8 +1519,8 @@ func TestStateMachine_finalization(t *testing.T) {
 		// the commit wait timer has begun.
 		sfx.RoundTimer.RequireActiveCommitWaitTimer(t, 1, 0)
 
-		// Simulate the app responding.
-		finReq.Resp <- tmapp.FinalizeBlockResponse{
+		// Simulate the driver responding.
+		finReq.Resp <- tmdriver.FinalizeBlockResponse{
 			Height: 1, Round: 0,
 			BlockHash: pb1.Block.Hash,
 
@@ -1617,8 +1617,8 @@ func TestStateMachine_finalization(t *testing.T) {
 		// the commit wait timer has begun.
 		sfx.RoundTimer.RequireActiveCommitWaitTimer(t, 1, 0)
 
-		// Simulate the app responding.
-		finReq.Resp <- tmapp.FinalizeBlockResponse{
+		// Simulate the driver responding.
+		finReq.Resp <- tmdriver.FinalizeBlockResponse{
 			Height: 1, Round: 0,
 			BlockHash: pb1.Block.Hash,
 
@@ -1724,8 +1724,8 @@ func TestStateMachine_finalization(t *testing.T) {
 		// but the commit wait timer is.
 		sfx.RoundTimer.RequireActiveCommitWaitTimer(t, 1, 0)
 
-		// Simulate the app responding.
-		finReq.Resp <- tmapp.FinalizeBlockResponse{
+		// Simulate the driver responding.
+		finReq.Resp <- tmdriver.FinalizeBlockResponse{
 			Height: 1, Round: 0,
 			BlockHash: pb1.Block.Hash,
 
@@ -1814,7 +1814,7 @@ func TestStateMachine_finalization(t *testing.T) {
 
 		// Elapse it before we send the finalization response.
 		require.NoError(t, sfx.RoundTimer.ElapseCommitWaitTimer(1, 0))
-		finReq.Resp <- tmapp.FinalizeBlockResponse{
+		finReq.Resp <- tmdriver.FinalizeBlockResponse{
 			Height: 1, Round: 0,
 			BlockHash: pb1.Block.Hash,
 
@@ -1900,7 +1900,7 @@ func TestStateMachine_finalization(t *testing.T) {
 		sfx.RoundTimer.RequireNoActiveTimer(t)
 
 		// Responding to the finalization request completes correctly.
-		finReq.Resp <- tmapp.FinalizeBlockResponse{
+		finReq.Resp <- tmdriver.FinalizeBlockResponse{
 			Height: 1, Round: 0,
 			BlockHash: pb1.Block.Hash,
 
@@ -1958,7 +1958,7 @@ func TestStateMachine_finalization(t *testing.T) {
 		finReq := gtest.ReceiveSoon(t, sfx.FinalizeBlockRequests)
 		sfx.RoundTimer.RequireActiveCommitWaitTimer(t, 1, 0)
 
-		finReq.Resp <- tmapp.FinalizeBlockResponse{
+		finReq.Resp <- tmdriver.FinalizeBlockResponse{
 			Height: 1, Round: 0,
 			BlockHash:    pb1.Block.Hash,
 			Validators:   sfx.Fx.Vals(),
@@ -2006,7 +2006,7 @@ func TestStateMachine_finalization(t *testing.T) {
 		// Again lacking a good synchronization point here.
 		gtest.Sleep(gtest.ScaleMs(10))
 
-		finReq.Resp <- tmapp.FinalizeBlockResponse{
+		finReq.Resp <- tmdriver.FinalizeBlockResponse{
 			Height: 2, Round: 0,
 			BlockHash:    pb2.Block.Hash,
 			Validators:   sfx.Fx.Vals(),
@@ -2041,7 +2041,7 @@ func TestStateMachine_finalization(t *testing.T) {
 
 		finReq = gtest.ReceiveSoon(t, sfx.FinalizeBlockRequests)
 		require.NoError(t, sfx.RoundTimer.ElapseCommitWaitTimer(3, 0))
-		finReq.Resp <- tmapp.FinalizeBlockResponse{
+		finReq.Resp <- tmdriver.FinalizeBlockResponse{
 			Height: 3, Round: 0,
 			BlockHash:    pb2.Block.Hash,
 			Validators:   sfx.Fx.Vals(),
@@ -2124,8 +2124,8 @@ func TestStateMachine_followerMode(t *testing.T) {
 		// the commit wait timer has begun.
 		sfx.RoundTimer.RequireActiveCommitWaitTimer(t, 1, 0)
 
-		// Simulate the app responding.
-		finReq.Resp <- tmapp.FinalizeBlockResponse{
+		// Simulate the driver responding.
+		finReq.Resp <- tmdriver.FinalizeBlockResponse{
 			Height: 1, Round: 0,
 			BlockHash: pb.Block.Hash,
 
@@ -2659,7 +2659,7 @@ func TestStateMachine_metrics(t *testing.T) {
 	gtest.SendSoon(t, sfx.RoundViewInCh, tmeil.StateMachineRoundView{VRV: vrv})
 
 	finReq := gtest.ReceiveSoon(t, sfx.FinalizeBlockRequests)
-	finReq.Resp <- tmapp.FinalizeBlockResponse{
+	finReq.Resp <- tmdriver.FinalizeBlockResponse{
 		Height: 1, Round: 0,
 		BlockHash:  pb1.Block.Hash,
 		Validators: pb1.Block.Validators,

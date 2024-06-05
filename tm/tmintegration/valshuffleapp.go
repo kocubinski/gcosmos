@@ -11,15 +11,15 @@ import (
 
 	"github.com/rollchains/gordian/gcrypto"
 	"github.com/rollchains/gordian/internal/glog"
-	"github.com/rollchains/gordian/tm/tmapp"
 	"github.com/rollchains/gordian/tm/tmconsensus"
+	"github.com/rollchains/gordian/tm/tmdriver"
 	"golang.org/x/crypto/blake2b"
 )
 
 type valShuffleApp struct {
 	// When the app finalizes a block, it sends a value on this channel,
 	// for the test to consume.
-	FinalizeResponses chan tmapp.FinalizeBlockResponse
+	FinalizeResponses chan tmdriver.FinalizeBlockResponse
 
 	pickN int // Number of initial validators to pick for every height.
 
@@ -38,14 +38,14 @@ func newValShuffleApp(
 	idx int,
 	hashScheme tmconsensus.HashScheme,
 	pickN int,
-	initChainRequests <-chan tmapp.InitChainRequest,
-	finalizeBlockRequests <-chan tmapp.FinalizeBlockRequest,
+	initChainRequests <-chan tmdriver.InitChainRequest,
+	finalizeBlockRequests <-chan tmdriver.FinalizeBlockRequest,
 ) *valShuffleApp {
 	a := &valShuffleApp{
 		// If this channel is unbuffered, there is a risk the test will deadlock.
 		// Making this 1-buffered allows the app to continue before
 		// the test harness reads from it; advancing 1 height ahead should be safe.
-		FinalizeResponses: make(chan tmapp.FinalizeBlockResponse, 1),
+		FinalizeResponses: make(chan tmdriver.FinalizeBlockResponse, 1),
 
 		pickN: pickN,
 
@@ -66,8 +66,8 @@ func (a *valShuffleApp) Wait() {
 
 func (a *valShuffleApp) kernel(
 	ctx context.Context,
-	initChainRequests <-chan tmapp.InitChainRequest,
-	finalizeBlockRequests <-chan tmapp.FinalizeBlockRequest,
+	initChainRequests <-chan tmdriver.InitChainRequest,
+	finalizeBlockRequests <-chan tmdriver.FinalizeBlockRequest,
 ) {
 	defer close(a.done)
 
@@ -91,7 +91,7 @@ func (a *valShuffleApp) kernel(
 		stateHash := a.stateHash(0, keyHash, powHash)
 
 		select {
-		case req.Resp <- tmapp.InitChainResponse{
+		case req.Resp <- tmdriver.InitChainResponse{
 			AppStateHash: stateHash,
 
 			// Omitting validators since we want to match the input.
@@ -123,7 +123,7 @@ func (a *valShuffleApp) kernel(
 				nextVals = append(nextVals, initVals[origIdx])
 			}
 
-			resp := tmapp.FinalizeBlockResponse{
+			resp := tmdriver.FinalizeBlockResponse{
 				Height:    req.Block.Height,
 				Round:     req.Round,
 				BlockHash: req.Block.Hash,

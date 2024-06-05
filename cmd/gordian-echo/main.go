@@ -18,11 +18,11 @@ import (
 	"github.com/rollchains/gordian/cmd/internal/gcmd"
 	"github.com/rollchains/gordian/gcrypto"
 	"github.com/rollchains/gordian/gwatchdog"
-	"github.com/rollchains/gordian/tm/tmapp"
 	"github.com/rollchains/gordian/tm/tmcodec/tmjson"
 	"github.com/rollchains/gordian/tm/tmconsensus"
 	"github.com/rollchains/gordian/tm/tmconsensus/tmconsensustest"
 	"github.com/rollchains/gordian/tm/tmdebug"
+	"github.com/rollchains/gordian/tm/tmdriver"
 	"github.com/rollchains/gordian/tm/tmengine"
 	"github.com/rollchains/gordian/tm/tmgossip"
 	"github.com/rollchains/gordian/tm/tmp2p/tmlibp2p"
@@ -573,8 +573,8 @@ func runStateMachineV3(
 		}
 	}
 
-	blockFinCh := make(chan tmapp.FinalizeBlockRequest)
-	initChainCh := make(chan tmapp.InitChainRequest)
+	blockFinCh := make(chan tmdriver.FinalizeBlockRequest)
+	initChainCh := make(chan tmdriver.InitChainRequest)
 
 	app := newEchoApp(ctx, log.With("sys", "app_v0.3"), initChainCh, blockFinCh)
 	defer app.Wait()

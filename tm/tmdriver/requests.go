@@ -1,10 +1,10 @@
-package tmapp
+package tmdriver
 
 import (
 	"github.com/rollchains/gordian/tm/tmconsensus"
 )
 
-// InitChainRequest is sent from the engine to the application,
+// InitChainRequest is sent from the engine to the driver,
 // ensuring that the consensus store is in an appropriate initial state.
 //
 // InitChainRequest does not have an associated context like the other request types,
@@ -15,7 +15,7 @@ type InitChainRequest struct {
 	Resp chan InitChainResponse
 }
 
-// InitChainResponse is sent by the app in response to an [InitChainRequest].
+// InitChainResponse is sent by the driver in response to an [InitChainRequest].
 type InitChainResponse struct {
 	// The app state hash to use in the first proposed block's PrevAppStateHash field.
 	AppStateHash []byte
@@ -25,10 +25,10 @@ type InitChainResponse struct {
 	Validators []tmconsensus.Validator
 }
 
-// FinalizeBlockRequest is sent from the state machine to the application,
-// notifying the application that the given block is going to be committed.
+// FinalizeBlockRequest is sent from the state machine to the driver,
+// notifying the driver that the given block is going to be committed.
 //
-// The app must evaluate the block and return the validators to set
+// The driver must evaluate the block and return the validators to set
 // as NextValidators on the subsequent block;
 // and it must return the resulting app state hash,
 // to be used as PrevAppStateHash in the subsequent block.
@@ -41,8 +41,9 @@ type FinalizeBlockRequest struct {
 	Resp chan FinalizeBlockResponse
 }
 
+// FinalizeBlockResponse is sent by the driver in response to a [FinalizeBlockRequest].
 type FinalizeBlockResponse struct {
-	// For an unambiguous indicator of the block the app finalized.
+	// For an unambiguous indicator of the block the driver finalized.
 	Height    uint64
 	Round     uint32
 	BlockHash []byte

@@ -10,12 +10,12 @@ import (
 	"sync"
 
 	"github.com/rollchains/gordian/gcrypto"
-	"github.com/rollchains/gordian/tm/tmapp"
 	"github.com/rollchains/gordian/tm/tmconsensus"
+	"github.com/rollchains/gordian/tm/tmdriver"
 )
 
 type identityApp struct {
-	FinalizeResponses chan tmapp.FinalizeBlockResponse
+	FinalizeResponses chan tmdriver.FinalizeBlockResponse
 
 	log *slog.Logger
 
@@ -28,11 +28,11 @@ func newIdentityApp(
 	ctx context.Context,
 	log *slog.Logger,
 	idx int,
-	initChainRequests <-chan tmapp.InitChainRequest,
-	finalizeBlockRequests <-chan tmapp.FinalizeBlockRequest,
+	initChainRequests <-chan tmdriver.InitChainRequest,
+	finalizeBlockRequests <-chan tmdriver.FinalizeBlockRequest,
 ) *identityApp {
 	a := &identityApp{
-		FinalizeResponses: make(chan tmapp.FinalizeBlockResponse),
+		FinalizeResponses: make(chan tmdriver.FinalizeBlockResponse),
 
 		log:  log,
 		idx:  idx,
@@ -50,8 +50,8 @@ func (a *identityApp) Wait() {
 
 func (a *identityApp) kernel(
 	ctx context.Context,
-	initChainRequests <-chan tmapp.InitChainRequest,
-	finalizeBlockRequests <-chan tmapp.FinalizeBlockRequest,
+	initChainRequests <-chan tmdriver.InitChainRequest,
+	finalizeBlockRequests <-chan tmdriver.FinalizeBlockRequest,
 ) {
 	defer close(a.done)
 
@@ -72,7 +72,7 @@ func (a *identityApp) kernel(
 
 		stateHash := sha256.Sum256([]byte(""))
 		select {
-		case req.Resp <- tmapp.InitChainResponse{
+		case req.Resp <- tmdriver.InitChainResponse{
 			AppStateHash: stateHash[:],
 
 			// Omitting validators since we want to match the input.
@@ -91,7 +91,7 @@ func (a *identityApp) kernel(
 			return
 
 		case req := <-finalizeBlockRequests:
-			resp := tmapp.FinalizeBlockResponse{
+			resp := tmdriver.FinalizeBlockResponse{
 				Height:    req.Block.Height,
 				Round:     req.Round,
 				BlockHash: req.Block.Hash,

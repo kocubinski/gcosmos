@@ -8,9 +8,9 @@ import (
 
 	"github.com/rollchains/gordian/gwatchdog"
 	"github.com/rollchains/gordian/internal/gtest"
-	"github.com/rollchains/gordian/tm/tmapp"
 	"github.com/rollchains/gordian/tm/tmconsensus"
 	"github.com/rollchains/gordian/tm/tmconsensus/tmconsensustest"
+	"github.com/rollchains/gordian/tm/tmdriver"
 	"github.com/rollchains/gordian/tm/tmengine"
 	"github.com/rollchains/gordian/tm/tmengine/internal/tmstate/tmstatetest"
 	"github.com/rollchains/gordian/tm/tmengine/tmenginetest"
@@ -50,7 +50,7 @@ func TestEngine_plumbing_ConsensusStrategy(t *testing.T) {
 
 	const initAppStateHash = "app_state_0"
 
-	gtest.SendSoon(t, icReq.Resp, tmapp.InitChainResponse{
+	gtest.SendSoon(t, icReq.Resp, tmdriver.InitChainResponse{
 		AppStateHash: []byte(initAppStateHash),
 	})
 
@@ -231,7 +231,7 @@ func TestEngine_plumbing_ConsensusStrategy(t *testing.T) {
 		efx.RoundTimer.RequireActiveCommitWaitTimer(t, 1, 0)
 
 		// Under normal circumstances, the finalize request will complete before the timeout.
-		gtest.SendSoon(t, finReq.Resp, tmapp.FinalizeBlockResponse{
+		gtest.SendSoon(t, finReq.Resp, tmdriver.FinalizeBlockResponse{
 			Height: 1, Round: 0,
 			BlockHash: pb.Block.Hash,
 
@@ -381,7 +381,7 @@ func TestEngine_plumbing_ConsensusStrategy(t *testing.T) {
 		// Expect enter round before we send the finalization response.
 		ercCh := cs.ExpectEnterRound(3, 0, nil)
 
-		finReq.Resp <- tmapp.FinalizeBlockResponse{
+		finReq.Resp <- tmdriver.FinalizeBlockResponse{
 			Height: 2, Round: 1,
 			BlockHash: pb21.Block.Hash,
 
@@ -425,7 +425,7 @@ func TestEngine_plumbing_GossipStrategy(t *testing.T) {
 
 	const initAppStateHash = "app_state_0"
 
-	gtest.SendSoon(t, icReq.Resp, tmapp.InitChainResponse{
+	gtest.SendSoon(t, icReq.Resp, tmdriver.InitChainResponse{
 		AppStateHash: []byte(initAppStateHash),
 	})
 
@@ -655,7 +655,7 @@ func TestEngine_initChain(t *testing.T) {
 		// The NewEngine call still hasn't returned before we respond.
 		gtest.NotSending(t, eReady)
 
-		gtest.SendSoon(t, icReq.Resp, tmapp.InitChainResponse{
+		gtest.SendSoon(t, icReq.Resp, tmdriver.InitChainResponse{
 			AppStateHash: []byte("app_state_0"),
 		})
 
@@ -708,7 +708,7 @@ func TestEngine_initChain(t *testing.T) {
 
 		newVals := tmconsensustest.DeterministicValidatorsEd25519(3).Vals()
 
-		gtest.SendSoon(t, icReq.Resp, tmapp.InitChainResponse{
+		gtest.SendSoon(t, icReq.Resp, tmdriver.InitChainResponse{
 			AppStateHash: []byte("app_state_0"),
 			Validators:   newVals,
 		})
@@ -862,7 +862,7 @@ func TestEngine_configuration(t *testing.T) {
 		// the engine returns an error indicating that the WithTimeoutStrategy option was missed.
 		"WithTimeoutStrategy": tmengine.WithInternalRoundTimer(new(tmstatetest.MockRoundTimer)),
 
-		"WithBlockFinalizationChannel": tmengine.WithBlockFinalizationChannel(make(chan tmapp.FinalizeBlockRequest)),
+		"WithBlockFinalizationChannel": tmengine.WithBlockFinalizationChannel(make(chan tmdriver.FinalizeBlockRequest)),
 
 		"WithWatchdog": tmengine.WithWatchdog(wd),
 	}
@@ -998,7 +998,7 @@ func TestEngine_mirrorSkipsAhead(t *testing.T) {
 
 		const initAppStateHash = "app_state_0"
 
-		gtest.SendSoon(t, icReq.Resp, tmapp.InitChainResponse{
+		gtest.SendSoon(t, icReq.Resp, tmdriver.InitChainResponse{
 			AppStateHash: []byte(initAppStateHash),
 		})
 
@@ -1092,7 +1092,7 @@ func TestEngine_metrics(t *testing.T) {
 
 	const initAppStateHash = "app_state_0"
 
-	gtest.SendSoon(t, icReq.Resp, tmapp.InitChainResponse{
+	gtest.SendSoon(t, icReq.Resp, tmdriver.InitChainResponse{
 		AppStateHash: []byte(initAppStateHash),
 	})
 
