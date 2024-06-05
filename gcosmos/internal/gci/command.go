@@ -21,8 +21,6 @@ import (
 	"github.com/rollchains/gordian/tm/tmgossip"
 	"github.com/rollchains/gordian/tm/tmp2p/tmlibp2p"
 	"github.com/rollchains/gordian/tm/tmstore/tmmemstore"
-	"github.com/rs/zerolog"
-	slogzerolog "github.com/samber/slog-zerolog/v2"
 	"github.com/spf13/cobra"
 )
 
@@ -30,6 +28,21 @@ func StartGordianCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "gstart",
 		Short: "Start the gordian application",
+		PreRun: func(cmd *cobra.Command, args []string) {
+			// Attempting to use the github.com/samber/slog-zerolog-v2 repository
+			// to convert the presumed zerolog logger to slog
+			// was causing all gordian log messages to be dropped.
+			// So just use our own slog-backed cosmos Logger.
+			//
+			// Doing this at the top level before executing the command failed.
+			// Presumably somewhere in the command sequence,
+			// the logger was overwritten back to zerolog.
+			//
+			// It is possible this will cause other logging details in the SDK to break.
+			// But interleaved output from running two independent loggers also sounds bad.
+			logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+			overwriteServerContextLogger(cmd, logger)
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			serverCtx := server.GetServerContextFromCmd(cmd)
 
@@ -39,14 +52,10 @@ func StartGordianCommand() *cobra.Command {
 			am := sa.App.AppManager
 			_ = am // Not actually integrated yet.
 
-			// We don't want to run two different logging backends,
-			// so use the third-party slogzerolog library to wrap the zerolog logger
-			// into an slog handler for Gordian compatibility.
-			// Note that the logger appears to currently suppress messages at info level.
-			zlog := serverCtx.Logger.Impl().(*zerolog.Logger)
-			log := slog.New(
-				slogzerolog.Option{Level: slog.LevelDebug, Logger: zlog}.NewZerologHandler(),
-			)
+			// We should have set the logger to the slog implementation
+			// in this command's PreRun.
+			// For now a panic on failure to convert is fine.
+			log := serverCtx.Logger.Impl().(*slog.Logger)
 
 			ctx, cancel := signal.NotifyContext(cmd.Context(), os.Interrupt)
 			defer cancel()
