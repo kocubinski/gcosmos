@@ -6,10 +6,16 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 
 	"cosmossdk.io/simapp/v2"
+	stakingtypes "cosmossdk.io/x/staking/types"
+	"github.com/cosmos/cosmos-sdk/client"
+	ced25519 "github.com/cosmos/cosmos-sdk/crypto/keys/ed25519"
+	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	"github.com/cosmos/cosmos-sdk/server"
+	genutiltypes "github.com/cosmos/cosmos-sdk/x/genutil/types"
 	"github.com/libp2p/go-libp2p"
 	"github.com/rollchains/gordian/gcrypto"
 	"github.com/rollchains/gordian/gwatchdog"
@@ -26,23 +32,9 @@ import (
 
 func StartGordianCommand() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "gstart",
-		Short: "Start the gordian application",
-		PreRun: func(cmd *cobra.Command, args []string) {
-			// Attempting to use the github.com/samber/slog-zerolog-v2 repository
-			// to convert the presumed zerolog logger to slog
-			// was causing all gordian log messages to be dropped.
-			// So just use our own slog-backed cosmos Logger.
-			//
-			// Doing this at the top level before executing the command failed.
-			// Presumably somewhere in the command sequence,
-			// the logger was overwritten back to zerolog.
-			//
-			// It is possible this will cause other logging details in the SDK to break.
-			// But interleaved output from running two independent loggers also sounds bad.
-			logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-			overwriteServerContextLogger(cmd, logger)
-		},
+		Use:    "gstart",
+		Short:  "Start the gordian application",
+		PreRun: setServerContextLogger,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			serverCtx := server.GetServerContextFromCmd(cmd)
 
@@ -213,4 +205,92 @@ func runStateMachine(
 	log.Info("Shutting down...")
 
 	return nil
+}
+
+func setServerContextLogger(cmd *cobra.Command, args []string) {
+	// Attempting to use the github.com/samber/slog-zerolog-v2 repository
+	// to convert the presumed zerolog logger to slog
+	// was causing all gordian log messages to be dropped.
+	// So just use our own slog-backed cosmos Logger.
+	//
+	// Doing this at the top level before executing the command failed.
+	// Presumably somewhere in the command sequence,
+	// the logger was overwritten back to zerolog.
+	//
+	// It is possible this will cause other logging details in the SDK to break.
+	// But interleaved output from running two independent loggers also sounds bad.
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	overwriteServerContextLogger(cmd, logger)
+}
+
+func CheckGenesisValidatorsCommand() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:     "check-genesis-validators",
+		Aliases: []string{"cgv"},
+		Short:   "Print the gentx/genesis validators in the associated genesis file",
+		PreRun:  setServerContextLogger,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			serverCtx := server.GetServerContextFromCmd(cmd)
+
+			// The simapp and app manager are the core SDK pieces required
+			// to integrate with a consensus engine.
+			sa := simapp.NewSimApp(serverCtx.Logger, serverCtx.Viper)
+			am := sa.App.AppManager
+			_ = am // Not actually integrated yet.
+
+			ag, err := genutiltypes.AppGenesisFromFile(filepath.Join(
+				serverCtx.Config.RootDir, serverCtx.Config.Genesis,
+			))
+			if err != nil {
+				return fmt.Errorf("failed to AppGenesisFromFile: %w", err)
+			}
+
+			m, err := genutiltypes.GenesisStateFromAppGenesis(ag)
+			if err != nil {
+				return fmt.Errorf("failed to GenesisStateFromAppGenesis: %w", err)
+			}
+
+			clientCtx := client.GetClientContextFromCmd(cmd)
+			gs := genutiltypes.GetGenesisStateFromAppState(clientCtx.Codec, m)
+
+			for i, gentx := range gs.GenTxs {
+				tx, err := genutiltypes.ValidateAndGetGenTx(
+					gentx,
+					clientCtx.TxConfig.TxJSONDecoder(),
+					genutiltypes.DefaultMessageValidator,
+				)
+				if err != nil {
+					return fmt.Errorf("failed to decode gentx at index %d: %w", i, err)
+				}
+
+				msgs, err := tx.GetMessages()
+				if err != nil {
+					return fmt.Errorf("failed to get tx messages at index %d: %w", i, err)
+				}
+				for j, msg := range msgs {
+					cvm, ok := msg.(*stakingtypes.MsgCreateValidator)
+					if !ok {
+						continue
+					}
+
+					var pubkey cryptotypes.PubKey
+					if err := clientCtx.InterfaceRegistry.UnpackAny(cvm.Pubkey, &pubkey); err != nil {
+						return fmt.Errorf("failed to unpack pubkey in tx messages %d.%d: %w", i, j, err)
+					}
+
+					cPubKey, ok := pubkey.(*ced25519.PubKey)
+					if !ok {
+						return fmt.Errorf("failed to convert create validator pubkey of type %T to ed25519", pubkey)
+					}
+
+					gPubKey := gcrypto.Ed25519PubKey(cPubKey.Key)
+
+					fmt.Fprintf(cmd.OutOrStdout(), "tx %d.%d: pubkey=%x\n", i, j, gPubKey.PubKeyBytes())
+				}
+			}
+
+			return nil
+		},
+	}
+	return cmd
 }

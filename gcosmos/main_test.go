@@ -3,7 +3,11 @@ package main_test
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	simdcmd "cosmossdk.io/simapp/v2/simdv2/cmd"
@@ -17,9 +21,62 @@ func TestRootCmd(t *testing.T) {
 
 	e := NewRootCmd(t)
 
-	res := e.Run("init", "defaultmoniker")
+	e.Run("init", "defaultmoniker").NoError(t)
+}
 
+func TestRootCmd_checkGenesisValidators(t *testing.T) {
+	t.Parallel()
+
+	e := NewRootCmd(t)
+
+	// It would be nice to be able to use deterministic keys for these tests,
+	// but since the key subcommands use readers hanging off a "client context",
+	// it is surprisingly difficult to intercept that value at the right spot.
+	// Unfortunately, we can't simply set cmd.Input for this.
+	const nVals = 4
+	for i := range nVals {
+		e.Run("keys", "add", fmt.Sprintf("val%d", i)).NoError(t)
+	}
+
+	e.Run("init", "testmoniker", "--chain-id", t.Name()).NoError(t)
+
+	for i := range nVals {
+		e.Run(
+			"genesis", "add-genesis-account",
+			fmt.Sprintf("val%d", i), "100stake",
+		).NoError(t)
+	}
+
+	gentxDir := t.TempDir()
+
+	for i := range nVals {
+		vs := fmt.Sprintf("val%d", i)
+		e.Run(
+			"genesis", "gentx",
+			"--chain-id", t.Name(),
+			"--output-document", filepath.Join(gentxDir, vs+".gentx.json"),
+			vs, "100stake",
+		).NoError(t)
+	}
+
+	res := e.Run(
+		"genesis", "collect-gentxs", "--gentx-dir", gentxDir,
+	)
 	res.NoError(t)
+
+	gPath := filepath.Join(e.homeDir, "config", "genesis-collected.json")
+	require.NoError(t, os.WriteFile(gPath, res.Stderr.Bytes(), 0o600))
+
+	res = e.Run("cgv")
+	res.NoError(t)
+
+	pubkeys := 0
+	for _, line := range strings.Split(res.Stdout.String(), "\n") {
+		if strings.Contains(line, "pubkey") {
+			pubkeys++
+		}
+	}
+	require.Equal(t, nVals, pubkeys)
 }
 
 func NewRootCmd(
@@ -41,6 +98,7 @@ func (e CmdEnv) Run(args ...string) RunResult {
 func (e CmdEnv) RunWithInput(in io.Reader, args ...string) RunResult {
 	cmd := simdcmd.NewRootCmd()
 	cmd.AddCommand(gci.StartGordianCommand())
+	cmd.AddCommand(gci.CheckGenesisValidatorsCommand())
 
 	// Just add the home flag directly instead of
 	// relying on the comet CLI integration in the SDK.
@@ -52,6 +110,15 @@ func (e CmdEnv) RunWithInput(in io.Reader, args ...string) RunResult {
 
 	ctx = svrcmd.CreateExecuteContext(ctx)
 
+	args = append(
+		[]string{
+			// It's not enough to just set the default home flag value.
+			// For whatever reason, if it isn't explicitly provided,
+			// it uses the global default at ~/.simappv2.
+			"--home", e.homeDir,
+		},
+		args...,
+	)
 	cmd.SetArgs(args)
 
 	var res RunResult
@@ -60,6 +127,7 @@ func (e CmdEnv) RunWithInput(in io.Reader, args ...string) RunResult {
 	cmd.SetIn(in)
 
 	res.Err = cmd.ExecuteContext(ctx)
+
 	return res
 }
 
