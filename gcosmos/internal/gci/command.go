@@ -9,6 +9,9 @@ import (
 	"path/filepath"
 	"strings"
 
+	coreappmgr "cosmossdk.io/core/app"
+	"cosmossdk.io/core/transaction"
+	"cosmossdk.io/server/v2/appmanager"
 	"cosmossdk.io/simapp/v2"
 	stakingtypes "cosmossdk.io/x/staking/types"
 	"github.com/cosmos/cosmos-sdk/client"
@@ -19,6 +22,7 @@ import (
 	"github.com/libp2p/go-libp2p"
 	"github.com/rollchains/gordian/gcrypto"
 	"github.com/rollchains/gordian/gwatchdog"
+	"github.com/rollchains/gordian/internal/gchan"
 	"github.com/rollchains/gordian/tm/tmcodec/tmjson"
 	"github.com/rollchains/gordian/tm/tmconsensus"
 	"github.com/rollchains/gordian/tm/tmconsensus/tmconsensustest"
@@ -42,7 +46,6 @@ func StartGordianCommand() *cobra.Command {
 			// to integrate with a consensus engine.
 			sa := simapp.NewSimApp(serverCtx.Logger, serverCtx.Viper)
 			am := sa.App.AppManager
-			_ = am // Not actually integrated yet.
 
 			// We should have set the logger to the slog implementation
 			// in this command's PreRun.
@@ -78,10 +81,22 @@ func StartGordianCommand() *cobra.Command {
 				}
 			}()
 
+			initChainCh := make(chan tmdriver.InitChainRequest)
+			go runDriver(
+				ctx,
+				log.With("sys", "driver"),
+				filepath.Join(serverCtx.Config.RootDir, serverCtx.Config.Genesis),
+				am,
+				txDecoder{
+					txConfig: client.GetClientContextFromCmd(cmd).TxConfig,
+				},
+				initChainCh,
+			)
+
 			// TODO: how to set up signer?
 			var signer gcrypto.Signer
 
-			return runStateMachine(ctx, log, h, signer)
+			return runStateMachine(ctx, log, h, signer, initChainCh)
 		},
 	}
 	return cmd
@@ -92,6 +107,7 @@ func runStateMachine(
 	log *slog.Logger,
 	h *tmlibp2p.Host,
 	signer gcrypto.Signer,
+	initChainCh chan<- tmdriver.InitChainRequest,
 ) error {
 	const chainID = "gcosmos"
 	// We need a cancelable context if we fail partway through setup.
@@ -134,7 +150,6 @@ func runStateMachine(
 	vs := tmmemstore.NewValidatorStore(tmconsensustest.SimpleHashScheme{})
 
 	blockFinCh := make(chan tmdriver.FinalizeBlockRequest)
-	initChainCh := make(chan tmdriver.InitChainRequest)
 
 	// TODO: driver instantiation, and consensus strategy, would usually go here.
 	// Obviously the nop consensus strategy isn't very useful.
@@ -205,6 +220,68 @@ func runStateMachine(
 	log.Info("Shutting down...")
 
 	return nil
+}
+
+// txDecoder adapts client.TxConfig to the transaction.Codec type.
+// This is a copy of "temporaryTxDecoder" from simapp code.
+type txDecoder struct {
+	txConfig client.TxConfig
+}
+
+// Decode implements transaction.Codec.
+func (t txDecoder) Decode(bz []byte) (transaction.Tx, error) {
+	return t.txConfig.TxDecoder()(bz)
+}
+
+// DecodeJSON implements transaction.Codec.
+func (t txDecoder) DecodeJSON(bz []byte) (transaction.Tx, error) {
+	return t.txConfig.TxJSONDecoder()(bz)
+}
+
+func runDriver(
+	ctx context.Context,
+	log *slog.Logger,
+	genesisPath string,
+	appManager *appmanager.AppManager[transaction.Tx],
+	txCodec transaction.Codec[transaction.Tx],
+	initChainCh <-chan tmdriver.InitChainRequest,
+) {
+	defer log.Info("Driver goroutine finished")
+	log.Info("Driver starting...")
+
+	ag, err := genutiltypes.AppGenesisFromFile(genesisPath)
+	if err != nil {
+		log.Warn("Failed to AppGenesisFromFile", "err", err)
+		return
+	}
+	_ = ag
+
+	req, ok := gchan.RecvC(ctx, log, initChainCh, "receiving init chain request")
+	if !ok {
+		log.Warn("Context cancelled before receiving init chain message")
+		return
+	}
+
+	blockReq := &coreappmgr.BlockRequest[transaction.Tx]{
+		Height: req.Genesis.InitialHeight, // Comet does genesis height - 1, do we need that too?
+
+		ChainId:   req.Genesis.ChainID,
+		IsGenesis: true,
+		// Omitted vs comet server code: Time, Hash, AppHash, ConsensusMessages
+	}
+
+	// Now, init genesis in the SDK-layer application.
+	blockResp, genesisState, err := appManager.InitGenesis(
+		ctx, blockReq, []byte(ag.AppState), txCodec,
+	)
+	if err != nil {
+		log.Warn("Failed to run appManager.InitGenesis", "err", err)
+		return
+	}
+
+	log.Info("Got init chain request", "val", req)
+	log.Info("App response for init chain", "blockResp", blockResp)
+	log.Info("Genesis state from init chain", "genesisState", genesisState)
 }
 
 func setServerContextLogger(cmd *cobra.Command, args []string) {
