@@ -1,0 +1,5 @@
+# We want this directory to be present for now,
+# but we don't want to accidentally commit any of its contents.
+#
+# Once there is a stable release for simapp/v2, we will stop using this pattern.
+*
