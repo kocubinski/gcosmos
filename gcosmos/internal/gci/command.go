@@ -254,7 +254,6 @@ func runDriver(
 		log.Warn("Failed to AppGenesisFromFile", "err", err)
 		return
 	}
-	_ = ag
 
 	req, ok := gchan.RecvC(ctx, log, initChainCh, "receiving init chain request")
 	if !ok {
@@ -267,20 +266,28 @@ func runDriver(
 
 		ChainId:   req.Genesis.ChainID,
 		IsGenesis: true,
+
 		// Omitted vs comet server code: Time, Hash, AppHash, ConsensusMessages
 	}
 
+	appState := []byte(ag.AppState)
+
 	// Now, init genesis in the SDK-layer application.
 	blockResp, genesisState, err := appManager.InitGenesis(
-		ctx, blockReq, []byte(ag.AppState), txCodec,
+		ctx, blockReq, appState, txCodec,
 	)
 	if err != nil {
-		log.Warn("Failed to run appManager.InitGenesis", "err", err)
+		log.Warn("Failed to run appManager.InitGenesis", "appState", fmt.Sprintf("%q", appState), "err", err)
 		return
 	}
 
 	log.Info("Got init chain request", "val", req)
 	log.Info("App response for init chain", "blockResp", blockResp)
+	for i, res := range blockResp.TxResults {
+		if res.Error != nil {
+			log.Info("Error in blockResp", "i", i, "err", res.Error)
+		}
+	}
 	log.Info("Genesis state from init chain", "genesisState", genesisState)
 }
 

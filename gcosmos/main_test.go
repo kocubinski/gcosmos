@@ -64,10 +64,11 @@ func TestRootCmd_checkGenesisValidators(t *testing.T) {
 	)
 	res.NoError(t)
 
-	gPath := filepath.Join(e.homeDir, "config", "genesis-collected.json")
+	// Overwrite the original genesis.json with the collected gentxs.
+	gPath := filepath.Join(e.homeDir, "config", "genesis.json")
 	require.NoError(t, os.WriteFile(gPath, res.Stderr.Bytes(), 0o600))
 
-	res = e.Run("cgv")
+	res = e.Run("gstart")
 	res.NoError(t)
 
 	pubkeys := 0
