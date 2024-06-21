@@ -44,6 +44,11 @@ func StartGordianCommand() *cobra.Command {
 
 			// The simapp and app manager are the core SDK pieces required
 			// to integrate with a consensus engine.
+
+			// It seems like this BindPFlags call would happen automatically somewhere,
+			// but it is currently necessary to preconfigure the Viper value passed to simapp.NewSimApp.
+			serverCtx.Viper.BindPFlags(cmd.Flags())
+
 			sa := simapp.NewSimApp(serverCtx.Logger, serverCtx.Viper)
 			am := sa.App.AppManager
 
@@ -81,14 +86,17 @@ func StartGordianCommand() *cobra.Command {
 				}
 			}()
 
+			cc := client.GetClientContextFromCmd(cmd)
 			initChainCh := make(chan tmdriver.InitChainRequest)
 			go runDriver(
 				ctx,
 				log.With("sys", "driver"),
-				filepath.Join(serverCtx.Config.RootDir, serverCtx.Config.Genesis),
+				// This used to be serverCtx.Config.RootDir,
+				// but for some reason that value doesn't get set correctly anymore.
+				filepath.Join(cc.HomeDir, serverCtx.Config.Genesis),
 				am,
 				txDecoder{
-					txConfig: client.GetClientContextFromCmd(cmd).TxConfig,
+					txConfig: cc.TxConfig,
 				},
 				initChainCh,
 			)
@@ -251,7 +259,7 @@ func runDriver(
 
 	ag, err := genutiltypes.AppGenesisFromFile(genesisPath)
 	if err != nil {
-		log.Warn("Failed to AppGenesisFromFile", "err", err)
+		log.Warn("Failed to AppGenesisFromFile", "genesisPath", genesisPath, "err", err)
 		return
 	}
 
@@ -277,7 +285,7 @@ func runDriver(
 		ctx, blockReq, appState, txCodec,
 	)
 	if err != nil {
-		log.Warn("Failed to run appManager.InitGenesis", "appState", fmt.Sprintf("%q", appState), "err", err)
+		log.Warn("Failed to run appManager.InitGenesis", "genesisPath", genesisPath, "appState", fmt.Sprintf("%q", appState), "err", err)
 		return
 	}
 

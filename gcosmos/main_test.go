@@ -5,8 +5,8 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -59,16 +59,11 @@ func TestRootCmd_checkGenesisValidators(t *testing.T) {
 		).NoError(t)
 	}
 
-	res := e.Run(
+	e.Run(
 		"genesis", "collect-gentxs", "--gentx-dir", gentxDir,
-	)
-	res.NoError(t)
+	).NoError(t)
 
-	// Overwrite the original genesis.json with the collected gentxs.
-	gPath := filepath.Join(e.homeDir, "config", "genesis.json")
-	require.NoError(t, os.WriteFile(gPath, res.Stderr.Bytes(), 0o600))
-
-	res = e.Run("gstart")
+	res := e.Run("gstart")
 	res.NoError(t)
 
 	pubkeys := 0
@@ -111,15 +106,10 @@ func (e CmdEnv) RunWithInput(in io.Reader, args ...string) RunResult {
 
 	ctx = svrcmd.CreateExecuteContext(ctx)
 
-	args = append(
-		[]string{
-			// It's not enough to just set the default home flag value.
-			// For whatever reason, if it isn't explicitly provided,
-			// it uses the global default at ~/.simappv2.
-			"--home", e.homeDir,
-		},
-		args...,
-	)
+	// Putting --home before the args would probably work,
+	// but put --home at the end to be a little more sure
+	// that it won't get ignored due to being parsed before the subcommand name.
+	args = append(slices.Clone(args), "--home", e.homeDir)
 	cmd.SetArgs(args)
 
 	var res RunResult
