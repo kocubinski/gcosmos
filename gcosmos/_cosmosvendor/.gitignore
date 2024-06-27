@@ -3,3 +3,9 @@
 #
 # Once there is a stable release for simapp/v2, we will stop using this pattern.
 *
+
+# Keep any scripts we add at the top of the _cosmosvendor directory.
+!/*.bash
+
+# This is a special file to indicate what SDK commit to check out.
+!/COSMOS_SDK.commit

@@ -9,10 +9,9 @@ We are currently using a local, unmodified clone of the SDK in tandem with Go wo
 It is a bit unconventional to commit a Go workspace file, but while both Gordian and the Cosmos SDK
 are being actively changed, a fixed Go workspace fits well for now.
 
-Run `cd _cosmosvendor && git clone https://github.com/cosmos/cosmos-sdk`
-and then check out an appropriate branch in the SDK.
+From the `gcosmos` directory, run `./_cosmosvendor/sync_sdk.bash` to clone or fetch and checkout
+a "known working" version of the Cosmos SDK compatible with the current gcosmos tree.
 You may need to run `go work sync` from the `gcosmos` directory again.
-As of writing, the integration is targeting a WIP PR that updates the SDK simapp to v2 patterns.
 
 ## Running
 
