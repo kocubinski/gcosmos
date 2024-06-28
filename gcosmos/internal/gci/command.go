@@ -49,7 +49,7 @@ func StartGordianCommand() *cobra.Command {
 			// but it is currently necessary to preconfigure the Viper value passed to simapp.NewSimApp.
 			serverCtx.Viper.BindPFlags(cmd.Flags())
 
-			sa := simapp.NewSimApp(serverCtx.Logger, serverCtx.Viper)
+			sa := simapp.NewSimApp[transaction.Tx](serverCtx.Logger, serverCtx.Viper)
 			am := sa.App.AppManager
 
 			// We should have set the logger to the slog implementation
@@ -326,7 +326,7 @@ func CheckGenesisValidatorsCommand() *cobra.Command {
 
 			// The simapp and app manager are the core SDK pieces required
 			// to integrate with a consensus engine.
-			sa := simapp.NewSimApp(serverCtx.Logger, serverCtx.Viper)
+			sa := simapp.NewSimApp[transaction.Tx](serverCtx.Logger, serverCtx.Viper)
 			am := sa.App.AppManager
 			_ = am // Not actually integrated yet.
 

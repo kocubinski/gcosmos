@@ -25,7 +25,7 @@ import (
 
 // The various interfaces we expect a Component to satisfy.
 var (
-	_ serverv2.ServerComponent[transaction.Tx] = (*Component[transaction.Tx])(nil)
+	_ serverv2.ServerComponent[serverv2.AppI[transaction.Tx], transaction.Tx] = (*Component[transaction.Tx])(nil)
 )
 
 // Component is a server component to be injected into the Cosmos SDK server module.

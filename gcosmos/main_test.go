@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 
+	"cosmossdk.io/core/transaction"
+	serverv2 "cosmossdk.io/server/v2"
 	simdcmd "cosmossdk.io/simapp/v2/simdv2/cmd"
 	svrcmd "github.com/cosmos/cosmos-sdk/server/cmd"
 	"github.com/rollchains/gordian/gcosmos/internal/gci"
@@ -92,7 +94,7 @@ func (e CmdEnv) Run(args ...string) RunResult {
 }
 
 func (e CmdEnv) RunWithInput(in io.Reader, args ...string) RunResult {
-	cmd := simdcmd.NewRootCmd()
+	cmd := simdcmd.NewRootCmd[serverv2.AppI[transaction.Tx], transaction.Tx]()
 	cmd.AddCommand(gci.StartGordianCommand())
 	cmd.AddCommand(gci.CheckGenesisValidatorsCommand())
 
