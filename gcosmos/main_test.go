@@ -5,16 +5,15 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 
-	"cosmossdk.io/core/transaction"
-	serverv2 "cosmossdk.io/server/v2"
-	simdcmd "cosmossdk.io/simapp/v2/simdv2/cmd"
 	svrcmd "github.com/cosmos/cosmos-sdk/server/cmd"
 	"github.com/rollchains/gordian/gcosmos/internal/gci"
+	"github.com/rollchains/gordian/internal/gtest"
 	"github.com/stretchr/testify/require"
 )
 
@@ -65,7 +64,14 @@ func TestRootCmd_checkGenesisValidators(t *testing.T) {
 		"genesis", "collect-gentxs", "--gentx-dir", gentxDir,
 	).NoError(t)
 
-	res := e.Run("gstart")
+	// The gRPC server defaults to listening on port 9090,
+	// and the test will fail if the gRPC server cannot bind,
+	// so just use an anonymous port.
+	// https://github.com/cosmos/cosmos-sdk/issues/20819
+	// tracks why we cannot set grpc-server.enable=false.
+	e.Run("config", "set", "app", "grpc-server.address", "localhost:0", "--skip-validate").NoError(t)
+
+	res := e.Run("start")
 	res.NoError(t)
 
 	pubkeys := 0
@@ -82,10 +88,14 @@ func NewRootCmd(
 ) CmdEnv {
 	t.Helper()
 
-	return CmdEnv{homeDir: t.TempDir()}
+	return CmdEnv{
+		log:     gtest.NewLogger(t),
+		homeDir: t.TempDir(),
+	}
 }
 
 type CmdEnv struct {
+	log     *slog.Logger
 	homeDir string
 }
 
@@ -94,24 +104,25 @@ func (e CmdEnv) Run(args ...string) RunResult {
 }
 
 func (e CmdEnv) RunWithInput(in io.Reader, args ...string) RunResult {
-	cmd := simdcmd.NewRootCmd[serverv2.AppI[transaction.Tx], transaction.Tx]()
-	cmd.AddCommand(gci.StartGordianCommand())
-	cmd.AddCommand(gci.CheckGenesisValidatorsCommand())
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	cmd := gci.NewSimdRootCmdWithGordian(ctx, e.log)
 
 	// Just add the home flag directly instead of
 	// relying on the comet CLI integration in the SDK.
 	// Might be brittle, but should also be a little simpler.
 	cmd.PersistentFlags().StringP("home", "", e.homeDir, "default test dir home, do not change")
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
 	ctx = svrcmd.CreateExecuteContext(ctx)
 
-	// Putting --home before the args would probably work,
-	// but put --home at the end to be a little more sure
-	// that it won't get ignored due to being parsed before the subcommand name.
-	args = append(slices.Clone(args), "--home", e.homeDir)
+	args = append(
+		slices.Clone(args),
+		// Putting --home before the args would probably work,
+		// but put --home at the end to be a little more sure
+		// that it won't get ignored due to being parsed before the subcommand name.
+		"--home", e.homeDir,
+	)
 	cmd.SetArgs(args)
 
 	var res RunResult

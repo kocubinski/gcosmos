@@ -3,20 +3,25 @@
 package main
 
 import (
+	"context"
 	"fmt"
+	"log/slog"
 	"os"
 
-	"cosmossdk.io/core/transaction"
-	serverv2 "cosmossdk.io/server/v2"
 	"cosmossdk.io/simapp/v2"
-	simdcmd "cosmossdk.io/simapp/v2/simdv2/cmd"
 	svrcmd "github.com/cosmos/cosmos-sdk/server/cmd"
 	"github.com/rollchains/gordian/gcosmos/internal/gci"
 )
 
 func main() {
-	rootCmd := simdcmd.NewRootCmd[serverv2.AppI[transaction.Tx], transaction.Tx]()
-	rootCmd.AddCommand(gci.StartGordianCommand())
+	rootCmd := gci.NewSimdRootCmdWithGordian(
+		// We should probably use an os.SignalContext for this in order to ^c properly.
+		context.Background(),
+
+		// Setting the logger this way is likely to cause interleaved writes
+		// with the SDK logging system, but this is fine as a quick solution.
+		slog.New(slog.NewTextHandler(os.Stderr, nil)),
+	)
 	if err := svrcmd.Execute(rootCmd, "", simapp.DefaultNodeHome); err != nil {
 		fmt.Fprintln(rootCmd.OutOrStderr(), err)
 		os.Exit(1)

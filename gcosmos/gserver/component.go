@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"cosmossdk.io/core/transaction"
@@ -12,6 +14,7 @@ import (
 	serverv2 "cosmossdk.io/server/v2"
 	"github.com/libp2p/go-libp2p"
 	"github.com/rollchains/gordian/gcrypto"
+	"github.com/rollchains/gordian/gwatchdog"
 	"github.com/rollchains/gordian/tm/tmcodec/tmjson"
 	"github.com/rollchains/gordian/tm/tmconsensus"
 	"github.com/rollchains/gordian/tm/tmconsensus/tmconsensustest"
@@ -122,7 +125,19 @@ func (c *Component[T]) Start(ctx context.Context) error {
 	// No point in creating this channel before a call to Start.
 	opts = append(opts, tmengine.WithInitChainChannel(initChainCh))
 
-	e, err := tmengine.New(c.rootCtx, c.log.With("sys", "engine"), opts...)
+	// Could be sooner but it's easier to just take this context late here.
+	wd, wdCtx := gwatchdog.NewWatchdog(c.rootCtx, c.log.With("sys", "watchdog"))
+	opts = append(opts, tmengine.WithWatchdog(wd))
+
+	// TODO: the block finalization channel needs to be exposed somewhere.
+	blockFinCh := make(chan tmdriver.FinalizeBlockRequest)
+	opts = append(opts, tmengine.WithBlockFinalizationChannel(blockFinCh))
+
+	// The timeout strategy pairs with a context,
+	// so it makes sense to delay this until we have a watchdog context available.
+	opts = append(opts, tmengine.WithTimeoutStrategy(wdCtx, tmengine.LinearTimeoutStrategy{}))
+
+	e, err := tmengine.New(wdCtx, c.log.With("sys", "engine"), opts...)
 	if err != nil {
 		return fmt.Errorf("failed to start engine: %w", err)
 	}
@@ -212,10 +227,17 @@ func (c *Component[T]) Init(app serverv2.AppI[T], v *viper.Viper, log cosmoslog.
 
 		// NOTE: there are remaining required options that we shouldn't initialize here,
 		// but instead they will be added during the Start call.
-		// tmengine.WithGossipStrategy(gs): gs depends on a connection, which we should not create until Start.
-
-		// TODO: we are missing a bunch of options, deal with them later.
 	}
 
 	return nil
+}
+
+// WriteDefaultConfigAt satisfies an undocumented interface,
+// and here we emulate what Comet does in order to get past some error expecting this file to exist.
+func (c *Component[T]) WriteDefaultConfigAt(configPath string) error {
+	f, err := os.Create(filepath.Join(configPath, "config.toml"))
+	if err != nil {
+		return fmt.Errorf("could not create empty config file: %w", err)
+	}
+	return f.Close()
 }
