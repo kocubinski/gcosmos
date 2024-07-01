@@ -107,7 +107,14 @@ func (c *Component[T]) Start(ctx context.Context) error {
 	c.conn = conn
 
 	initChainCh := make(chan tmdriver.InitChainRequest)
-	d, err := newDriver(c.rootCtx, ctx, c.log.With("serversys", "driver"), c.app.GetAppManager(), initChainCh)
+	d, err := newDriver(
+		c.rootCtx,
+		ctx,
+		c.log.With("serversys", "driver"),
+		c.app.GetConsensusAuthority(),
+		c.app.GetAppManager(),
+		initChainCh,
+	)
 	if err != nil {
 		return fmt.Errorf("failed to create driver: %w", err)
 	}

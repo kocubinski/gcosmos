@@ -5,10 +5,13 @@ import (
 	"fmt"
 	"log/slog"
 	"path/filepath"
+	"time"
 
 	coreappmgr "cosmossdk.io/core/app"
 	"cosmossdk.io/core/transaction"
 	"cosmossdk.io/server/v2/appmanager"
+	consensustypes "cosmossdk.io/x/consensus/types"
+	cometapitypes "github.com/cometbft/cometbft/api/cometbft/types/v1"
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/server"
 	genutiltypes "github.com/cosmos/cosmos-sdk/x/genutil/types"
@@ -25,10 +28,10 @@ type driver[T transaction.Tx] struct {
 func newDriver[T transaction.Tx](
 	lifeCtx, valCtx context.Context,
 	log *slog.Logger,
+	consensusAuthority string,
 	appManager *appmanager.AppManager[T],
 	initChainCh <-chan tmdriver.InitChainRequest,
 ) (*driver[T], error) {
-
 	// Fine if these panic on conversion failure.
 	cc := valCtx.Value(client.ClientContextKey).(*client.Context)
 	serverCtx := valCtx.Value(server.ServerContextKey).(*server.Context)
@@ -45,7 +48,7 @@ func newDriver[T transaction.Tx](
 		done: make(chan struct{}),
 	}
 
-	go d.run(lifeCtx, valCtx, ag, appManager, cc.TxConfig, initChainCh)
+	go d.run(lifeCtx, valCtx, ag, consensusAuthority, appManager, cc.TxConfig, initChainCh)
 
 	return d, nil
 }
@@ -53,6 +56,7 @@ func newDriver[T transaction.Tx](
 func (d *driver[T]) run(
 	lifeCtx, valCtx context.Context,
 	ag *genutiltypes.AppGenesis,
+	consensusAuthority string,
 	appManager *appmanager.AppManager[T],
 	txConfig client.TxConfig,
 	initChainCh <-chan tmdriver.InitChainRequest,
@@ -77,7 +81,27 @@ func (d *driver[T]) run(
 		ChainId:   req.Genesis.ChainID,
 		IsGenesis: true,
 
-		// Omitted vs comet server code: Time, Hash, AppHash, ConsensusMessages
+		ConsensusMessages: []transaction.Msg{
+			&consensustypes.MsgUpdateParams{
+				Authority: consensusAuthority,
+				Block: &cometapitypes.BlockParams{
+					// Just setting these to something non-zero for now.
+					MaxBytes: -1,
+					MaxGas:   -1,
+				},
+				Evidence: &cometapitypes.EvidenceParams{
+					// Completely arbitrary non-zero values.
+					MaxAgeNumBlocks: 10,
+					MaxAgeDuration:  10 * time.Minute,
+					MaxBytes:        1024,
+				},
+				Validator: &cometapitypes.ValidatorParams{
+					PubKeyTypes: []string{"ed25519"},
+				},
+			},
+		},
+
+		// Omitted vs comet server code: Time, Hash, AppHash
 	}
 
 	appState := []byte(ag.AppState)

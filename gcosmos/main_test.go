@@ -11,9 +11,13 @@ import (
 	"strings"
 	"testing"
 
+	"cosmossdk.io/core/transaction"
+	serverv2 "cosmossdk.io/server/v2"
+	simdcmd "cosmossdk.io/simapp/v2/simdv2/cmd"
 	svrcmd "github.com/cosmos/cosmos-sdk/server/cmd"
 	"github.com/rollchains/gordian/gcosmos/internal/gci"
 	"github.com/rollchains/gordian/internal/gtest"
+	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/require"
 )
 
@@ -107,7 +111,16 @@ func (e CmdEnv) RunWithInput(in io.Reader, args ...string) RunResult {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	cmd := gci.NewSimdRootCmdWithGordian(ctx, e.log)
+	var cmd *cobra.Command
+
+	// Cheap toggle so I don't have to look up the command function every time
+	// I need to check the delta between the two.
+	const runCometInsteadOfGordian = false
+	if runCometInsteadOfGordian {
+		cmd = simdcmd.NewRootCmd[serverv2.AppI[transaction.Tx], transaction.Tx]()
+	} else {
+		cmd = gci.NewSimdRootCmdWithGordian(ctx, e.log)
+	}
 
 	// Just add the home flag directly instead of
 	// relying on the comet CLI integration in the SDK.
