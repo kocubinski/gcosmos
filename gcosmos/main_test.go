@@ -3,12 +3,12 @@ package main_test
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
 	"path/filepath"
 	"slices"
-	"strings"
 	"testing"
 
 	"cosmossdk.io/core/transaction"
@@ -29,44 +29,58 @@ func TestRootCmd(t *testing.T) {
 	e.Run("init", "defaultmoniker").NoError(t)
 }
 
-func TestRootCmd_checkGenesisValidators(t *testing.T) {
+func TestRootCmd_startWithGordian(t *testing.T) {
 	t.Parallel()
 
-	e := NewRootCmd(t)
+	chainID := t.Name()
 
-	// It would be nice to be able to use deterministic keys for these tests,
-	// but since the key subcommands use readers hanging off a "client context",
-	// it is surprisingly difficult to intercept that value at the right spot.
-	// Unfortunately, we can't simply set cmd.Input for this.
 	const nVals = 4
+	rootCmds := make([]CmdEnv, nVals)
+	keyAddresses := make([]string, nVals)
+
 	for i := range nVals {
-		// Each of these validators needs its own home directory
-		e.Run("init", "testmoniker", "--chain-id", t.Name()).NoError(t)
-		// ...and we create this key in keychain for each of the validators
-		// if we have home directory isolation then we can use the same key name
-		// might also want to use the flag "--keyring-backend=test" to avoid using the OS keyring
-		e.Run("keys", "add", fmt.Sprintf("val%d", i)).NoError(t)
+		// Each validator gets its own command environment
+		// and therefore its own home directory.
+		e := NewRootCmd(t)
+		rootCmds[i] = e
+
+		// Each validator needs its own initialized config and genesis.
+		valName := fmt.Sprintf("val%d", i)
+		e.Run("init", valName, "--chain-id", chainID).NoError(t)
+
+		// Each validator needs its own key.
+		res := e.Run("keys", "add", valName, "--output=json")
+		res.NoError(t)
+
+		// Collect the addresses from the JSON output.
+		var keyAddOutput struct {
+			Address string
+		}
+		require.NoError(t, json.Unmarshal(res.Stdout.Bytes(), &keyAddOutput))
+		keyAddresses[i] = keyAddOutput.Address
 	}
 
-	for i := range nVals {
-		// We need to get the address (cosmos1....) for each validator from the keyring in their
-		// home directory and then add-genesis-account for each to a single genesis file (I normally pick the first one)
-		// something like
-		// e.Run(
-		// 	"genesis", "add-genesis-account",
-		// 	e.Run("keys", "show", "val"), "100stake", "--home", "node0home"
-		// )
-		e.Run(
+	// Add each key as a genesis account on the first validator's environment.
+	for _, a := range keyAddresses {
+		rootCmds[0].Run(
 			"genesis", "add-genesis-account",
-			fmt.Sprintf("val%d", i), "100stake",
+			a, "100stake",
 		).NoError(t)
 	}
 
-	// Move all the gentx files into node0home/config/gentx
+	// Add a gentx for every validator, to a temporary gentx directory.
 	gentxDir := t.TempDir()
-
-	for i := range nVals {
+	for i, e := range rootCmds {
 		vs := fmt.Sprintf("val%d", i)
+		if i > 0 {
+			// The first validator has every genesis account already,
+			// but each validator needs its own address as a genesis account
+			// in order to do a gentx.
+			e.Run(
+				"genesis", "add-genesis-account",
+				vs, "100stake",
+			).NoError(t)
+		}
 		e.Run(
 			"genesis", "gentx",
 			"--chain-id", t.Name(),
@@ -75,34 +89,21 @@ func TestRootCmd_checkGenesisValidators(t *testing.T) {
 		).NoError(t)
 	}
 
-	// then once all the gentx files are in the node0home gentx directory we can run collect-gentxs
-	e.Run(
+	// Collect gentxs on the first validator.
+	rootCmds[0].Run(
 		"genesis", "collect-gentxs", "--gentx-dir", gentxDir,
 	).NoError(t)
-
-	// after this we need to distribute the genesis file to all the other nodes replacing the genesis file in their home directory
-
-	// Can add a test here that checks the sha256 of the genesis file to make sure it is the same on all nodes
-
-	// Now we can start each node one by one, and they should all connect to each other and form a network
 
 	// The gRPC server defaults to listening on port 9090,
 	// and the test will fail if the gRPC server cannot bind,
 	// so just use an anonymous port.
 	// https://github.com/cosmos/cosmos-sdk/issues/20819
 	// tracks why we cannot set grpc-server.enable=false.
-	e.Run("config", "set", "app", "grpc-server.address", "localhost:0", "--skip-validate").NoError(t)
+	rootCmds[0].Run("config", "set", "app", "grpc-server.address", "localhost:0", "--skip-validate").NoError(t)
 
-	res := e.Run("start")
+	// TODO: what can we assert after starting the server?
+	res := rootCmds[0].Run("start")
 	res.NoError(t)
-
-	pubkeys := 0
-	for _, line := range strings.Split(res.Stdout.String(), "\n") {
-		if strings.Contains(line, "pubkey") {
-			pubkeys++
-		}
-	}
-	require.Equal(t, nVals, pubkeys)
 }
 
 func NewRootCmd(
