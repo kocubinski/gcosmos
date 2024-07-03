@@ -15,7 +15,10 @@ import (
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/server"
 	genutiltypes "github.com/cosmos/cosmos-sdk/x/genutil/types"
+	"github.com/rollchains/gordian/gcrypto"
 	"github.com/rollchains/gordian/internal/gchan"
+	"github.com/rollchains/gordian/internal/glog"
+	"github.com/rollchains/gordian/tm/tmconsensus"
 	"github.com/rollchains/gordian/tm/tmdriver"
 )
 
@@ -123,6 +126,47 @@ func (d *driver[T]) run(
 		}
 	}
 	d.log.Info("Genesis state from init chain", "genesisState", genesisState)
+
+	gVals := make([]tmconsensus.Validator, len(blockResp.ValidatorUpdates))
+	for i, vu := range blockResp.ValidatorUpdates {
+		if vu.PubKeyType != "ed25519" {
+			panic(fmt.Errorf(
+				"TODO: handle validator with non-ed25519 key type: %q",
+				vu.PubKeyType,
+			))
+		}
+		pk, err := gcrypto.NewEd25519PubKey(vu.PubKey)
+		if err != nil {
+			panic(fmt.Errorf(
+				"BUG: NewEd25519PubKey should never error; got %w", err,
+			))
+		}
+		gVals[i] = tmconsensus.Validator{
+			PubKey: pk,
+			Power:  uint64(vu.Power),
+		}
+	}
+
+	resp := tmdriver.InitChainResponse{
+		// Assuming this is correct for AppStateHash but not really sure yet.
+		AppStateHash: blockResp.Apphash,
+
+		Validators: gVals,
+	}
+	if !gchan.SendC(
+		lifeCtx, d.log,
+		req.Resp, resp,
+		"sending init chain response to Gordian",
+	) {
+		// If this failed it will have logged, so we can just return here.
+		return
+	}
+
+	d.log.Info(
+		"Successfully sent init chain response to Gordian engine",
+		"n_vals", len(resp.Validators),
+		"app_state_hash", glog.Hex(resp.AppStateHash),
+	)
 }
 
 func (d *driver[T]) Wait() {
