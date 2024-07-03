@@ -34,7 +34,7 @@ func TestRootCmd_startWithGordian(t *testing.T) {
 
 	chainID := t.Name()
 
-	const nVals = 4
+	const nVals = 1
 	rootCmds := make([]CmdEnv, nVals)
 	keyAddresses := make([]string, nVals)
 

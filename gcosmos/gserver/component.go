@@ -2,6 +2,7 @@ package gserver
 
 import (
 	"context"
+	"crypto/ed25519"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -12,6 +13,8 @@ import (
 	"cosmossdk.io/core/transaction"
 	cosmoslog "cosmossdk.io/log"
 	serverv2 "cosmossdk.io/server/v2"
+	"github.com/cometbft/cometbft/privval"
+	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/libp2p/go-libp2p"
 	"github.com/rollchains/gordian/gcrypto"
 	"github.com/rollchains/gordian/gwatchdog"
@@ -188,11 +191,24 @@ func (c *Component[T]) Init(app serverv2.AppI[T], v *viper.Viper, log cosmoslog.
 
 	c.app = app
 
-	// Normally we would get some options from viper here.
-	// But in the immediate term we can keep the options hardcoded.
+	// Load the comet config, in order to read the privval key from disk.
+	// We don't really care about the state file,
+	// but we need to to call LoadFilePV,
+	// to get to the FilePVKey,
+	// which gives us the PrivKey.
+	cometConfig := client.GetConfigFromViper(v)
+	fpv := privval.LoadFilePV(cometConfig.PrivValidatorKeyFile(), cometConfig.PrivValidatorStateFile())
+	privKey := fpv.Key.PrivKey
+	if privKey.Type() != "ed25519" {
+		panic(fmt.Errorf(
+			"gcosmos only understands ed25519 signing keys; got %q",
+			privKey.Type(),
+		))
+	}
 
-	// TODO: determine signer somehow through the config.
 	var signer gcrypto.Signer
+	// TODO: we should allow a way to explicitly NOT provide a signer.
+	signer = gcrypto.NewEd25519Signer(ed25519.PrivateKey(privKey.Bytes()))
 
 	var as *tmmemstore.ActionStore
 	if signer != nil {
@@ -212,6 +228,8 @@ func (c *Component[T]) Init(app serverv2.AppI[T], v *viper.Viper, log cosmoslog.
 	var cStrat tmconsensus.ConsensusStrategy = tmconsensustest.NopConsensusStrategy{}
 
 	c.opts = []tmengine.Opt{
+		tmengine.WithSigner(signer),
+
 		tmengine.WithActionStore(as),
 		tmengine.WithBlockStore(bs),
 		tmengine.WithFinalizationStore(fs),
