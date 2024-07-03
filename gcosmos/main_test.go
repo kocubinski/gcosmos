@@ -64,7 +64,7 @@ func TestRootCmd_startWithGordian(t *testing.T) {
 	for _, a := range keyAddresses {
 		rootCmds[0].Run(
 			"genesis", "add-genesis-account",
-			a, "100stake",
+			a, "10000000000stake",
 		).NoError(t)
 	}
 
@@ -78,14 +78,14 @@ func TestRootCmd_startWithGordian(t *testing.T) {
 			// in order to do a gentx.
 			e.Run(
 				"genesis", "add-genesis-account",
-				vs, "100stake",
+				vs, "10000000000stake",
 			).NoError(t)
 		}
 		e.Run(
 			"genesis", "gentx",
 			"--chain-id", t.Name(),
 			"--output-document", filepath.Join(gentxDir, vs+".gentx.json"),
-			vs, "100stake",
+			vs, "10000000000stake",
 		).NoError(t)
 	}
 
