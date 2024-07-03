@@ -94,7 +94,15 @@ func New(ctx context.Context, log *slog.Logger, opts ...Opt) (*Engine, error) {
 	e.initChainCh = nil
 
 	e.mCfg.InitialHeight = e.genesis.InitialHeight
-	e.mCfg.InitialValidators = e.genesis.GenesisValidators // TODO: this needs to respect overridden validators from InitChain.
+
+	// Prefer to set the mirror config's validators
+	// to match the state machine's validators that resulted from the InitChain call.
+	// But if that is nil (probably because we didn't need to InitChain),
+	// then fall back to the configured genesis validators.
+	e.mCfg.InitialValidators = smCfg.Genesis.Validators
+	if e.mCfg.InitialValidators == nil {
+		e.mCfg.InitialValidators = e.genesis.GenesisValidators
+	}
 
 	// Set up a cancelable context in case any of the subsystems fail to create.
 	// We cancel the context in any error path to stop the subsystems,

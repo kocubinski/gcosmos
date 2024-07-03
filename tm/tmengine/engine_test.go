@@ -663,10 +663,9 @@ func TestEngine_initChain(t *testing.T) {
 		_ = gtest.ReceiveSoon(t, eReady)
 
 		// And this means the finalization store is populated.
-		round, blockHash, vals, appStateHash, err := efx.FinalizationStore.LoadFinalizationByHeight(ctx, 0)
+		round, _, vals, appStateHash, err := efx.FinalizationStore.LoadFinalizationByHeight(ctx, 0)
 		require.NoError(t, err)
 		require.Zero(t, round)
-		_ = blockHash
 		require.True(t, tmconsensus.ValidatorSlicesEqual(vals, efx.Fx.Vals()))
 		require.Equal(t, "app_state_0", appStateHash)
 	})
@@ -717,10 +716,66 @@ func TestEngine_initChain(t *testing.T) {
 		_ = gtest.ReceiveSoon(t, eReady)
 
 		// And this means the finalization store is populated.
-		round, blockHash, vals, appStateHash, err := efx.FinalizationStore.LoadFinalizationByHeight(ctx, 0)
+		round, _, vals, appStateHash, err := efx.FinalizationStore.LoadFinalizationByHeight(ctx, 0)
 		require.NoError(t, err)
 		require.Zero(t, round)
-		_ = blockHash
+		require.True(t, tmconsensus.ValidatorSlicesEqual(vals, newVals))
+		require.Equal(t, "app_state_0", appStateHash)
+	})
+
+	t.Run("default startup flow requiring InitChain call, with no initial validators but with a validator override", func(t *testing.T) {
+		t.Parallel()
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		efx := tmenginetest.NewFixture(ctx, t, 2)
+
+		var engine *tmengine.Engine
+		eReady := make(chan struct{})
+		go func() {
+			defer close(eReady)
+			// Overwrite the WithGenesis option so that it has no GenesisValidators specified.
+			optMap := efx.SigningOptionMap()
+			optMap["WithGenesis"] = tmengine.WithGenesis(&tmconsensus.ExternalGenesis{
+				ChainID:           "my-chain",
+				InitialHeight:     1,
+				InitialAppState:   new(bytes.Buffer),
+				GenesisValidators: nil, // Explicitly nil initial validators.
+			})
+			engine = efx.MustNewEngine(optMap.ToSlice()...)
+		}()
+
+		defer func() {
+			cancel()
+			<-eReady
+			engine.Wait()
+		}()
+
+		// We may or may not reach EnterRound as this test finishes,
+		// so we need to set an expectation on the mock consensus strategy.
+		_ = efx.ConsensusStrategy.ExpectEnterRound(1, 0, nil)
+
+		// It makes an init chain request.
+		icReq := gtest.ReceiveSoon(t, efx.InitChainCh)
+
+		// The NewEngine call still hasn't returned before we respond.
+		gtest.NotSending(t, eReady)
+
+		newVals := tmconsensustest.DeterministicValidatorsEd25519(3).Vals()
+
+		gtest.SendSoon(t, icReq.Resp, tmdriver.InitChainResponse{
+			AppStateHash: []byte("app_state_0"),
+			Validators:   newVals,
+		})
+
+		// After we send the response, the engine is ready.
+		_ = gtest.ReceiveSoon(t, eReady)
+
+		// And this means the finalization store is populated.
+		round, _, vals, appStateHash, err := efx.FinalizationStore.LoadFinalizationByHeight(ctx, 0)
+		require.NoError(t, err)
+		require.Zero(t, round)
 		require.True(t, tmconsensus.ValidatorSlicesEqual(vals, newVals))
 		require.Equal(t, "app_state_0", appStateHash)
 	})
