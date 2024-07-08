@@ -16,6 +16,7 @@ import (
 	"github.com/cometbft/cometbft/privval"
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/libp2p/go-libp2p"
+	"github.com/rollchains/gordian/gcosmos/gserver/internal/gsi"
 	"github.com/rollchains/gordian/gcrypto"
 	"github.com/rollchains/gordian/gwatchdog"
 	"github.com/rollchains/gordian/tm/tmcodec/tmjson"
@@ -51,7 +52,7 @@ type Component[T transaction.Tx] struct {
 	h      *tmlibp2p.Host
 	conn   *tmlibp2p.Connection
 	e      *tmengine.Engine
-	driver *driver[T]
+	driver *gsi.Driver[T]
 }
 
 // NewComponent returns a new server component
@@ -110,7 +111,7 @@ func (c *Component[T]) Start(ctx context.Context) error {
 	c.conn = conn
 
 	initChainCh := make(chan tmdriver.InitChainRequest)
-	d, err := newDriver(
+	d, err := gsi.NewDriver(
 		c.rootCtx,
 		ctx,
 		c.log.With("serversys", "driver"),
@@ -127,6 +128,9 @@ func (c *Component[T]) Start(ctx context.Context) error {
 	c.opts = nil // Don't need to reference the slice after this, so allow it to be GCed.
 
 	// Extra options that we couldn't set earlier for whatever reason:
+
+	// We needed the driver before we could make the consensus strategy.
+	opts = append(opts, tmengine.WithConsensusStrategy(gsi.NewConsensusStrategy(d)))
 
 	// Depends on conn.
 	gs := tmgossip.NewChattyStrategy(ctx, c.log.With("sys", "chattygossip"), conn)
@@ -221,11 +225,7 @@ func (c *Component[T]) Init(app serverv2.AppI[T], v *viper.Viper, log cosmoslog.
 	rs := tmmemstore.NewRoundStore()
 	vs := tmmemstore.NewValidatorStore(tmconsensustest.SimpleHashScheme{})
 
-	const chainID = "TODO:TEMPORARY_CHAIN_ID" // Need to get this from the SDK.
-
-	// TODO: driver instantiation, and consensus strategy, would usually go here.
-	// Obviously the nop consensus strategy isn't very useful.
-	var cStrat tmconsensus.ConsensusStrategy = tmconsensustest.NopConsensusStrategy{}
+	const chainID = "TODO:TEMPORARY_CHAIN_ID" // TODO: need to get this from the SDK.
 
 	c.opts = []tmengine.Opt{
 		tmengine.WithSigner(signer),
@@ -240,8 +240,6 @@ func (c *Component[T]) Init(app serverv2.AppI[T], v *viper.Viper, log cosmoslog.
 		tmengine.WithHashScheme(tmconsensustest.SimpleHashScheme{}),
 		tmengine.WithSignatureScheme(tmconsensustest.SimpleSignatureScheme{}),
 		tmengine.WithCommonMessageSignatureProofScheme(gcrypto.SimpleCommonMessageSignatureProofScheme),
-
-		tmengine.WithConsensusStrategy(cStrat),
 
 		tmengine.WithGenesis(&tmconsensus.ExternalGenesis{
 			ChainID:           chainID,

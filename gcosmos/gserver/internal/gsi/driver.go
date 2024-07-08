@@ -1,4 +1,4 @@
-package gserver
+package gsi
 
 import (
 	"context"
@@ -22,19 +22,19 @@ import (
 	"github.com/rollchains/gordian/tm/tmdriver"
 )
 
-type driver[T transaction.Tx] struct {
+type Driver[T transaction.Tx] struct {
 	log *slog.Logger
 
 	done chan struct{}
 }
 
-func newDriver[T transaction.Tx](
+func NewDriver[T transaction.Tx](
 	lifeCtx, valCtx context.Context,
 	log *slog.Logger,
 	consensusAuthority string,
 	appManager *appmanager.AppManager[T],
 	initChainCh <-chan tmdriver.InitChainRequest,
-) (*driver[T], error) {
+) (*Driver[T], error) {
 	// Fine if these panic on conversion failure.
 	cc := valCtx.Value(client.ClientContextKey).(*client.Context)
 	serverCtx := valCtx.Value(server.ServerContextKey).(*server.Context)
@@ -46,7 +46,7 @@ func newDriver[T transaction.Tx](
 		return nil, fmt.Errorf("failed to run AppGenesisFromFile(%s): %w", genesisPath, err)
 	}
 
-	d := &driver[T]{
+	d := &Driver[T]{
 		log:  log,
 		done: make(chan struct{}),
 	}
@@ -56,7 +56,7 @@ func newDriver[T transaction.Tx](
 	return d, nil
 }
 
-func (d *driver[T]) run(
+func (d *Driver[T]) run(
 	lifeCtx, valCtx context.Context,
 	ag *genutiltypes.AppGenesis,
 	consensusAuthority string,
@@ -169,6 +169,6 @@ func (d *driver[T]) run(
 	)
 }
 
-func (d *driver[T]) Wait() {
+func (d *Driver[T]) Wait() {
 	<-d.done
 }

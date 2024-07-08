@@ -1,4 +1,4 @@
-package gserver
+package gsi
 
 import (
 	"cosmossdk.io/core/transaction"
