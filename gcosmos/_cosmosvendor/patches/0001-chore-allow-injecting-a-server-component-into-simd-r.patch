@@ -1,6 +1,6 @@
-From b2eed28f03c796d6595083a169fe3fca48ae6cb6 Mon Sep 17 00:00:00 2001
+From ca96472c2b5b20454bdb39fff504fecef409f4fc Mon Sep 17 00:00:00 2001
 From: Mark Rushakoff <mark@strange.love>
-Date: Fri, 28 Jun 2024 16:42:54 -0400
+Date: Mon, 8 Jul 2024 16:12:39 -0400
 Subject: [PATCH] chore: allow injecting a server component into simd root
  command
 
@@ -10,7 +10,7 @@ Subject: [PATCH] chore: allow injecting a server component into simd root
  2 files changed, 23 insertions(+), 5 deletions(-)
 
 diff --git a/simapp/v2/simdv2/cmd/commands.go b/simapp/v2/simdv2/cmd/commands.go
-index 2aeed7aed..94810d906 100644
+index 017f601605..05b9c30ade 100644
 --- a/simapp/v2/simdv2/cmd/commands.go
 +++ b/simapp/v2/simdv2/cmd/commands.go
 @@ -15,7 +15,6 @@ import (
@@ -32,7 +32,16 @@ index 2aeed7aed..94810d906 100644
  ) {
  	cfg := sdk.GetConfig()
  	cfg.Seal()
-@@ -104,7 +104,7 @@ func initRootCmd[AppT serverv2.AppI[T], T transaction.Tx](
+@@ -102,7 +102,7 @@ func initRootCmd[AppT serverv2.AppI[T], T transaction.Tx](
+
+ 	// add keybase, auxiliary RPC, query, genesis, and tx child commands
+ 	rootCmd.AddCommand(
+-		genesisCommand[T](txConfig, moduleManager, appExport[T]),
++		genesisCommand[T](clientCtx.TxConfig, moduleManager, appExport[T]),
+ 		queryCommand(),
+ 		txCommand(),
+ 		keys.Commands(),
+@@ -114,7 +114,7 @@ func initRootCmd[AppT serverv2.AppI[T], T transaction.Tx](
  		rootCmd,
  		newApp,
  		logger,
@@ -41,17 +50,8 @@ index 2aeed7aed..94810d906 100644
  		grpc.New[AppT, T](),
  	); err != nil {
  		panic(err)
-@@ -113,7 +113,7 @@ func initRootCmd[AppT serverv2.AppI[T], T transaction.Tx](
- 	// add keybase, auxiliary RPC, query, genesis, and tx child commands
- 	rootCmd.AddCommand(
- 		server.StatusCommand(),
--		genesisCommand[T](txConfig, moduleManager, appExport[T]),
-+		genesisCommand[T](clientCtx.TxConfig, moduleManager, appExport[T]),
- 		queryCommand(),
- 		txCommand(),
- 		keys.Commands(),
 diff --git a/simapp/v2/simdv2/cmd/root_di.go b/simapp/v2/simdv2/cmd/root_di.go
-index 61c355180..c6b9c1a67 100644
+index 61c3551803..c6b9c1a675 100644
 --- a/simapp/v2/simdv2/cmd/root_di.go
 +++ b/simapp/v2/simdv2/cmd/root_di.go
 @@ -13,6 +13,7 @@ import (

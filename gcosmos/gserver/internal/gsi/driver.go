@@ -84,6 +84,11 @@ func (d *Driver[T]) run(
 		ChainId:   req.Genesis.ChainID,
 		IsGenesis: true,
 
+		// TODO: these should be actually calculated.
+		// Right now they are just appropriate sized to get past initial validation inside the SDK.
+		Hash:    make([]byte, 32),
+		AppHash: make([]byte, 32),
+
 		ConsensusMessages: []transaction.Msg{
 			&consensustypes.MsgUpdateParams{
 				Authority: consensusAuthority,

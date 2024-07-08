@@ -98,8 +98,8 @@ func TestRootCmd_startWithGordian(t *testing.T) {
 	// and the test will fail if the gRPC server cannot bind,
 	// so just use an anonymous port.
 	// https://github.com/cosmos/cosmos-sdk/issues/20819
-	// tracks why we cannot set grpc-server.enable=false.
-	rootCmds[0].Run("config", "set", "app", "grpc-server.address", "localhost:0", "--skip-validate").NoError(t)
+	// tracks why we cannot set grpc.enable=false.
+	rootCmds[0].Run("config", "set", "app", "grpc.address", "localhost:0", "--skip-validate").NoError(t)
 
 	// TODO: what can we assert after starting the server?
 	res := rootCmds[0].Run("start")
