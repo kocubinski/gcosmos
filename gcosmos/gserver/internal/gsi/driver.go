@@ -8,8 +8,10 @@ import (
 	"time"
 
 	coreappmgr "cosmossdk.io/core/app"
+	"cosmossdk.io/core/store"
 	"cosmossdk.io/core/transaction"
 	"cosmossdk.io/server/v2/appmanager"
+	"cosmossdk.io/store/v2/root"
 	consensustypes "cosmossdk.io/x/consensus/types"
 	cometapitypes "github.com/cometbft/cometbft/api/cometbft/types/v1"
 	"github.com/cosmos/cosmos-sdk/client"
@@ -22,6 +24,17 @@ import (
 	"github.com/rollchains/gordian/tm/tmdriver"
 )
 
+type DriverConfig[T transaction.Tx] struct {
+	ConsensusAuthority string
+
+	AppManager *appmanager.AppManager[T]
+
+	Store *root.Store
+
+	InitChainRequests     <-chan tmdriver.InitChainRequest
+	FinalizeBlockRequests <-chan tmdriver.FinalizeBlockRequest
+}
+
 type Driver[T transaction.Tx] struct {
 	log *slog.Logger
 
@@ -31,9 +44,7 @@ type Driver[T transaction.Tx] struct {
 func NewDriver[T transaction.Tx](
 	lifeCtx, valCtx context.Context,
 	log *slog.Logger,
-	consensusAuthority string,
-	appManager *appmanager.AppManager[T],
-	initChainCh <-chan tmdriver.InitChainRequest,
+	cfg DriverConfig[T],
 ) (*Driver[T], error) {
 	// Fine if these panic on conversion failure.
 	cc := valCtx.Value(client.ClientContextKey).(*client.Context)
@@ -51,7 +62,7 @@ func NewDriver[T transaction.Tx](
 		done: make(chan struct{}),
 	}
 
-	go d.run(lifeCtx, valCtx, ag, consensusAuthority, appManager, cc.TxConfig, initChainCh)
+	go d.run(lifeCtx, valCtx, ag, cc.TxConfig, cfg)
 
 	return d, nil
 }
@@ -59,10 +70,8 @@ func NewDriver[T transaction.Tx](
 func (d *Driver[T]) run(
 	lifeCtx, valCtx context.Context,
 	ag *genutiltypes.AppGenesis,
-	consensusAuthority string,
-	appManager *appmanager.AppManager[T],
 	txConfig client.TxConfig,
-	initChainCh <-chan tmdriver.InitChainRequest,
+	cfg DriverConfig[T],
 ) {
 	defer close(d.done)
 
@@ -71,10 +80,32 @@ func (d *Driver[T]) run(
 
 	// We are currently assuming we always need to handle init chain,
 	// but we should handle non-initial height.
+	if !d.handleInitialization(
+		lifeCtx, valCtx,
+		ag,
+		cfg.ConsensusAuthority,
+		cfg.AppManager,
+		txConfig,
+		cfg.InitChainRequests,
+	) {
+		return
+	}
+
+	d.handleFinalizations(lifeCtx, cfg.AppManager, cfg.Store, cfg.FinalizeBlockRequests)
+}
+
+func (d *Driver[T]) handleInitialization(
+	lifeCtx, valCtx context.Context,
+	ag *genutiltypes.AppGenesis,
+	consensusAuthority string,
+	appManager *appmanager.AppManager[T],
+	txConfig client.TxConfig,
+	initChainCh <-chan tmdriver.InitChainRequest,
+) bool {
 	req, ok := gchan.RecvC(lifeCtx, d.log, initChainCh, "receiving init chain request")
 	if !ok {
 		d.log.Warn("Context cancelled before receiving init chain message")
-		return
+		return false
 	}
 	d.log.Info("Got init chain request", "val", req)
 
@@ -121,7 +152,7 @@ func (d *Driver[T]) run(
 	)
 	if err != nil {
 		d.log.Warn("Failed to run appManager.InitGenesis", "appState", fmt.Sprintf("%q", appState), "err", err)
-		return
+		return false
 	}
 
 	d.log.Info("App response for init chain", "blockResp", blockResp)
@@ -164,7 +195,7 @@ func (d *Driver[T]) run(
 		"sending init chain response to Gordian",
 	) {
 		// If this failed it will have logged, so we can just return here.
-		return
+		return false
 	}
 
 	d.log.Info(
@@ -172,6 +203,101 @@ func (d *Driver[T]) run(
 		"n_vals", len(resp.Validators),
 		"app_state_hash", glog.Hex(resp.AppStateHash),
 	)
+
+	return true
+}
+
+func (d *Driver[T]) handleFinalizations(
+	ctx context.Context,
+	appManager *appmanager.AppManager[T],
+	s *root.Store,
+	finalizeBlockRequests <-chan tmdriver.FinalizeBlockRequest,
+) {
+	for {
+		fbReq, ok := gchan.RecvC(
+			ctx, d.log,
+			finalizeBlockRequests,
+			"receiving finalize block request from engine",
+		)
+		if !ok {
+			// Context was cancelled and we already logged, so we're done.
+			return
+		}
+
+		// TODO: the comet implementation does some validation and checking for halt height and time,
+		// which we are not yet doing.
+
+		// TODO: don't hardcode the initial height.
+		const initialHeight = 1
+		if fbReq.Block.Height == initialHeight {
+			appHash, err := s.Commit(store.NewChangeset())
+			if err != nil {
+				d.log.Warn("Failed to commit new changeset for initial height", "err", err)
+				return
+			}
+
+			resp := tmdriver.FinalizeBlockResponse{
+				Height:    fbReq.Block.Height,
+				Round:     fbReq.Round,
+				BlockHash: nil, // TODO
+
+				// At genesis, we don't have a block response
+				// from which to extract the next validators.
+				// By design, the validators at height 2 match height 1.
+				Validators:   fbReq.Block.NextValidators,
+				AppStateHash: appHash,
+			}
+			if !gchan.SendC(
+				ctx, d.log,
+				fbReq.Resp, resp,
+				"sending finalize block response back to engine",
+			) {
+				// Context was cancelled and we already logged, so we're done.
+				return
+			}
+
+			continue
+		}
+
+		// TODO: we would decode transactions here.
+
+		cID, err := s.LastCommitID()
+		if err != nil {
+			d.log.Warn(
+				"Failed to get last commit ID prior to handling finalization request",
+				"err", err,
+			)
+			return
+		}
+
+		blockReq := &coreappmgr.BlockRequest[T]{
+			Height: fbReq.Block.Height,
+
+			// TODO: we probably need to pack time into the proposal fields.
+			Time: time.Now(),
+
+			Hash:    fbReq.Block.Hash,
+			AppHash: cID.Hash,
+			ChainId: "???", // TODO: the chain ID needs to be threaded here properly.
+			Txs:     nil,   // TODO: use decoded transactions here.
+		}
+
+		resp, newState, err := appManager.DeliverBlock(ctx, blockReq)
+		if err != nil {
+			d.log.Warn(
+				"Failed to deliver block",
+				"err", err,
+			)
+			return
+		}
+
+		d.log.Info("Delivered block",
+			"resp", resp,
+			"newState", newState,
+		)
+
+		// There could be updated consensus params that we care about here.
+	}
 }
 
 func (d *Driver[T]) Wait() {

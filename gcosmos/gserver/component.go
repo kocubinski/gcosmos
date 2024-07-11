@@ -13,6 +13,7 @@ import (
 	"cosmossdk.io/core/transaction"
 	cosmoslog "cosmossdk.io/log"
 	serverv2 "cosmossdk.io/server/v2"
+	"cosmossdk.io/store/v2/root"
 	"github.com/cometbft/cometbft/privval"
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/libp2p/go-libp2p"
@@ -111,13 +112,21 @@ func (c *Component[T]) Start(ctx context.Context) error {
 	c.conn = conn
 
 	initChainCh := make(chan tmdriver.InitChainRequest)
+	blockFinCh := make(chan tmdriver.FinalizeBlockRequest)
 	d, err := gsi.NewDriver(
 		c.rootCtx,
 		ctx,
 		c.log.With("serversys", "driver"),
-		c.app.GetConsensusAuthority(),
-		c.app.GetAppManager(),
-		initChainCh,
+		gsi.DriverConfig[T]{
+			ConsensusAuthority: c.app.GetConsensusAuthority(),
+
+			AppManager: c.app.GetAppManager(),
+
+			Store: c.app.GetStore().(*root.Store),
+
+			InitChainRequests:     initChainCh,
+			FinalizeBlockRequests: blockFinCh,
+		},
 	)
 	if err != nil {
 		return fmt.Errorf("failed to create driver: %w", err)
@@ -129,8 +138,12 @@ func (c *Component[T]) Start(ctx context.Context) error {
 
 	// Extra options that we couldn't set earlier for whatever reason:
 
+	opts = append(opts, tmengine.WithBlockFinalizationChannel(blockFinCh))
+
 	// We needed the driver before we could make the consensus strategy.
-	opts = append(opts, tmengine.WithConsensusStrategy(gsi.NewConsensusStrategy(d)))
+	opts = append(opts, tmengine.WithConsensusStrategy(
+		gsi.NewConsensusStrategy(c.log.With("serversys", "cons_strat"), d),
+	))
 
 	// Depends on conn.
 	gs := tmgossip.NewChattyStrategy(ctx, c.log.With("sys", "chattygossip"), conn)
@@ -142,10 +155,6 @@ func (c *Component[T]) Start(ctx context.Context) error {
 	// Could be sooner but it's easier to just take this context late here.
 	wd, wdCtx := gwatchdog.NewWatchdog(c.rootCtx, c.log.With("sys", "watchdog"))
 	opts = append(opts, tmengine.WithWatchdog(wd))
-
-	// TODO: the block finalization channel needs to be exposed somewhere.
-	blockFinCh := make(chan tmdriver.FinalizeBlockRequest)
-	opts = append(opts, tmengine.WithBlockFinalizationChannel(blockFinCh))
 
 	// The timeout strategy pairs with a context,
 	// so it makes sense to delay this until we have a watchdog context available.
