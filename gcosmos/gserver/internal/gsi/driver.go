@@ -8,6 +8,8 @@ import (
 	"time"
 
 	coreappmgr "cosmossdk.io/core/app"
+	corecomet "cosmossdk.io/core/comet"
+	corecontext "cosmossdk.io/core/context"
 	"cosmossdk.io/core/store"
 	"cosmossdk.io/core/transaction"
 	"cosmossdk.io/server/v2/appmanager"
@@ -157,13 +159,11 @@ func (d *Driver[T]) handleInitialization(
 		return false
 	}
 
-	d.log.Info("App response for init chain", "blockResp", blockResp)
 	for i, res := range blockResp.TxResults {
 		if res.Error != nil {
 			d.log.Info("Error in blockResp", "i", i, "err", res.Error)
 		}
 	}
-	d.log.Info("Genesis state from init chain", "genesisState", genesisState)
 
 	// SetInitialVersion followed by WorkingHash,
 	// and passing that hash as the initial app state hash,
@@ -304,7 +304,15 @@ func (d *Driver[T]) handleFinalizations(
 			Txs:     nil,   // TODO: use decoded transactions here.
 		}
 
-		resp, newState, err := appManager.DeliverBlock(ctx, blockReq)
+		// The app manager requires that comet info is set on its context
+		// when dealing with a delivered block.
+		ctx = context.WithValue(ctx, corecontext.CometInfoKey, corecomet.Info{
+			// TODO: surely some of these fields will need to be populated.
+		})
+
+		// The discarded response value appears to include events
+		// which we are not yet using.
+		_, newState, err := appManager.DeliverBlock(ctx, blockReq)
 		if err != nil {
 			d.log.Warn(
 				"Failed to deliver block",
@@ -314,12 +322,39 @@ func (d *Driver[T]) handleFinalizations(
 			return
 		}
 
-		d.log.Info("Delivered block",
-			"resp", resp,
-			"newState", newState,
-		)
+		stateChanges, err := newState.GetStateChanges()
+		if err != nil {
+			d.log.Warn("Failed to get state changes", "err", err)
+			return
+		}
+		appHash, err := s.Commit(&store.Changeset{Changes: stateChanges})
+		if err != nil {
+			d.log.Warn("Failed to commit state changes", "err", err)
+			return
+		}
+		d.log.Info("Committed change to root store", "height", fbReq.Block.Height, "apphash", glog.Hex(appHash))
 
-		// There could be updated consensus params that we care about here.
+		// TODO: There could be updated consensus params that we care about here.
+
+		fbResp := tmdriver.FinalizeBlockResponse{
+			Height:    fbReq.Block.Height,
+			Round:     fbReq.Round,
+			BlockHash: fbReq.Block.Hash,
+
+			// TODO: this should take into account the response we discarded from DeliverBlock
+			// and apply it to the current validators.
+			Validators: fbReq.Block.NextValidators,
+
+			AppStateHash: appHash,
+		}
+		if !gchan.SendC(
+			ctx, d.log,
+			fbReq.Resp, fbResp,
+			"sending finalize block response back to engine",
+		) {
+			// Context was cancelled and we already logged, so we're done.
+			return
+		}
 	}
 }
 
