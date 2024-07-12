@@ -85,6 +85,7 @@ func (d *Driver[T]) run(
 		ag,
 		cfg.ConsensusAuthority,
 		cfg.AppManager,
+		cfg.Store,
 		txConfig,
 		cfg.InitChainRequests,
 	) {
@@ -99,6 +100,7 @@ func (d *Driver[T]) handleInitialization(
 	ag *genutiltypes.AppGenesis,
 	consensusAuthority string,
 	appManager *appmanager.AppManager[T],
+	s *root.Store,
 	txConfig client.TxConfig,
 	initChainCh <-chan tmdriver.InitChainRequest,
 ) bool {
@@ -163,6 +165,27 @@ func (d *Driver[T]) handleInitialization(
 	}
 	d.log.Info("Genesis state from init chain", "genesisState", genesisState)
 
+	// SetInitialVersion followed by WorkingHash,
+	// and passing that hash as the initial app state hash,
+	// is what the comet server code does.
+	if err := s.SetInitialVersion(req.Genesis.InitialHeight); err != nil {
+		d.log.Warn("Failed to set initial version", "err", err)
+		return false
+	}
+
+	stateChanges, err := genesisState.GetStateChanges()
+	if err != nil {
+		d.log.Warn("Failed to set get state changes from genesis state", "err", err)
+		return false
+	}
+	stateRoot, err := s.WorkingHash(&store.Changeset{
+		Changes: stateChanges,
+	})
+	if err != nil {
+		d.log.Warn("Failed to get working hash from changeset", "err", err)
+		return false
+	}
+
 	gVals := make([]tmconsensus.Validator, len(blockResp.ValidatorUpdates))
 	for i, vu := range blockResp.ValidatorUpdates {
 		if vu.PubKeyType != "ed25519" {
@@ -184,8 +207,7 @@ func (d *Driver[T]) handleInitialization(
 	}
 
 	resp := tmdriver.InitChainResponse{
-		// Assuming this is correct for AppStateHash but not really sure yet.
-		AppStateHash: blockResp.Apphash,
+		AppStateHash: stateRoot,
 
 		Validators: gVals,
 	}
@@ -286,6 +308,7 @@ func (d *Driver[T]) handleFinalizations(
 		if err != nil {
 			d.log.Warn(
 				"Failed to deliver block",
+				"height", blockReq.Height,
 				"err", err,
 			)
 			return
