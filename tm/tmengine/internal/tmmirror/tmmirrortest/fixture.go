@@ -12,6 +12,7 @@ import (
 	"github.com/rollchains/gordian/tm/tmconsensus"
 	"github.com/rollchains/gordian/tm/tmconsensus/tmconsensustest"
 	"github.com/rollchains/gordian/tm/tmengine/internal/tmeil"
+	"github.com/rollchains/gordian/tm/tmengine/internal/tmemetrics"
 	"github.com/rollchains/gordian/tm/tmengine/internal/tmmirror"
 	"github.com/rollchains/gordian/tm/tmengine/tmelink"
 	"github.com/rollchains/gordian/tm/tmengine/tmelink/tmelinktest"
@@ -102,12 +103,32 @@ func (f *Fixture) NewMirror() *tmmirror.Mirror {
 	return m
 }
 
-func (f *Fixture) Store() tmstore.MirrorStore {
-	return f.Cfg.Store
+func (f *Fixture) Store() *tmmemstore.MirrorStore {
+	return f.Cfg.Store.(*tmmemstore.MirrorStore)
 }
 
 func (f *Fixture) ValidatorStore() tmstore.ValidatorStore {
 	return f.Cfg.ValidatorStore
+}
+
+func (f *Fixture) UseMetrics(t *testing.T, ctx context.Context) <-chan tmemetrics.Metrics {
+	if f.Cfg.MetricsCollector != nil {
+		panic("UseMetrics called when f.Cfg.MetricsCollector was not nil")
+	}
+
+	ch := make(chan tmemetrics.Metrics)
+	mc := tmemetrics.NewCollector(ctx, 4, ch)
+	f.Cfg.MetricsCollector = mc
+
+	// The one tricky part: the collector will not report any metrics
+	// before both the state machine and the mirror have reported once.
+	// So, since this is a mirror fixture and we presumably will not
+	// have any state machine involvement,
+	// just report a zero state machine metric.
+	mc.UpdateStateMachine(tmemetrics.StateMachineMetrics{})
+
+	t.Cleanup(mc.Wait)
+	return ch
 }
 
 // CommitInitialHeight updates the round store, the network store,

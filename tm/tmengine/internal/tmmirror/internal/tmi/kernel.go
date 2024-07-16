@@ -45,7 +45,6 @@ type Kernel struct {
 
 	stateMachineRoundEntranceIn <-chan tmeil.StateMachineRoundEntrance
 
-	nhrRequests        <-chan chan NetworkHeightRound
 	snapshotRequests   <-chan SnapshotRequest
 	viewLookupRequests <-chan ViewLookupRequest
 	pbCheckRequests    <-chan PBCheckRequest
@@ -143,7 +142,6 @@ func NewKernel(ctx context.Context, log *slog.Logger, cfg KernelConfig) (*Kernel
 
 		stateMachineRoundEntranceIn: cfg.StateMachineRoundEntranceIn,
 
-		nhrRequests:        cfg.NHRRequests,
 		snapshotRequests:   cfg.SnapshotRequests,
 		viewLookupRequests: cfg.ViewLookupRequests,
 		pbCheckRequests:    cfg.PBCheckRequests,
@@ -194,7 +192,9 @@ func NewKernel(ctx context.Context, log *slog.Logger, cfg KernelConfig) (*Kernel
 		return nil, err
 	}
 
-	k.updateMetrics(&initState)
+	if err := k.updateObservers(ctx, &initState); err != nil {
+		return nil, err
+	}
 
 	go k.mainLoop(ctx, &initState, cfg.Watchdog)
 
@@ -257,17 +257,6 @@ func (k *Kernel) mainLoop(ctx context.Context, s *kState, wd *gwatchdog.Watchdog
 				"state_machine_round", s.StateMachineViewManager.R(),
 			)
 			return
-
-		case ch := <-k.nhrRequests:
-			// The incoming channel is always 1-buffered, originating from m.NetworkHeightRound(),
-			// so we don't have to select against context.
-			ch <- NetworkHeightRound{
-				VotingHeight: s.Voting.Height,
-				VotingRound:  s.Voting.Round,
-
-				CommittingHeight: s.Committing.Height,
-				CommittingRound:  s.Committing.Round,
-			}
 
 		case req := <-k.snapshotRequests:
 			k.sendSnapshotResponse(ctx, s, req)
@@ -653,7 +642,7 @@ func (k *Kernel) checkVotingPrecommitViewShift(ctx context.Context, s *kState) e
 		// then we know it doesn't matter where the remaining 5% land --
 		// it will not influence a block to be committed.
 		if vs.TotalPrecommitPower == vs.AvailablePower {
-			if err := k.advanceVotingRound(s); err != nil { // Certain due to 100% precommits present.
+			if err := k.advanceVotingRound(ctx, s); err != nil { // Certain due to 100% precommits present.
 				return err
 			}
 
@@ -671,7 +660,7 @@ func (k *Kernel) checkVotingPrecommitViewShift(ctx context.Context, s *kState) e
 	// At this point, we know the most voted precommit hash has exceeded the majority requirement.
 	if committingHash == "" {
 		// Voted nil, so only update the voting round.
-		if err := k.advanceVotingRound(s); err != nil { // Certain because full nil precommit.
+		if err := k.advanceVotingRound(ctx, s); err != nil { // Certain because full nil precommit.
 			return err
 		}
 
@@ -768,7 +757,9 @@ func (k *Kernel) checkVotingPrecommitViewShift(ctx context.Context, s *kState) e
 	nhd.VotedBlock = votedBlock
 
 	s.ShiftVotingToCommitting(nhd)
-	k.updateMetrics(s)
+	if err := k.updateObservers(ctx, s); err != nil {
+		return err
+	}
 
 	k.log.Info(
 		"Committed block",
@@ -798,7 +789,7 @@ func (k *Kernel) checkNextRoundPrecommitViewShift(ctx context.Context, s *kState
 	// so we need to jump voting to that round.
 	// This is a jump, not advance, because we actually don't have
 	// sufficient information to treat the current round as a nil commit.
-	if err := k.jumpVotingRound(s); err != nil {
+	if err := k.jumpVotingRound(ctx, s); err != nil {
 		return err
 	}
 
@@ -851,7 +842,7 @@ func (k *Kernel) checkPrevoteViewShift(ctx context.Context, s *kState, vID ViewI
 	// so we need to jump voting to that round.
 	// This is a jump, not advance, because we actually don't have
 	// sufficient information to treat the current round as a nil commit.
-	if err := k.jumpVotingRound(s); err != nil {
+	if err := k.jumpVotingRound(ctx, s); err != nil {
 		return err
 	}
 
@@ -974,7 +965,7 @@ func (k *Kernel) checkMissingPBs(ctx context.Context, s *kState, proofs map[stri
 
 // advanceVotingRound is called when the kernel needs to increase the voting round by one,
 // and when we have sufficient information for the voting round to treat it as a nil commit.
-func (k *Kernel) advanceVotingRound(s *kState) error {
+func (k *Kernel) advanceVotingRound(ctx context.Context, s *kState) error {
 	h := s.NextRound.Height
 	r := s.NextRound.Round + 1
 	nilPrevote, nilPrecommit, err := k.getInitialNilProofs(h, r, s.NextRound.Validators)
@@ -986,7 +977,9 @@ func (k *Kernel) advanceVotingRound(s *kState) error {
 	}
 
 	s.AdvanceVotingRound(nilPrevote, nilPrecommit)
-	k.updateMetrics(s)
+	if err := k.updateObservers(ctx, s); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -994,7 +987,7 @@ func (k *Kernel) advanceVotingRound(s *kState) error {
 // but this is due to timing without receiving a majority nil vote on the round.
 // Compared to [*Kernel.advanceVotingRound], this sends more information to the state machine
 // indicating the kernel's intent to skip the round.
-func (k *Kernel) jumpVotingRound(s *kState) error {
+func (k *Kernel) jumpVotingRound(ctx context.Context, s *kState) error {
 	h := s.NextRound.Height
 	r := s.NextRound.Round + 1
 	nilPrevote, nilPrecommit, err := k.getInitialNilProofs(h, r, s.NextRound.Validators)
@@ -1006,7 +999,10 @@ func (k *Kernel) jumpVotingRound(s *kState) error {
 	}
 
 	s.JumpVotingRound(nilPrevote, nilPrecommit)
-	k.updateMetrics(s)
+	if err := k.updateObservers(ctx, s); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -1653,13 +1649,26 @@ func (k *Kernel) loadInitialVotingView(ctx context.Context, s *kState) error {
 	return nil
 }
 
-func (k *Kernel) updateMetrics(s *kState) {
+// updateObservers records the new voting and committing heights and rounds,
+// to the Mirror store and to the metrics collector.
+func (k *Kernel) updateObservers(ctx context.Context, s *kState) error {
+	if err := k.store.SetNetworkHeightRound(
+		ctx,
+		s.Voting.Height, s.Voting.Round,
+		s.Committing.Height, s.Committing.Round,
+	); err != nil {
+		return fmt.Errorf("failed to update mirror store with new heights and rounds: %w", err)
+	}
+
+	// This should only be nil in test.
 	if k.mc == nil {
-		return
+		return nil
 	}
 
 	k.mc.UpdateMirror(tmemetrics.MirrorMetrics{
 		VH: s.Voting.Height, VR: s.Voting.Round,
 		CH: s.Committing.Height, CR: s.Committing.Round,
 	})
+
+	return nil
 }

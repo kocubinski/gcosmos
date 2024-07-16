@@ -65,12 +65,7 @@ func TestMirror_Initialization(t *testing.T) {
 					CommittingRound:  0,
 				}
 				// Reports the initial height.
-				nhr, err := m.NetworkHeightRound(ctx)
-				require.NoError(t, err)
-				require.Equal(t, wantNHR, nhr)
-
-				// And entered into the store too.
-				nhr, err = tmi.NetworkHeightRoundFromStore(mfx.Cfg.Store.NetworkHeightRound(ctx))
+				nhr, err := tmi.NetworkHeightRoundFromStore(mfx.Store().NetworkHeightRound(ctx))
 				require.NoError(t, err)
 				require.Equal(t, wantNHR, nhr)
 			})
@@ -109,12 +104,7 @@ func TestMirror_Initialization(t *testing.T) {
 		}
 
 		// Reports the initial height.
-		nhr, err := m.NetworkHeightRound(ctx)
-		require.NoError(t, err)
-		require.Equal(t, wantNHR, nhr)
-
-		// And entered into the store too.
-		nhr, err = tmi.NetworkHeightRoundFromStore(mfx.Cfg.Store.NetworkHeightRound(ctx))
+		nhr, err := tmi.NetworkHeightRoundFromStore(mfx.Store().NetworkHeightRound(ctx))
 		require.NoError(t, err)
 		require.Equal(t, wantNHR, nhr)
 	})
@@ -952,6 +942,7 @@ func TestMirror_FullRound(t *testing.T) {
 			defer cancel()
 
 			mfx := tmmirrortest.NewFixture(ctx, t, 4)
+			mCh := mfx.UseMetrics(t, ctx)
 
 			m := mfx.NewMirror()
 			defer m.Wait()
@@ -982,6 +973,9 @@ func TestMirror_FullRound(t *testing.T) {
 
 			require.Equal(t, tmconsensus.HandleVoteProofsAccepted, m.HandlePrecommitProofs(ctx, firstPrecommitProof))
 
+			// Drain the metrics before handling the precommit proofs.
+			_ = gtest.ReceiveSoon(t, mCh)
+
 			// Then the other half.
 			voteMapSecond := map[string][]int{
 				targetHash: {2, 3},
@@ -995,9 +989,12 @@ func TestMirror_FullRound(t *testing.T) {
 			}
 			require.Equal(t, tmconsensus.HandleVoteProofsAccepted, m.HandlePrecommitProofs(ctx, secondPrecommitProof))
 
+			// Synchronize on the metrics update so the store read succeeds immediately.
+			_ = gtest.ReceiveSoon(t, mCh)
+
 			// Now that we have 100% of precommits for 1/0,
 			// the NetworkHeightRound should be updated according to the test case.
-			nhr, err := m.NetworkHeightRound(ctx)
+			nhr, err := tmi.NetworkHeightRoundFromStore(mfx.Store().NetworkHeightRound(ctx))
 			require.NoError(t, err)
 			require.Equal(t, tc.wantNHR, nhr)
 		})
@@ -1019,7 +1016,7 @@ func TestMirror_pastInitialHeight(t *testing.T) {
 		defer m.Wait()
 		defer cancel()
 
-		nhr, err := m.NetworkHeightRound(ctx)
+		nhr, err := tmi.NetworkHeightRoundFromStore(mfx.Store().NetworkHeightRound(ctx))
 		require.NoError(t, err)
 
 		require.Equal(t, tmmirror.NetworkHeightRound{
@@ -1180,6 +1177,7 @@ func TestMirror_CommitToBlockStore(t *testing.T) {
 	defer cancel()
 
 	mfx := tmmirrortest.NewFixture(ctx, t, 4)
+	mCh := mfx.UseMetrics(t, ctx)
 
 	m := mfx.NewMirror()
 	defer m.Wait()
@@ -1219,6 +1217,9 @@ func TestMirror_CommitToBlockStore(t *testing.T) {
 
 	require.Equal(t, tmconsensus.HandleProposedBlockAccepted, m.HandleProposedBlock(ctx, pb2))
 
+	// Drain metrics.
+	_ = gtest.ReceiveSoon(t, mCh)
+
 	// Update the fixture for height 2.
 	voteMap2 := map[string][]int{
 		string(pb2.Block.Hash): {0, 1, 2, 3},
@@ -1235,6 +1236,9 @@ func TestMirror_CommitToBlockStore(t *testing.T) {
 		Proofs: mfx.Fx.SparsePrecommitProofMap(ctx, 2, 0, voteMap2),
 	}))
 
+	// Synchronize on metrics before inspecting the mirror store.
+	_ = gtest.ReceiveSoon(t, mCh)
+
 	// Now we are voting on height 3, and committing height 2.
 	wantNHR := tmmirror.NetworkHeightRound{
 		VotingHeight: 3,
@@ -1243,7 +1247,7 @@ func TestMirror_CommitToBlockStore(t *testing.T) {
 		CommittingHeight: 2,
 		CommittingRound:  0,
 	}
-	nhr, err := m.NetworkHeightRound(ctx)
+	nhr, err := tmi.NetworkHeightRoundFromStore(mfx.Store().NetworkHeightRound(ctx))
 	require.NoError(t, err)
 	require.Equal(t, wantNHR, nhr)
 
@@ -1265,10 +1269,14 @@ func TestMirror_nilPrecommitAdvancesRound(t *testing.T) {
 	defer cancel()
 
 	mfx := tmmirrortest.NewFixture(ctx, t, 4)
+	mCh := mfx.UseMetrics(t, ctx)
 
 	m := mfx.NewMirror()
 	defer m.Wait()
 	defer cancel()
+
+	// Drain the metrics before handling the precommit proofs.
+	_ = gtest.ReceiveSoon(t, mCh)
 
 	// See a full set of nil precommits at the first height and round.
 	voteMap1 := map[string][]int{
@@ -1284,6 +1292,9 @@ func TestMirror_nilPrecommitAdvancesRound(t *testing.T) {
 		Proofs: mfx.Fx.SparsePrecommitProofMap(ctx, 1, 0, voteMap1),
 	}))
 
+	// Synchronize on the metrics update so the store read succeeds immediately.
+	_ = gtest.ReceiveSoon(t, mCh)
+
 	// Voting round advances, committing height remains at zero.
 	wantNHR := tmmirror.NetworkHeightRound{
 		VotingHeight: 1,
@@ -1292,7 +1303,7 @@ func TestMirror_nilPrecommitAdvancesRound(t *testing.T) {
 		CommittingHeight: 0,
 		CommittingRound:  0,
 	}
-	nhr, err := m.NetworkHeightRound(ctx)
+	nhr, err := tmi.NetworkHeightRoundFromStore(mfx.Store().NetworkHeightRound(ctx))
 	require.NoError(t, err)
 	require.Equal(t, wantNHR, nhr)
 
@@ -1456,6 +1467,7 @@ func TestMirror_votesBeforeVotingRound(t *testing.T) {
 				defer cancel()
 
 				mfx := tmmirrortest.NewFixture(ctx, t, 2)
+				mCh := mfx.UseMetrics(t, ctx)
 
 				// Easy way to get voting height to 2.
 				mfx.CommitInitialHeight(ctx, []byte("app_state_1"), 0, []int{0, 1})
@@ -1469,6 +1481,9 @@ func TestMirror_votesBeforeVotingRound(t *testing.T) {
 				mfx.Fx.SignProposal(ctx, &pb2, 0)
 
 				require.Equal(t, tmconsensus.HandleProposedBlockAccepted, m.HandleProposedBlock(ctx, pb2))
+
+				// Drain the metrics before handling the precommit proofs.
+				_ = gtest.ReceiveSoon(t, mCh)
 
 				// Full precommit for pb2.
 				voteMap2 := map[string][]int{
@@ -1486,6 +1501,9 @@ func TestMirror_votesBeforeVotingRound(t *testing.T) {
 
 				wantVotingRound := uint32(0)
 				if viewStatus == tmi.ViewOrphaned {
+					// Drain the metrics again if necessary.
+					_ = gtest.ReceiveSoon(t, mCh)
+
 					// Need to advance the voting round by 1.
 					// Drain the voting output channel first.
 					voteMapNil3 := map[string][]int{
@@ -1503,8 +1521,11 @@ func TestMirror_votesBeforeVotingRound(t *testing.T) {
 					wantVotingRound = 1
 				}
 
+				// Synchronize on a metrics update before inspecting the store.
+				_ = gtest.ReceiveSoon(t, mCh)
+
 				// Now block 2 is in committing.
-				nhr, err := m.NetworkHeightRound(ctx)
+				nhr, err := tmi.NetworkHeightRoundFromStore(mfx.Store().NetworkHeightRound(ctx))
 				require.NoError(t, err)
 				require.Equal(t, tmmirror.NetworkHeightRound{
 					VotingHeight:     3,
