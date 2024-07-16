@@ -7,9 +7,13 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net/http"
+	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
+	"time"
 
 	"cosmossdk.io/core/transaction"
 	serverv2 "cosmossdk.io/server/v2"
@@ -20,6 +24,10 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/require"
 )
+
+// Cheap toggle at build time to quickly switch to running comet,
+// for cases where the difference in behavior needs to be inspected.
+const runCometInsteadOfGordian = false
 
 func TestRootCmd(t *testing.T) {
 	t.Parallel()
@@ -101,9 +109,78 @@ func TestRootCmd_startWithGordian(t *testing.T) {
 	// tracks why we cannot set grpc.enable=false.
 	rootCmds[0].Run("config", "set", "app", "grpc.address", "localhost:0", "--skip-validate").NoError(t)
 
-	// TODO: what can we assert after starting the server?
-	res := rootCmds[0].Run("start")
-	res.NoError(t)
+	var startCmd = []string{"start"}
+	var gHTTPAddrFile string
+	if !runCometInsteadOfGordian {
+		gHTTPAddrFile = filepath.Join(t.TempDir(), "http_addr.txt")
+		// Then include the HTTP server flags.
+		startCmd = append(
+			startCmd,
+			"--g-http-addr", "127.0.0.1:0",
+			"--g-http-addr-file", gHTTPAddrFile,
+		)
+	}
+
+	// TODO: we need a better way to synchronize the backgrounded start command.
+	// This will run at least until the end of the test.
+	// Just providing the context to a new RunC method may suffice here.
+	go func() {
+		_ = rootCmds[0].Run(startCmd...)
+	}()
+
+	// Get the HTTP address, which may require a few tries,
+	// depending on how quickly the start command begins.
+	if !runCometInsteadOfGordian {
+		// Gratuitously long deadline.
+		var httpAddr string
+		deadline := time.Now().Add(5 * time.Second)
+		for time.Now().Before(deadline) {
+			a, err := os.ReadFile(gHTTPAddrFile)
+			if err != nil {
+				// Swallow the error and delay.
+				time.Sleep(25 * time.Millisecond)
+				continue
+			}
+			if !bytes.HasSuffix(a, []byte("\n")) {
+				// Very unlikely incomplete write/read.
+				time.Sleep(25 * time.Millisecond)
+				continue
+			}
+
+			httpAddr = strings.TrimSuffix(string(a), "\n")
+			break
+		}
+
+		if httpAddr == "" {
+			t.Fatalf("did not read http address from %s in time", gHTTPAddrFile)
+		}
+
+		u := "http://" + httpAddr + "/blocks/watermark"
+		// TODO: we might need to delay until we get a non-error HTTP response.
+
+		deadline = time.Now().Add(10 * time.Second)
+		var maxHeight uint
+		for time.Now().Before(deadline) {
+			resp, err := http.Get(u)
+			require.NoError(t, err)
+			require.Equal(t, http.StatusOK, resp.StatusCode)
+
+			var m map[string]uint
+			require.NoError(t, json.NewDecoder(resp.Body).Decode(&m))
+			resp.Body.Close()
+
+			maxHeight = m["VotingHeight"]
+			if maxHeight < 3 {
+				time.Sleep(100 * time.Millisecond)
+				continue
+			}
+
+			// We got at least to height 3, so quit the loop.
+			break
+		}
+
+		require.GreaterOrEqual(t, maxHeight, uint(3))
+	}
 }
 
 func NewRootCmd(
@@ -132,9 +209,7 @@ func (e CmdEnv) RunWithInput(in io.Reader, args ...string) RunResult {
 
 	var cmd *cobra.Command
 
-	// Cheap toggle so I don't have to look up the command function every time
-	// I need to check the delta between the two.
-	const runCometInsteadOfGordian = false
+	// Compile-time flag declared near top of this file.
 	if runCometInsteadOfGordian {
 		cmd = simdcmd.NewRootCmd[serverv2.AppI[transaction.Tx], transaction.Tx]()
 	} else {

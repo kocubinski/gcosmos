@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -27,7 +28,9 @@ import (
 	"github.com/rollchains/gordian/tm/tmengine"
 	"github.com/rollchains/gordian/tm/tmgossip"
 	"github.com/rollchains/gordian/tm/tmp2p/tmlibp2p"
+	"github.com/rollchains/gordian/tm/tmstore"
 	"github.com/rollchains/gordian/tm/tmstore/tmmemstore"
+	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
 )
 
@@ -54,6 +57,10 @@ type Component[T transaction.Tx] struct {
 	conn   *tmlibp2p.Connection
 	e      *tmengine.Engine
 	driver *gsi.Driver[T]
+
+	httpLn     net.Listener
+	ms         tmstore.MirrorStore
+	httpServer *gsi.HTTPServer
 }
 
 // NewComponent returns a new server component
@@ -171,6 +178,13 @@ func (c *Component[T]) Start(ctx context.Context) error {
 		Handler: e,
 	})
 
+	if c.httpLn != nil {
+		c.httpServer = gsi.NewHTTPServer(ctx, c.log.With("sys", "http"), gsi.HTTPServerConfig{
+			Listener:    c.httpLn,
+			MirrorStore: c.ms,
+		})
+	}
+
 	return nil
 }
 
@@ -190,6 +204,14 @@ func (c *Component[T]) Stop(_ context.Context) error {
 			c.log.Warn("Error closing tmp2p host", "err", err)
 		}
 	}
+	if c.httpLn != nil {
+		if err := c.httpLn.Close(); err != nil {
+			c.log.Warn("Error closing HTTP listener", "err", err)
+		}
+		if c.httpServer != nil {
+			c.httpServer.Wait()
+		}
+	}
 	return nil
 }
 
@@ -200,6 +222,24 @@ func (c *Component[T]) Init(app serverv2.AppI[T], v *viper.Viper, log cosmoslog.
 			return errors.New("(*gserver.Component).Init: log must be set during gserver.NewServerModule, or Init log must be implemented by *slog.Logger")
 		}
 		c.log = l
+	}
+
+	// Maybe set up the HTTP server.
+	if httpAddr := v.GetString(httpAddrFlag); httpAddr != "" {
+		ln, err := net.Listen("tcp", httpAddr)
+		if err != nil {
+			return fmt.Errorf("failed to listen for HTTP on %q: %w", httpAddr, err)
+		}
+
+		if f := v.GetString(httpAddrFileFlag); f != "" {
+			// TODO: we should probably track this file and delete it on shutdown.
+			addr := ln.Addr().String() + "\n"
+			if err := os.WriteFile(f, []byte(addr), 0600); err != nil {
+				return fmt.Errorf("failed to write HTTP address to file %q: %w", f, err)
+			}
+		}
+
+		c.httpLn = ln
 	}
 
 	c.app = app
@@ -234,6 +274,8 @@ func (c *Component[T]) Init(app serverv2.AppI[T], v *viper.Viper, log cosmoslog.
 	rs := tmmemstore.NewRoundStore()
 	vs := tmmemstore.NewValidatorStore(tmconsensustest.SimpleHashScheme{})
 
+	c.ms = ms
+
 	const chainID = "TODO:TEMPORARY_CHAIN_ID" // TODO: need to get this from the SDK.
 
 	c.opts = []tmengine.Opt{
@@ -262,6 +304,20 @@ func (c *Component[T]) Init(app serverv2.AppI[T], v *viper.Viper, log cosmoslog.
 	}
 
 	return nil
+}
+
+const (
+	httpAddrFlag     = "g-http-addr"
+	httpAddrFileFlag = "g-http-addr-file"
+)
+
+func (c *Component[T]) StartCmdFlags() *pflag.FlagSet {
+	flags := pflag.NewFlagSet("gserver", pflag.ExitOnError)
+
+	flags.String(httpAddrFlag, "", "TCP address of Gordian's introspective HTTP server; if blank, server will not be started")
+	flags.String(httpAddrFileFlag, "", "Write the actual Gordian HTTP listen address to the given file (useful for tests when configured to listen on :0)")
+
+	return flags
 }
 
 // WriteDefaultConfigAt satisfies an undocumented interface,

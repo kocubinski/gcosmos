@@ -22,7 +22,7 @@ type HTTPServerConfig struct {
 	MirrorStore tmstore.MirrorStore
 }
 
-func NewHTTPServer(ctx context.Context, log *slog.Logger, cfg HTTPServerConfig) (*HTTPServer, error) {
+func NewHTTPServer(ctx context.Context, log *slog.Logger, cfg HTTPServerConfig) *HTTPServer {
 	srv := &http.Server{
 		Handler: newMux(log, cfg),
 
@@ -37,7 +37,7 @@ func NewHTTPServer(ctx context.Context, log *slog.Logger, cfg HTTPServerConfig) 
 	go h.serve(log, cfg.Listener, srv)
 	go h.waitForShutdown(ctx, srv)
 
-	return h, nil
+	return h
 }
 
 func (h *HTTPServer) Wait() {
