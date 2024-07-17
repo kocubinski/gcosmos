@@ -11,8 +11,10 @@ import (
 
 	coreappmgr "cosmossdk.io/core/app"
 	"cosmossdk.io/core/transaction"
+	serverv2 "cosmossdk.io/server/v2"
 	"cosmossdk.io/server/v2/appmanager"
 	"cosmossdk.io/simapp/v2"
+	simdcmd "cosmossdk.io/simapp/v2/simdv2/cmd"
 	stakingtypes "cosmossdk.io/x/staking/types"
 	"github.com/cosmos/cosmos-sdk/client"
 	ced25519 "github.com/cosmos/cosmos-sdk/crypto/keys/ed25519"
@@ -20,6 +22,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/server"
 	genutiltypes "github.com/cosmos/cosmos-sdk/x/genutil/types"
 	"github.com/libp2p/go-libp2p"
+	"github.com/rollchains/gordian/gcosmos/gserver"
 	"github.com/rollchains/gordian/gcrypto"
 	"github.com/rollchains/gordian/gwatchdog"
 	"github.com/rollchains/gordian/internal/gchan"
@@ -33,6 +36,18 @@ import (
 	"github.com/rollchains/gordian/tm/tmstore/tmmemstore"
 	"github.com/spf13/cobra"
 )
+
+// NewSimdRootCmdWithGordian calls a simdcmd function we have added
+// in order to get simd start to use Gordian instead of Comet.
+func NewSimdRootCmdWithGordian(lifeCtx context.Context, log *slog.Logger) *cobra.Command {
+	return simdcmd.NewRootCmdWithServer(func(cc client.Context) serverv2.ServerComponent[transaction.Tx] {
+		c, err := gserver.NewComponent[transaction.Tx](lifeCtx, log)
+		if err != nil {
+			panic(err)
+		}
+		return c
+	})
+}
 
 func StartGordianCommand() *cobra.Command {
 	cmd := &cobra.Command{

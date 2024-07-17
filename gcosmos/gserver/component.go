@@ -2,16 +2,25 @@ package gserver
 
 import (
 	"context"
+	"crypto/ed25519"
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"cosmossdk.io/core/transaction"
 	cosmoslog "cosmossdk.io/log"
 	serverv2 "cosmossdk.io/server/v2"
+	"cosmossdk.io/store/v2/root"
+	"github.com/cometbft/cometbft/privval"
+	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/libp2p/go-libp2p"
+	"github.com/rollchains/gordian/gcosmos/gserver/internal/gsi"
 	"github.com/rollchains/gordian/gcrypto"
+	"github.com/rollchains/gordian/gwatchdog"
 	"github.com/rollchains/gordian/tm/tmcodec/tmjson"
 	"github.com/rollchains/gordian/tm/tmconsensus"
 	"github.com/rollchains/gordian/tm/tmconsensus/tmconsensustest"
@@ -19,13 +28,15 @@ import (
 	"github.com/rollchains/gordian/tm/tmengine"
 	"github.com/rollchains/gordian/tm/tmgossip"
 	"github.com/rollchains/gordian/tm/tmp2p/tmlibp2p"
+	"github.com/rollchains/gordian/tm/tmstore"
 	"github.com/rollchains/gordian/tm/tmstore/tmmemstore"
+	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
 )
 
 // The various interfaces we expect a Component to satisfy.
 var (
-	_ serverv2.ServerComponent[serverv2.AppI[transaction.Tx], transaction.Tx] = (*Component[transaction.Tx])(nil)
+	_ serverv2.ServerComponent[transaction.Tx] = (*Component[transaction.Tx])(nil)
 )
 
 // Component is a server component to be injected into the Cosmos SDK server module.
@@ -45,7 +56,11 @@ type Component[T transaction.Tx] struct {
 	h      *tmlibp2p.Host
 	conn   *tmlibp2p.Connection
 	e      *tmengine.Engine
-	driver *driver[T]
+	driver *gsi.Driver[T]
+
+	httpLn     net.Listener
+	ms         tmstore.MirrorStore
+	httpServer *gsi.HTTPServer
 }
 
 // NewComponent returns a new server component
@@ -104,7 +119,22 @@ func (c *Component[T]) Start(ctx context.Context) error {
 	c.conn = conn
 
 	initChainCh := make(chan tmdriver.InitChainRequest)
-	d, err := newDriver(c.rootCtx, ctx, c.log.With("serversys", "driver"), c.app.GetAppManager(), initChainCh)
+	blockFinCh := make(chan tmdriver.FinalizeBlockRequest)
+	d, err := gsi.NewDriver(
+		c.rootCtx,
+		ctx,
+		c.log.With("serversys", "driver"),
+		gsi.DriverConfig[T]{
+			ConsensusAuthority: c.app.GetConsensusAuthority(),
+
+			AppManager: c.app.GetAppManager(),
+
+			Store: c.app.GetStore().(*root.Store),
+
+			InitChainRequests:     initChainCh,
+			FinalizeBlockRequests: blockFinCh,
+		},
+	)
 	if err != nil {
 		return fmt.Errorf("failed to create driver: %w", err)
 	}
@@ -115,6 +145,13 @@ func (c *Component[T]) Start(ctx context.Context) error {
 
 	// Extra options that we couldn't set earlier for whatever reason:
 
+	opts = append(opts, tmengine.WithBlockFinalizationChannel(blockFinCh))
+
+	// We needed the driver before we could make the consensus strategy.
+	opts = append(opts, tmengine.WithConsensusStrategy(
+		gsi.NewConsensusStrategy(c.log.With("serversys", "cons_strat"), d),
+	))
+
 	// Depends on conn.
 	gs := tmgossip.NewChattyStrategy(ctx, c.log.With("sys", "chattygossip"), conn)
 	opts = append(opts, tmengine.WithGossipStrategy(gs))
@@ -122,7 +159,15 @@ func (c *Component[T]) Start(ctx context.Context) error {
 	// No point in creating this channel before a call to Start.
 	opts = append(opts, tmengine.WithInitChainChannel(initChainCh))
 
-	e, err := tmengine.New(c.rootCtx, c.log.With("sys", "engine"), opts...)
+	// Could be sooner but it's easier to just take this context late here.
+	wd, wdCtx := gwatchdog.NewWatchdog(c.rootCtx, c.log.With("sys", "watchdog"))
+	opts = append(opts, tmengine.WithWatchdog(wd))
+
+	// The timeout strategy pairs with a context,
+	// so it makes sense to delay this until we have a watchdog context available.
+	opts = append(opts, tmengine.WithTimeoutStrategy(wdCtx, tmengine.LinearTimeoutStrategy{}))
+
+	e, err := tmengine.New(wdCtx, c.log.With("sys", "engine"), opts...)
 	if err != nil {
 		return fmt.Errorf("failed to start engine: %w", err)
 	}
@@ -132,6 +177,13 @@ func (c *Component[T]) Start(ctx context.Context) error {
 	conn.SetConsensusHandler(ctx, tmconsensus.AcceptAllValidFeedbackMapper{
 		Handler: e,
 	})
+
+	if c.httpLn != nil {
+		c.httpServer = gsi.NewHTTPServer(ctx, c.log.With("sys", "http"), gsi.HTTPServerConfig{
+			Listener:    c.httpLn,
+			MirrorStore: c.ms,
+		})
+	}
 
 	return nil
 }
@@ -152,6 +204,14 @@ func (c *Component[T]) Stop(_ context.Context) error {
 			c.log.Warn("Error closing tmp2p host", "err", err)
 		}
 	}
+	if c.httpLn != nil {
+		if err := c.httpLn.Close(); err != nil {
+			c.log.Warn("Error closing HTTP listener", "err", err)
+		}
+		if c.httpServer != nil {
+			c.httpServer.Wait()
+		}
+	}
 	return nil
 }
 
@@ -164,13 +224,44 @@ func (c *Component[T]) Init(app serverv2.AppI[T], v *viper.Viper, log cosmoslog.
 		c.log = l
 	}
 
+	// Maybe set up the HTTP server.
+	if httpAddr := v.GetString(httpAddrFlag); httpAddr != "" {
+		ln, err := net.Listen("tcp", httpAddr)
+		if err != nil {
+			return fmt.Errorf("failed to listen for HTTP on %q: %w", httpAddr, err)
+		}
+
+		if f := v.GetString(httpAddrFileFlag); f != "" {
+			// TODO: we should probably track this file and delete it on shutdown.
+			addr := ln.Addr().String() + "\n"
+			if err := os.WriteFile(f, []byte(addr), 0600); err != nil {
+				return fmt.Errorf("failed to write HTTP address to file %q: %w", f, err)
+			}
+		}
+
+		c.httpLn = ln
+	}
+
 	c.app = app
 
-	// Normally we would get some options from viper here.
-	// But in the immediate term we can keep the options hardcoded.
+	// Load the comet config, in order to read the privval key from disk.
+	// We don't really care about the state file,
+	// but we need to to call LoadFilePV,
+	// to get to the FilePVKey,
+	// which gives us the PrivKey.
+	cometConfig := client.GetConfigFromViper(v)
+	fpv := privval.LoadFilePV(cometConfig.PrivValidatorKeyFile(), cometConfig.PrivValidatorStateFile())
+	privKey := fpv.Key.PrivKey
+	if privKey.Type() != "ed25519" {
+		panic(fmt.Errorf(
+			"gcosmos only understands ed25519 signing keys; got %q",
+			privKey.Type(),
+		))
+	}
 
-	// TODO: determine signer somehow through the config.
 	var signer gcrypto.Signer
+	// TODO: we should allow a way to explicitly NOT provide a signer.
+	signer = gcrypto.NewEd25519Signer(ed25519.PrivateKey(privKey.Bytes()))
 
 	var as *tmmemstore.ActionStore
 	if signer != nil {
@@ -183,13 +274,13 @@ func (c *Component[T]) Init(app serverv2.AppI[T], v *viper.Viper, log cosmoslog.
 	rs := tmmemstore.NewRoundStore()
 	vs := tmmemstore.NewValidatorStore(tmconsensustest.SimpleHashScheme{})
 
-	const chainID = "TODO:TEMPORARY_CHAIN_ID" // Need to get this from the SDK.
+	c.ms = ms
 
-	// TODO: driver instantiation, and consensus strategy, would usually go here.
-	// Obviously the nop consensus strategy isn't very useful.
-	var cStrat tmconsensus.ConsensusStrategy = tmconsensustest.NopConsensusStrategy{}
+	const chainID = "TODO:TEMPORARY_CHAIN_ID" // TODO: need to get this from the SDK.
 
 	c.opts = []tmengine.Opt{
+		tmengine.WithSigner(signer),
+
 		tmengine.WithActionStore(as),
 		tmengine.WithBlockStore(bs),
 		tmengine.WithFinalizationStore(fs),
@@ -201,8 +292,6 @@ func (c *Component[T]) Init(app serverv2.AppI[T], v *viper.Viper, log cosmoslog.
 		tmengine.WithSignatureScheme(tmconsensustest.SimpleSignatureScheme{}),
 		tmengine.WithCommonMessageSignatureProofScheme(gcrypto.SimpleCommonMessageSignatureProofScheme),
 
-		tmengine.WithConsensusStrategy(cStrat),
-
 		tmengine.WithGenesis(&tmconsensus.ExternalGenesis{
 			ChainID:           chainID,
 			InitialHeight:     1,
@@ -212,10 +301,31 @@ func (c *Component[T]) Init(app serverv2.AppI[T], v *viper.Viper, log cosmoslog.
 
 		// NOTE: there are remaining required options that we shouldn't initialize here,
 		// but instead they will be added during the Start call.
-		// tmengine.WithGossipStrategy(gs): gs depends on a connection, which we should not create until Start.
-
-		// TODO: we are missing a bunch of options, deal with them later.
 	}
 
 	return nil
+}
+
+const (
+	httpAddrFlag     = "g-http-addr"
+	httpAddrFileFlag = "g-http-addr-file"
+)
+
+func (c *Component[T]) StartCmdFlags() *pflag.FlagSet {
+	flags := pflag.NewFlagSet("gserver", pflag.ExitOnError)
+
+	flags.String(httpAddrFlag, "", "TCP address of Gordian's introspective HTTP server; if blank, server will not be started")
+	flags.String(httpAddrFileFlag, "", "Write the actual Gordian HTTP listen address to the given file (useful for tests when configured to listen on :0)")
+
+	return flags
+}
+
+// WriteDefaultConfigAt satisfies an undocumented interface,
+// and here we emulate what Comet does in order to get past some error expecting this file to exist.
+func (c *Component[T]) WriteDefaultConfigAt(configPath string) error {
+	f, err := os.Create(filepath.Join(configPath, "config.toml"))
+	if err != nil {
+		return fmt.Errorf("could not create empty config file: %w", err)
+	}
+	return f.Close()
 }

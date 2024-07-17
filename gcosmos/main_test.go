@@ -3,20 +3,20 @@ package main_test
 import (
 	"bytes"
 	"context"
-	"fmt"
-	"io"
+	"encoding/json"
+	"net/http"
+	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
+	"time"
 
-	"cosmossdk.io/core/transaction"
-	serverv2 "cosmossdk.io/server/v2"
-	simdcmd "cosmossdk.io/simapp/v2/simdv2/cmd"
-	svrcmd "github.com/cosmos/cosmos-sdk/server/cmd"
-	"github.com/rollchains/gordian/gcosmos/internal/gci"
 	"github.com/stretchr/testify/require"
 )
+
+// Cheap toggle at build time to quickly switch to running comet,
+// for cases where the difference in behavior needs to be inspected.
+const runCometInsteadOfGordian = false
 
 func TestRootCmd(t *testing.T) {
 	t.Parallel()
@@ -26,111 +26,91 @@ func TestRootCmd(t *testing.T) {
 	e.Run("init", "defaultmoniker").NoError(t)
 }
 
-func TestRootCmd_checkGenesisValidators(t *testing.T) {
+func TestRootCmd_startWithGordian_singleValidator(t *testing.T) {
 	t.Parallel()
-
-	e := NewRootCmd(t)
-
-	// It would be nice to be able to use deterministic keys for these tests,
-	// but since the key subcommands use readers hanging off a "client context",
-	// it is surprisingly difficult to intercept that value at the right spot.
-	// Unfortunately, we can't simply set cmd.Input for this.
-	const nVals = 4
-	for i := range nVals {
-		e.Run("keys", "add", fmt.Sprintf("val%d", i)).NoError(t)
-	}
-
-	e.Run("init", "testmoniker", "--chain-id", t.Name()).NoError(t)
-
-	for i := range nVals {
-		e.Run(
-			"genesis", "add-genesis-account",
-			fmt.Sprintf("val%d", i), "100stake",
-		).NoError(t)
-	}
-
-	gentxDir := t.TempDir()
-
-	for i := range nVals {
-		vs := fmt.Sprintf("val%d", i)
-		e.Run(
-			"genesis", "gentx",
-			"--chain-id", t.Name(),
-			"--output-document", filepath.Join(gentxDir, vs+".gentx.json"),
-			vs, "100stake",
-		).NoError(t)
-	}
-
-	e.Run(
-		"genesis", "collect-gentxs", "--gentx-dir", gentxDir,
-	).NoError(t)
-
-	res := e.Run("gstart")
-	res.NoError(t)
-
-	pubkeys := 0
-	for _, line := range strings.Split(res.Stdout.String(), "\n") {
-		if strings.Contains(line, "pubkey") {
-			pubkeys++
-		}
-	}
-	require.Equal(t, nVals, pubkeys)
-}
-
-func NewRootCmd(
-	t *testing.T,
-) CmdEnv {
-	t.Helper()
-
-	return CmdEnv{homeDir: t.TempDir()}
-}
-
-type CmdEnv struct {
-	homeDir string
-}
-
-func (e CmdEnv) Run(args ...string) RunResult {
-	return e.RunWithInput(nil, args...)
-}
-
-func (e CmdEnv) RunWithInput(in io.Reader, args ...string) RunResult {
-	cmd := simdcmd.NewRootCmd[serverv2.AppI[transaction.Tx], transaction.Tx]()
-	cmd.AddCommand(gci.StartGordianCommand())
-	cmd.AddCommand(gci.CheckGenesisValidatorsCommand())
-
-	// Just add the home flag directly instead of
-	// relying on the comet CLI integration in the SDK.
-	// Might be brittle, but should also be a little simpler.
-	cmd.PersistentFlags().StringP("home", "", e.homeDir, "default test dir home, do not change")
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	ctx = svrcmd.CreateExecuteContext(ctx)
+	c := ConfigureChain(t, ctx, ChainConfig{
+		ID:    t.Name(),
+		NVals: 1,
+	})
 
-	// Putting --home before the args would probably work,
-	// but put --home at the end to be a little more sure
-	// that it won't get ignored due to being parsed before the subcommand name.
-	args = append(slices.Clone(args), "--home", e.homeDir)
-	cmd.SetArgs(args)
+	var startCmd = []string{"start"}
+	var gHTTPAddrFile string
+	if !runCometInsteadOfGordian {
+		gHTTPAddrFile = filepath.Join(t.TempDir(), "http_addr.txt")
+		// Then include the HTTP server flags.
+		startCmd = append(
+			startCmd,
+			"--g-http-addr", "127.0.0.1:0",
+			"--g-http-addr-file", gHTTPAddrFile,
+		)
+	}
 
-	var res RunResult
-	cmd.SetOut(&res.Stdout)
-	cmd.SetErr(&res.Stderr)
-	cmd.SetIn(in)
+	// Ensure the start command has fully completed by the end of the test.
+	startDone := make(chan struct{})
+	go func() {
+		defer close(startDone)
+		_ = c.RootCmds[0].RunC(ctx, startCmd...)
+	}()
+	defer func() {
+		<-startDone
+	}()
+	defer cancel()
 
-	res.Err = cmd.ExecuteContext(ctx)
+	// Get the HTTP address, which may require a few tries,
+	// depending on how quickly the start command begins.
+	if !runCometInsteadOfGordian {
+		// Gratuitously long deadline.
+		var httpAddr string
+		deadline := time.Now().Add(5 * time.Second)
+		for time.Now().Before(deadline) {
+			a, err := os.ReadFile(gHTTPAddrFile)
+			if err != nil {
+				// Swallow the error and delay.
+				time.Sleep(25 * time.Millisecond)
+				continue
+			}
+			if !bytes.HasSuffix(a, []byte("\n")) {
+				// Very unlikely incomplete write/read.
+				time.Sleep(25 * time.Millisecond)
+				continue
+			}
 
-	return res
-}
+			httpAddr = strings.TrimSuffix(string(a), "\n")
+			break
+		}
 
-type RunResult struct {
-	Stdout, Stderr bytes.Buffer
-	Err            error
-}
+		if httpAddr == "" {
+			t.Fatalf("did not read http address from %s in time", gHTTPAddrFile)
+		}
 
-func (r RunResult) NoError(t *testing.T) {
-	t.Helper()
+		u := "http://" + httpAddr + "/blocks/watermark"
+		// TODO: we might need to delay until we get a non-error HTTP response.
 
-	require.NoErrorf(t, r.Err, "OUT: %s\n\nERR: %s", r.Stdout.String(), r.Stderr.String())
+		deadline = time.Now().Add(10 * time.Second)
+		var maxHeight uint
+		for time.Now().Before(deadline) {
+			resp, err := http.Get(u)
+			require.NoError(t, err)
+			require.Equal(t, http.StatusOK, resp.StatusCode)
+
+			var m map[string]uint
+			require.NoError(t, json.NewDecoder(resp.Body).Decode(&m))
+			resp.Body.Close()
+
+			maxHeight = m["VotingHeight"]
+			if maxHeight < 3 {
+				time.Sleep(100 * time.Millisecond)
+				continue
+			}
+
+			// We got at least to height 3, so quit the loop.
+			break
+		}
+
+		require.GreaterOrEqual(t, maxHeight, uint(3))
+	}
 }

@@ -38,3 +38,6 @@ fi
 
 git fetch -p
 git checkout "$(sed '/#/d' "${VENDOR_DIR}/COSMOS_SDK.commit")"
+
+# TODO: gracefully handle when there are no files in the patches directory.
+git am ../patches/*.patch
