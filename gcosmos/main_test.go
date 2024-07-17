@@ -16,7 +16,6 @@ import (
 	"time"
 
 	"cosmossdk.io/core/transaction"
-	serverv2 "cosmossdk.io/server/v2"
 	simdcmd "cosmossdk.io/simapp/v2/simdv2/cmd"
 	svrcmd "github.com/cosmos/cosmos-sdk/server/cmd"
 	"github.com/rollchains/gordian/gcosmos/internal/gci"
@@ -211,7 +210,7 @@ func (e CmdEnv) RunWithInput(in io.Reader, args ...string) RunResult {
 
 	// Compile-time flag declared near top of this file.
 	if runCometInsteadOfGordian {
-		cmd = simdcmd.NewRootCmd[serverv2.AppI[transaction.Tx], transaction.Tx]()
+		cmd = simdcmd.NewRootCmd[transaction.Tx]()
 	} else {
 		cmd = gci.NewSimdRootCmdWithGordian(ctx, e.log)
 	}

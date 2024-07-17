@@ -1,16 +1,16 @@
-From ca96472c2b5b20454bdb39fff504fecef409f4fc Mon Sep 17 00:00:00 2001
+From 7068f3ab103461257917b24d27f3c92fc81dc007 Mon Sep 17 00:00:00 2001
 From: Mark Rushakoff <mark@strange.love>
-Date: Mon, 8 Jul 2024 16:12:39 -0400
+Date: Wed, 17 Jul 2024 10:03:22 -0400
 Subject: [PATCH] chore: allow injecting a server component into simd root
  command
 
 ---
  simapp/v2/simdv2/cmd/commands.go |  8 ++++----
- simapp/v2/simdv2/cmd/root_di.go  | 20 +++++++++++++++++++-
- 2 files changed, 23 insertions(+), 5 deletions(-)
+ simapp/v2/simdv2/cmd/root_di.go  | 21 ++++++++++++++++++++-
+ 2 files changed, 24 insertions(+), 5 deletions(-)
 
 diff --git a/simapp/v2/simdv2/cmd/commands.go b/simapp/v2/simdv2/cmd/commands.go
-index 017f601605..05b9c30ade 100644
+index 8f2edc75b8..ab9e605815 100644
 --- a/simapp/v2/simdv2/cmd/commands.go
 +++ b/simapp/v2/simdv2/cmd/commands.go
 @@ -15,7 +15,6 @@ import (
@@ -21,18 +21,18 @@ index 017f601605..05b9c30ade 100644
  	"cosmossdk.io/simapp/v2"
  	confixcmd "cosmossdk.io/tools/confix/cmd"
  	authcmd "cosmossdk.io/x/auth/client/cli"
-@@ -80,8 +79,9 @@ func newApp[AppT serverv2.AppI[T], T transaction.Tx](
+@@ -80,8 +79,9 @@ func newApp[T transaction.Tx](
 
- func initRootCmd[AppT serverv2.AppI[T], T transaction.Tx](
+ func initRootCmd[T transaction.Tx](
  	rootCmd *cobra.Command,
 -	txConfig client.TxConfig,
 +	clientCtx client.Context,
  	moduleManager *runtimev2.MM[T],
-+	makeComponent func(cc client.Context) serverv2.ServerComponent[AppT, T],
++	makeComponent func(cc client.Context) serverv2.ServerComponent[T],
  ) {
  	cfg := sdk.GetConfig()
  	cfg.Seal()
-@@ -102,7 +102,7 @@ func initRootCmd[AppT serverv2.AppI[T], T transaction.Tx](
+@@ -102,7 +102,7 @@ func initRootCmd[T transaction.Tx](
 
  	// add keybase, auxiliary RPC, query, genesis, and tx child commands
  	rootCmd.AddCommand(
@@ -41,59 +41,60 @@ index 017f601605..05b9c30ade 100644
  		queryCommand(),
  		txCommand(),
  		keys.Commands(),
-@@ -114,7 +114,7 @@ func initRootCmd[AppT serverv2.AppI[T], T transaction.Tx](
+@@ -114,7 +114,7 @@ func initRootCmd[T transaction.Tx](
  		rootCmd,
  		newApp,
  		logger,
--		cometbft.New[AppT, T](&temporaryTxDecoder[T]{txConfig}, cometbft.DefaultServerOptions[T]()),
+-		cometbft.New[T](&temporaryTxDecoder[T]{txConfig}, cometbft.DefaultServerOptions[T]()),
 +		makeComponent(clientCtx),
- 		grpc.New[AppT, T](),
+ 		grpc.New[T](),
  	); err != nil {
  		panic(err)
 diff --git a/simapp/v2/simdv2/cmd/root_di.go b/simapp/v2/simdv2/cmd/root_di.go
-index 61c3551803..c6b9c1a675 100644
+index 6051bede8e..ad0e5502ec 100644
 --- a/simapp/v2/simdv2/cmd/root_di.go
 +++ b/simapp/v2/simdv2/cmd/root_di.go
-@@ -13,6 +13,7 @@ import (
+@@ -12,6 +12,8 @@ import (
+ 	"cosmossdk.io/depinject"
  	"cosmossdk.io/log"
  	"cosmossdk.io/runtime/v2"
- 	serverv2 "cosmossdk.io/server/v2"
++	serverv2 "cosmossdk.io/server/v2"
 +	"cosmossdk.io/server/v2/cometbft"
  	"cosmossdk.io/simapp/v2"
  	"cosmossdk.io/x/auth/tx"
  	authtxconfig "cosmossdk.io/x/auth/tx/config"
-@@ -25,8 +26,25 @@ import (
+@@ -24,8 +26,25 @@ import (
  	"github.com/cosmos/cosmos-sdk/std"
  )
 
-+func NewRootCmdWithServer[AppT serverv2.AppI[T], T transaction.Tx](
-+	makeComponent func(cc client.Context) serverv2.ServerComponent[AppT, T],
++func NewRootCmdWithServer[T transaction.Tx](
++	makeComponent func(cc client.Context) serverv2.ServerComponent[T],
 +) *cobra.Command {
-+	return newRootCmd[AppT, T](makeComponent)
++	return newRootCmd[T](makeComponent)
 +}
 +
  // NewRootCmd creates a new root command for simd. It is called once in the main function.
- func NewRootCmd[AppT serverv2.AppI[T], T transaction.Tx]() *cobra.Command {
-+	return NewRootCmdWithServer(func(cc client.Context) serverv2.ServerComponent[AppT, T] {
-+		return cometbft.New[AppT, T](
+ func NewRootCmd[T transaction.Tx]() *cobra.Command {
++	return NewRootCmdWithServer(func(cc client.Context) serverv2.ServerComponent[T] {
++		return cometbft.New[T](
 +			&temporaryTxDecoder[T]{cc.TxConfig},
 +			cometbft.DefaultServerOptions[T](),
 +		)
 +	})
 +}
 +
-+func newRootCmd[AppT serverv2.AppI[T], T transaction.Tx](
-+	makeComponent func(cc client.Context) serverv2.ServerComponent[AppT, T],
++func newRootCmd[T transaction.Tx](
++	makeComponent func(cc client.Context) serverv2.ServerComponent[T],
 +) *cobra.Command {
  	var (
  		autoCliOpts   autocli.AppOptions
  		moduleManager *runtime.MM[T]
-@@ -81,7 +99,7 @@ func NewRootCmd[AppT serverv2.AppI[T], T transaction.Tx]() *cobra.Command {
+@@ -80,7 +99,7 @@ func NewRootCmd[T transaction.Tx]() *cobra.Command {
  		},
  	}
 
--	initRootCmd[AppT, T](rootCmd, clientCtx.TxConfig, moduleManager)
-+	initRootCmd[AppT, T](rootCmd, clientCtx, moduleManager, makeComponent)
+-	initRootCmd[T](rootCmd, clientCtx.TxConfig, moduleManager)
++	initRootCmd[T](rootCmd, clientCtx, moduleManager, makeComponent)
  	if err := autoCliOpts.EnhanceRootCommand(rootCmd); err != nil {
  		panic(err)
  	}
