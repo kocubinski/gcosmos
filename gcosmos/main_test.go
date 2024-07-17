@@ -39,6 +39,9 @@ func TestRootCmd(t *testing.T) {
 func TestRootCmd_startWithGordian(t *testing.T) {
 	t.Parallel()
 
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	chainID := t.Name()
 
 	const nVals = 1
@@ -120,12 +123,16 @@ func TestRootCmd_startWithGordian(t *testing.T) {
 		)
 	}
 
-	// TODO: we need a better way to synchronize the backgrounded start command.
-	// This will run at least until the end of the test.
-	// Just providing the context to a new RunC method may suffice here.
+	// Ensure the start command has fully completed by the end of the test.
+	startDone := make(chan struct{})
 	go func() {
-		_ = rootCmds[0].Run(startCmd...)
+		defer close(startDone)
+		_ = rootCmds[0].RunC(ctx, startCmd...)
 	}()
+	defer func() {
+		<-startDone
+	}()
+	defer cancel()
 
 	// Get the HTTP address, which may require a few tries,
 	// depending on how quickly the start command begins.
@@ -202,8 +209,16 @@ func (e CmdEnv) Run(args ...string) RunResult {
 	return e.RunWithInput(nil, args...)
 }
 
+func (e CmdEnv) RunC(ctx context.Context, args ...string) RunResult {
+	return e.RunWithInputC(ctx, nil, args...)
+}
+
 func (e CmdEnv) RunWithInput(in io.Reader, args ...string) RunResult {
-	ctx, cancel := context.WithCancel(context.Background())
+	return e.RunWithInputC(context.Background(), in, args...)
+}
+
+func (e CmdEnv) RunWithInputC(ctx context.Context, in io.Reader, args ...string) RunResult {
+	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
 	var cmd *cobra.Command
