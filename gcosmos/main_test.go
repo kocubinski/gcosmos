@@ -121,7 +121,8 @@ func TestRootCmd_startWithGordian_singleValidator(t *testing.T) {
 func TestRootCmd_startWithGordian_multipleValidators(t *testing.T) {
 	t.Skip("Not yet ready")
 
-	const nVals = 4
+	const totalVals = 11
+	const interestingVals = 4
 
 	t.Parallel()
 
@@ -129,18 +130,34 @@ func TestRootCmd_startWithGordian_multipleValidators(t *testing.T) {
 	defer cancel()
 
 	c := ConfigureChain(t, ctx, ChainConfig{
-		ID:            t.Name(),
-		NVals:         nVals,
-		StakeStrategy: ConstantStakeStrategy(1_000_000_000),
+		ID:    t.Name(),
+		NVals: totalVals,
+
+		// Due to an outstanding and undocumented SDK bug,
+		// we require at least 11 validators.
+		// But, we don't want to run 11 validators.
+		// So put the majority of the stake in the first four validators,
+		// and the rest get the bare minimum.
+		StakeStrategy: func(idx int) string {
+			const minAmount = "1000000"
+			const largeStake = minAmount + "000000stake"
+			if idx < interestingVals {
+				// Validators with substantial stake.
+				return largeStake
+			}
+
+			// Beyond that, give them bare minimum stake.
+			return minAmount + "stake"
+		},
 	})
 
 	httpAddrDir := t.TempDir()
-	httpAddrFiles := make([]string, nVals)
+	httpAddrFiles := make([]string, interestingVals)
 
 	// Ensure the start command has fully completed by the end of the test.
 	var wg sync.WaitGroup
-	wg.Add(nVals)
-	for i := range nVals {
+	wg.Add(interestingVals)
+	for i := range interestingVals {
 		httpAddrFiles[i] = filepath.Join(httpAddrDir, fmt.Sprintf("http_addr_%d.txt", i))
 
 		go func(i int) {
@@ -162,7 +179,8 @@ func TestRootCmd_startWithGordian_multipleValidators(t *testing.T) {
 	defer wg.Wait()
 	defer cancel()
 
-	for i := range nVals {
+	// Each of the interesting validators must report a height beyond the first few blocks.
+	for i := range interestingVals {
 		if runCometInsteadOfGordian {
 			// Nothing to check in this mode.
 			break
