@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"slices"
 	"testing"
@@ -24,6 +25,23 @@ type ChainConfig struct {
 	ID string
 
 	NVals int
+
+	StakeStrategy StakeStrategy
+}
+
+type StakeStrategy func(idx int) string
+
+func ConstantStakeStrategy(amount uint64) StakeStrategy {
+	stake := fmt.Sprintf("%dstake", amount)
+	return func(int) string {
+		return stake
+	}
+}
+
+func DecrementingStakeStrategy(initialCount uint64) StakeStrategy {
+	return func(idx int) string {
+		return fmt.Sprintf("%dstake", initialCount-uint64(idx))
+	}
 }
 
 type Chain struct {
@@ -67,10 +85,10 @@ func ConfigureChain(t *testing.T, ctx context.Context, cfg ChainConfig) Chain {
 	}
 
 	// Add each key as a genesis account on the first validator's environment.
-	for _, a := range keyAddresses {
+	for i, a := range keyAddresses {
 		rootCmds[0].Run(
 			"genesis", "add-genesis-account",
-			a, "10000000000stake",
+			a, cfg.StakeStrategy(i),
 		).NoError(t)
 	}
 
@@ -78,34 +96,53 @@ func ConfigureChain(t *testing.T, ctx context.Context, cfg ChainConfig) Chain {
 	gentxDir := t.TempDir()
 	for i, e := range rootCmds {
 		vs := fmt.Sprintf("val%d", i)
+		stake := cfg.StakeStrategy(i)
 		if i > 0 {
 			// The first validator has every genesis account already,
 			// but each validator needs its own address as a genesis account
 			// in order to do a gentx.
 			e.Run(
 				"genesis", "add-genesis-account",
-				vs, "10000000000stake",
+				vs, stake,
 			).NoError(t)
 		}
 		e.Run(
 			"genesis", "gentx",
 			"--chain-id", cfg.ID,
 			"--output-document", filepath.Join(gentxDir, vs+".gentx.json"),
-			vs, "10000000000stake",
+			vs, stake,
 		).NoError(t)
 	}
 
-	// Collect gentxs on the first validator.
+	// Collect the gentxs on the first validator, then copy it to the other validators.
 	rootCmds[0].Run(
 		"genesis", "collect-gentxs", "--gentx-dir", gentxDir,
 	).NoError(t)
 
-	// The gRPC server defaults to listening on port 9090,
-	// and the test will fail if the gRPC server cannot bind,
-	// so just use an anonymous port.
-	// We are not disabling the server since we expect to need it for later tests anyway.
-	rootCmds[0].Run("config", "set", "app", "grpc.address", "localhost:0", "--skip-validate").NoError(t)
+	writers := make([]io.Writer, cfg.NVals-1)
+	for i := 1; i < cfg.NVals; i++ {
+		gPath := filepath.Join(rootCmds[i].homeDir, "config", "genesis.json")
+		f, err := os.Create(gPath)
+		require.NoError(t, err)
+		defer f.Close() // Yes, we are deferring a close in a loop here.
+		writers[i-1] = f
+	}
 
+	origGF, err := os.Open(filepath.Join(rootCmds[0].homeDir, "config", "genesis.json"))
+	require.NoError(t, err)
+	defer origGF.Close()
+
+	_, err = io.Copy(io.MultiWriter(writers...), origGF)
+	require.NoError(t, err)
+
+	// Final configuration on every validator.
+	for _, c := range rootCmds {
+		// The gRPC server defaults to listening on port 9090,
+		// and the test will fail if the gRPC server cannot bind,
+		// so just use an anonymous port.
+		// We are not disabling the server since we expect to need it for later tests anyway.
+		c.Run("config", "set", "app", "grpc.address", "localhost:0", "--skip-validate").NoError(t)
+	}
 
 	return Chain{
 		RootCmds: rootCmds,

@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -33,8 +35,9 @@ func TestRootCmd_startWithGordian_singleValidator(t *testing.T) {
 	defer cancel()
 
 	c := ConfigureChain(t, ctx, ChainConfig{
-		ID:    t.Name(),
-		NVals: 1,
+		ID:            t.Name(),
+		NVals:         1,
+		StakeStrategy: ConstantStakeStrategy(1_000_000_000),
 	})
 
 	var startCmd = []string{"start"}
@@ -112,5 +115,108 @@ func TestRootCmd_startWithGordian_singleValidator(t *testing.T) {
 		}
 
 		require.GreaterOrEqual(t, maxHeight, uint(3))
+	}
+}
+
+func TestRootCmd_startWithGordian_multipleValidators(t *testing.T) {
+	t.Skip("Not yet ready")
+
+	const nVals = 4
+
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	c := ConfigureChain(t, ctx, ChainConfig{
+		ID:            t.Name(),
+		NVals:         nVals,
+		StakeStrategy: ConstantStakeStrategy(1_000_000_000),
+	})
+
+	httpAddrDir := t.TempDir()
+	httpAddrFiles := make([]string, nVals)
+
+	// Ensure the start command has fully completed by the end of the test.
+	var wg sync.WaitGroup
+	wg.Add(nVals)
+	for i := range nVals {
+		httpAddrFiles[i] = filepath.Join(httpAddrDir, fmt.Sprintf("http_addr_%d.txt", i))
+
+		go func(i int) {
+			defer wg.Done()
+
+			startCmd := []string{"start"}
+			if !runCometInsteadOfGordian {
+				// Then include the HTTP server flags.
+				startCmd = append(
+					startCmd,
+					"--g-http-addr", "127.0.0.1:0",
+					"--g-http-addr-file", httpAddrFiles[i],
+				)
+			}
+
+			_ = c.RootCmds[i].RunC(ctx, startCmd...)
+		}(i)
+	}
+	defer wg.Wait()
+	defer cancel()
+
+	for i := range nVals {
+		if runCometInsteadOfGordian {
+			// Nothing to check in this mode.
+			break
+		}
+
+		// Gratuitously long deadline to confirm the HTTP address.
+		var httpAddr string
+		deadline := time.Now().Add(5 * time.Second)
+		for time.Now().Before(deadline) {
+			a, err := os.ReadFile(httpAddrFiles[i])
+			if err != nil {
+				// Swallow the error and delay.
+				time.Sleep(25 * time.Millisecond)
+				continue
+			}
+			if !bytes.HasSuffix(a, []byte("\n")) {
+				// Very unlikely incomplete write/read.
+				time.Sleep(25 * time.Millisecond)
+				continue
+			}
+
+			httpAddr = strings.TrimSuffix(string(a), "\n")
+			break
+		}
+
+		if httpAddr == "" {
+			t.Fatalf("did not read http address from %s in time", httpAddrFiles[i])
+		}
+
+		u := "http://" + httpAddr + "/blocks/watermark"
+		// TODO: we might need to delay until we get a non-error HTTP response.
+
+		// Another deadline to confirm the voting height.
+		deadline = time.Now().Add(10 * time.Second)
+		var maxHeight uint
+		for time.Now().Before(deadline) {
+			resp, err := http.Get(u)
+			require.NoError(t, err)
+			require.Equal(t, http.StatusOK, resp.StatusCode)
+
+			var m map[string]uint
+			require.NoError(t, json.NewDecoder(resp.Body).Decode(&m))
+			resp.Body.Close()
+
+			maxHeight = m["VotingHeight"]
+			if maxHeight < 3 {
+				time.Sleep(100 * time.Millisecond)
+				continue
+			}
+
+			// We got at least to height 3, so quit the loop.
+			break
+		}
+
+		require.GreaterOrEqualf(t, maxHeight, uint(3), "checking max block height on validator at index %d", i)
 	}
 }
