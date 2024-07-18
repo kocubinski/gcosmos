@@ -1,7 +1,7 @@
-From 68f9bdc756b666867155bfe6c11b26775a84ae97 Mon Sep 17 00:00:00 2001
+From b3e231f73ffd2b6325f11158f5c8a7bc4dbbf830 Mon Sep 17 00:00:00 2001
 From: Mark Rushakoff <mark@strange.love>
 Date: Wed, 17 Jul 2024 09:51:38 -0400
-Subject: [PATCH] chore: allow discovery of anonymous GRPC server addr
+Subject: [PATCH 4/5] chore: allow discovery of anonymous GRPC server addr
 
 Add a --grpc-address-file argument, so that if the gRPC server is
 configured to bind to :0, that file, in a predetermined location, will
@@ -22,32 +22,32 @@ index 7f73472a33..d5ce6e6df0 100644
  	"fmt"
  	"net"
 +	"os"
-
+ 
 +	"github.com/spf13/pflag"
  	"github.com/spf13/viper"
  	"google.golang.org/grpc"
-
+ 
 @@ -20,6 +22,8 @@ type GRPCServer[T transaction.Tx] struct {
  	cfgOptions []CfgOption
-
+ 
  	grpcSrv *grpc.Server
 +
 +	v *viper.Viper
  }
-
+ 
  // New creates a new grpc server.
 @@ -53,6 +57,7 @@ func (s *GRPCServer[T]) Init(appI serverv2.AppI[T], v *viper.Viper, logger log.L
  	s.grpcSrv = grpcSrv
  	s.config = cfg
  	s.logger = logger.With(log.ModuleKey, s.Name())
 +	s.v = v
-
+ 
  	return nil
  }
 @@ -75,6 +80,8 @@ func (s *GRPCServer[T]) Config() any {
  	return s.config
  }
-
+ 
 +const addrFileFlag = "grpc-address-file"
 +
  func (s *GRPCServer[T]) Start(ctx context.Context) error {
@@ -56,7 +56,7 @@ index 7f73472a33..d5ce6e6df0 100644
 @@ -85,6 +92,13 @@ func (s *GRPCServer[T]) Start(ctx context.Context) error {
  		return fmt.Errorf("failed to listen on address %s: %w", s.config.Address, err)
  	}
-
+ 
 +	addrFile := s.v.GetString(addrFileFlag)
 +	if addrFile != "" {
 +		if err := os.WriteFile(addrFile, []byte(listener.Addr().String()+"\n"), 0600); err != nil {
@@ -65,10 +65,10 @@ index 7f73472a33..d5ce6e6df0 100644
 +	}
 +
  	errCh := make(chan error)
-
+ 
  	// Start the gRPC in an external goroutine as Serve is blocking and will return
 @@ -112,3 +126,9 @@ func (s *GRPCServer[T]) Stop(ctx context.Context) error {
-
+ 
  	return nil
  }
 +
@@ -84,7 +84,7 @@ index 2aeb2dda24..77af441c7b 100644
 @@ -103,7 +103,7 @@ func createStartCommand[T transaction.Tx](
  ) *cobra.Command {
  	flags := server.StartFlags()
-
+ 
 -	return &cobra.Command{
 +	cmd := &cobra.Command{
  		Use:   "start",
@@ -102,8 +102,8 @@ index 2aeb2dda24..77af441c7b 100644
 +
 +	return cmd
  }
-
+ 
  // configHandle writes the default config to the home directory if it does not exist and sets the server context
---
+-- 
 2.44.0
 

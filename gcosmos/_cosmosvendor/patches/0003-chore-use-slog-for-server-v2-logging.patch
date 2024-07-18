@@ -1,7 +1,7 @@
-From 9a2f7a1214cf4de6bc4e3eab6e480427730415e0 Mon Sep 17 00:00:00 2001
+From 6b4cecb18d808f2182de8ef7114d46d3a2999cf3 Mon Sep 17 00:00:00 2001
 From: Mark Rushakoff <mark@strange.love>
 Date: Tue, 9 Jul 2024 14:12:55 -0400
-Subject: [PATCH] chore: use slog for server v2 logging
+Subject: [PATCH 3/5] chore: use slog for server v2 logging
 
 This just plugs in easier with gcosmos tests, for now at least.
 ---
@@ -11,7 +11,7 @@ This just plugs in easier with gcosmos tests, for now at least.
  create mode 100644 server/v2/slog.go
 
 diff --git a/server/v2/commands.go b/server/v2/commands.go
-index db385a832d..c857ff12e0 100644
+index dd62c1518a..2aeb2dda24 100644
 --- a/server/v2/commands.go
 +++ b/server/v2/commands.go
 @@ -4,6 +4,7 @@ import (
@@ -22,10 +22,10 @@ index db385a832d..c857ff12e0 100644
  	"os"
  	"os/signal"
  	"path/filepath"
-@@ -170,10 +171,10 @@ func configHandle[AppT AppI[T], T transaction.Tx](s *Server[AppT, T], cmd *cobra
+@@ -170,10 +171,10 @@ func configHandle[T transaction.Tx](s *Server[T], cmd *cobra.Command) error {
  		return err
  	}
-
+ 
 -	log, err := NewLogger(v, cmd.OutOrStdout())
 -	if err != nil {
 -		return err
@@ -34,7 +34,7 @@ index db385a832d..c857ff12e0 100644
 +	log := NewSlogLogger(
 +		slog.New(slog.NewTextHandler(os.Stderr, nil)),
 +	)
-
+ 
  	return SetCmdServerContext(cmd, v, log)
  }
 diff --git a/server/v2/slog.go b/server/v2/slog.go
@@ -84,6 +84,6 @@ index 0000000000..7ec9ce9c08
 +func (l SlogLogger) Impl() any {
 +	return l.log
 +}
---
+-- 
 2.44.0
 
