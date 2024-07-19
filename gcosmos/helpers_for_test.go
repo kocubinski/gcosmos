@@ -62,10 +62,12 @@ func ConfigureChain(t *testing.T, ctx context.Context, cfg ChainConfig) Chain {
 	rootCmds := make([]CmdEnv, cfg.NVals)
 	keyAddresses := make([]string, cfg.NVals)
 
+	log := gtest.NewLogger(t)
+
 	for i := range cfg.NVals {
 		// Each validator gets its own command environment
 		// and therefore its own home directory.
-		e := NewRootCmd(t)
+		e := NewRootCmd(t, log.With("val_idx", i))
 		rootCmds[i] = e
 
 		// Each validator needs its own initialized config and genesis.
@@ -151,11 +153,12 @@ func ConfigureChain(t *testing.T, ctx context.Context, cfg ChainConfig) Chain {
 
 func NewRootCmd(
 	t *testing.T,
+	log *slog.Logger,
 ) CmdEnv {
 	t.Helper()
 
 	return CmdEnv{
-		log:     gtest.NewLogger(t),
+		log:     log,
 		homeDir: t.TempDir(),
 	}
 }

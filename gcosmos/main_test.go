@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/rollchains/gordian/internal/gtest"
 	"github.com/stretchr/testify/require"
 )
 
@@ -23,7 +24,7 @@ const runCometInsteadOfGordian = false
 func TestRootCmd(t *testing.T) {
 	t.Parallel()
 
-	e := NewRootCmd(t)
+	e := NewRootCmd(t, gtest.NewLogger(t))
 
 	e.Run("init", "defaultmoniker").NoError(t)
 }
@@ -140,10 +141,11 @@ func TestRootCmd_startWithGordian_multipleValidators(t *testing.T) {
 		// and the rest get the bare minimum.
 		StakeStrategy: func(idx int) string {
 			const minAmount = "1000000"
-			const largeStake = minAmount + "000000stake"
 			if idx < interestingVals {
 				// Validators with substantial stake.
-				return largeStake
+				// Give every validator a slightly different amount,
+				// so that a tracked single vote's power can be distinguished.
+				return minAmount + fmt.Sprintf("%02d000000stake", idx)
 			}
 
 			// Beyond that, give them bare minimum stake.
