@@ -132,7 +132,7 @@ func (c *ConsensusStrategy[T]) ConsiderProposedBlocks(
 			continue
 		}
 
-		ba, err := BlockAnnotationFromBytes(pb.Annotations.App)
+		ba, err := BlockAnnotationFromBytes(pb.Block.Annotations.App)
 		if err != nil {
 			c.log.Debug(
 				"Ignoring proposed block due to error extracting block annotation",
