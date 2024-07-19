@@ -11,6 +11,7 @@ import (
 	"cosmossdk.io/core/transaction"
 	"github.com/rollchains/gordian/gcrypto"
 	"github.com/rollchains/gordian/internal/gchan"
+	"github.com/rollchains/gordian/internal/glog"
 	"github.com/rollchains/gordian/tm/tmconsensus"
 )
 
@@ -107,27 +108,53 @@ func (c *ConsensusStrategy[T]) ConsiderProposedBlocks(
 	expAppDataID := fmt.Sprintf("%d/%d", c.curH, c.curR)
 	for _, pb := range pbs {
 		if pb.Block.Height != c.curH {
+			c.log.Debug(
+				"Ignoring proposed block due to height mismatch",
+				"want", c.curH, "got", pb.Block.Height,
+			)
 			continue
 		}
 		if pb.Round != c.curR {
+			c.log.Debug(
+				"Ignoring proposed block due to round mismatch",
+				"h", c.curH,
+				"want", c.curR, "got", pb.Round,
+			)
 			continue
 		}
 
 		if string(pb.Block.DataID) != expAppDataID {
+			c.log.Debug(
+				"Ignoring proposed block due to expected app ID mismatch",
+				"h", c.curH, "r", c.curR,
+				"want", glog.Hex(expAppDataID), "got", glog.Hex(pb.Block.DataID),
+			)
 			continue
 		}
 
 		ba, err := BlockAnnotationFromBytes(pb.Annotations.App)
 		if err != nil {
+			c.log.Debug(
+				"Ignoring proposed block due to error extracting block annotation",
+				"h", c.curH, "r", c.curR, "err", err,
+			)
 			continue
 		}
 
 		bt, err := ba.BlockTimeAsTime()
 		if err != nil {
+			c.log.Debug(
+				"Ignoring proposed block due to error extracting block time from annotation",
+				"h", c.curH, "r", c.curR, "err", err,
+			)
 			continue
 		}
 
 		if bt.After(time.Now()) {
+			c.log.Debug(
+				"Ignoring proposed block due to block time in the future",
+				"h", c.curH, "r", c.curR, "err", err,
+			)
 			continue
 		}
 
