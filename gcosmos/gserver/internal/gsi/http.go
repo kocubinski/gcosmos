@@ -4,19 +4,19 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"time"
 	"log/slog"
 	"net"
 	"net/http"
+	"time"
 
-	"github.com/gorilla/mux"
-	"github.com/rollchains/gordian/tm/tmstore"
-	ctypes "github.com/cometbft/cometbft/rpc/core/types"
-	tmtypes "github.com/cometbft/cometbft/types"
-	"github.com/rollchains/gordian/tm/tmp2p/tmlibp2p"
 	abcitypes "github.com/cometbft/cometbft/api/cometbft/abci/v1"
 	v1types "github.com/cometbft/cometbft/api/cometbft/types/v1"
 	cmtp2p "github.com/cometbft/cometbft/p2p"
+	ctypes "github.com/cometbft/cometbft/rpc/core/types"
+	tmtypes "github.com/cometbft/cometbft/types"
+	"github.com/gorilla/mux"
+	"github.com/rollchains/gordian/tm/tmp2p/tmlibp2p"
+	"github.com/rollchains/gordian/tm/tmstore"
 )
 
 type HTTPServer struct {
@@ -28,8 +28,8 @@ type HTTPServerConfig struct {
 
 	MirrorStore tmstore.MirrorStore
 
-	Libp2pHost   *tmlibp2p.Host
-	Libp2pconn   *tmlibp2p.Connection
+	Libp2pHost *tmlibp2p.Host
+	Libp2pconn *tmlibp2p.Connection
 }
 
 func NewHTTPServer(ctx context.Context, log *slog.Logger, cfg HTTPServerConfig) *HTTPServer {
@@ -83,42 +83,42 @@ func newMux(log *slog.Logger, cfg HTTPServerConfig) http.Handler {
 	r.HandleFunc("/blocks/watermark", handleBlocksWatermark(log, cfg)).Methods("GET")
 
 	// CometBFT Query methods for compatability with CometRPC
-	r.HandleFunc("abci_info", handleABCIInfo(log,cfg)).Methods("GET")
-	r.HandleFunc("abci_query", handleABCIQuery(log,cfg)).Methods("POST")
-	r.HandleFunc("block", handleBlock(log,cfg)).Methods("POST")
-	r.HandleFunc("block_by_hash", handleBlockByHash(log,cfg)).Methods("GET")
-	r.HandleFunc("block_results", handleBlockResults(log,cfg)).Methods("POST")
-	r.HandleFunc("block_search", handleBlockSearch(log,cfg)).Methods("POST")
-	r.HandleFunc("blockchain", handleBlockchainInfo(log,cfg)).Methods("GET")
-	r.HandleFunc("broadcast_evidence", handleBroadcastEvidence(log,cfg)).Methods("POST")
-	r.HandleFunc("broadcast_tx_async", handleBroadcastTxAsync(log,cfg)).Methods("POST")
-	r.HandleFunc("broadcast_tx_commit", handleBroadcastTxCommit(log,cfg)).Methods("POST")
-	r.HandleFunc("broadcast_tx_sync", handleBroadcastTxSync(log,cfg)).Methods("POST")
-	r.HandleFunc("check_tx", handleCheckTx(log,cfg)).Methods("POST")
-	r.HandleFunc("commit", handleCommit(log,cfg)).Methods("POST")
-	r.HandleFunc("consensus_params", handleConsensusParams(log,cfg)).Methods("GET")
-	r.HandleFunc("consensus_state", handleConsensusState(log,cfg)).Methods("GET")
-	r.HandleFunc("dump_consensus_state", handleDumpConsensusState(log,cfg)).Methods("GET")
-	r.HandleFunc("genesis", handleGenesis(log,cfg)).Methods("GET")
-	r.HandleFunc("genesis_chunked", handleGenesisChunked(log,cfg)).Methods("GET")
-	r.HandleFunc("header", handleHeader(log,cfg)).Methods("GET")
-	r.HandleFunc("header_by_hash", handleHeaderByHash(log,cfg)).Methods("GET")
-	r.HandleFunc("health", handleHealth(log,cfg)).Methods("GET")
-	r.HandleFunc("net_info", handleNetInfo(log,cfg)).Methods("GET")
-	r.HandleFunc("num_unconfirmed_txs", handleNumUnconfirmedTxs(log,cfg)).Methods("GET")
-	r.HandleFunc("status", handleStatus(log,cfg)).Methods("GET")
-	r.HandleFunc("subscribe", handleSubscribe(log,cfg)).Methods("GET")
-	r.HandleFunc("tx", handleTx(log,cfg)).Methods("POST")
-	r.HandleFunc("tx_search", handleTxSearch(log,cfg)).Methods("GET")
-	r.HandleFunc("unconfirmed_txs", handleUnconfirmedTxs(log,cfg)).Methods("GET")
-	r.HandleFunc("unsubscribe", handleUnsubscribe(log,cfg)).Methods("GET")
-	r.HandleFunc("unsubscribe_all", unsubscribeAll(log,cfg)).Methods("GET")
-	r.HandleFunc("validators", handleValidators(log,cfg)).Methods("GET")
+	r.HandleFunc("abci_info", handleABCIInfo(log, cfg)).Methods("GET")
+	r.HandleFunc("abci_query", handleABCIQuery(log, cfg)).Methods("POST")
+	r.HandleFunc("block", handleBlock(log, cfg)).Methods("POST")
+	r.HandleFunc("block_by_hash", handleBlockByHash(log, cfg)).Methods("GET")
+	r.HandleFunc("block_results", handleBlockResults(log, cfg)).Methods("POST")
+	r.HandleFunc("block_search", handleBlockSearch(log, cfg)).Methods("POST")
+	r.HandleFunc("blockchain", handleBlockchainInfo(log, cfg)).Methods("GET")
+	r.HandleFunc("broadcast_evidence", handleBroadcastEvidence(log, cfg)).Methods("POST")
+	r.HandleFunc("broadcast_tx_async", handleBroadcastTxAsync(log, cfg)).Methods("POST")
+	r.HandleFunc("broadcast_tx_commit", handleBroadcastTxCommit(log, cfg)).Methods("POST")
+	r.HandleFunc("broadcast_tx_sync", handleBroadcastTxSync(log, cfg)).Methods("POST")
+	r.HandleFunc("check_tx", handleCheckTx(log, cfg)).Methods("POST")
+	r.HandleFunc("commit", handleCommit(log, cfg)).Methods("POST")
+	r.HandleFunc("consensus_params", handleConsensusParams(log, cfg)).Methods("GET")
+	r.HandleFunc("consensus_state", handleConsensusState(log, cfg)).Methods("GET")
+	r.HandleFunc("dump_consensus_state", handleDumpConsensusState(log, cfg)).Methods("GET")
+	r.HandleFunc("genesis", handleGenesis(log, cfg)).Methods("GET")
+	r.HandleFunc("genesis_chunked", handleGenesisChunked(log, cfg)).Methods("GET")
+	r.HandleFunc("header", handleHeader(log, cfg)).Methods("GET")
+	r.HandleFunc("header_by_hash", handleHeaderByHash(log, cfg)).Methods("GET")
+	r.HandleFunc("health", handleHealth(log, cfg)).Methods("GET")
+	r.HandleFunc("net_info", handleNetInfo(log, cfg)).Methods("GET")
+	r.HandleFunc("num_unconfirmed_txs", handleNumUnconfirmedTxs(log, cfg)).Methods("GET")
+	r.HandleFunc("status", handleStatus(log, cfg)).Methods("GET")
+	r.HandleFunc("subscribe", handleSubscribe(log, cfg)).Methods("GET")
+	r.HandleFunc("tx", handleTx(log, cfg)).Methods("POST")
+	r.HandleFunc("tx_search", handleTxSearch(log, cfg)).Methods("GET")
+	r.HandleFunc("unconfirmed_txs", handleUnconfirmedTxs(log, cfg)).Methods("GET")
+	r.HandleFunc("unsubscribe", handleUnsubscribe(log, cfg)).Methods("GET")
+	r.HandleFunc("unsubscribe_all", unsubscribeAll(log, cfg)).Methods("GET")
+	r.HandleFunc("validators", handleValidators(log, cfg)).Methods("GET")
 
 	return r
 }
 
-func handleBlocksWatermark(log *slog.Logger, cfg HTTPServerConfig) func (w http.ResponseWriter, req *http.Request) {
+func handleBlocksWatermark(log *slog.Logger, cfg HTTPServerConfig) func(w http.ResponseWriter, req *http.Request) {
 	return func(w http.ResponseWriter, req *http.Request) {
 		vh, vr, ch, cr, err := cfg.MirrorStore.NetworkHeightRound(req.Context())
 		if err != nil {
@@ -147,14 +147,14 @@ func handleBlocksWatermark(log *slog.Logger, cfg HTTPServerConfig) func (w http.
 	}
 }
 
-func handleABCIInfo(log *slog.Logger, cfg HTTPServerConfig) func (w http.ResponseWriter, req *http.Request) {
+func handleABCIInfo(log *slog.Logger, cfg HTTPServerConfig) func(w http.ResponseWriter, req *http.Request) {
 	return func(w http.ResponseWriter, req *http.Request) {
 		_ = ctypes.ResultABCIInfo{
 			Response: abcitypes.InfoResponse{
-				Data: "",
-				Version: "",
-				AppVersion: 0,
-				LastBlockHeight: 0,
+				Data:             "",
+				Version:          "",
+				AppVersion:       0,
+				LastBlockHeight:  0,
 				LastBlockAppHash: []byte{},
 			},
 		}
@@ -162,7 +162,7 @@ func handleABCIInfo(log *slog.Logger, cfg HTTPServerConfig) func (w http.Respons
 	}
 }
 
-func handleABCIQuery(log *slog.Logger, cfg HTTPServerConfig) func (w http.ResponseWriter, req *http.Request) {
+func handleABCIQuery(log *slog.Logger, cfg HTTPServerConfig) func(w http.ResponseWriter, req *http.Request) {
 	return func(w http.ResponseWriter, req *http.Request) {
 		_ = &ctypes.ResultABCIQuery{
 			Response: abcitypes.QueryResponse{},
@@ -171,60 +171,60 @@ func handleABCIQuery(log *slog.Logger, cfg HTTPServerConfig) func (w http.Respon
 	}
 }
 
-func handleBlock(log *slog.Logger, cfg HTTPServerConfig) func (w http.ResponseWriter, req *http.Request) {
+func handleBlock(log *slog.Logger, cfg HTTPServerConfig) func(w http.ResponseWriter, req *http.Request) {
 	return func(w http.ResponseWriter, req *http.Request) {
 		// Request
 		// height *int64
 		_ = &ctypes.ResultBlock{
-			BlockID: tmtypes.BlockID{}, 
-			Block: &tmtypes.Block{},
+			BlockID: tmtypes.BlockID{},
+			Block:   &tmtypes.Block{},
 		}
 		http.Error(w, "not yet implemented", http.StatusNotImplemented)
 	}
 }
 
-func handleBlockByHash(log *slog.Logger, cfg HTTPServerConfig) func (w http.ResponseWriter, req *http.Request) {
+func handleBlockByHash(log *slog.Logger, cfg HTTPServerConfig) func(w http.ResponseWriter, req *http.Request) {
 	return func(w http.ResponseWriter, req *http.Request) {
 		// Request
 		// hash []byte
 		_ = &ctypes.ResultBlock{
-			BlockID: tmtypes.BlockID{}, 
-			Block: &tmtypes.Block{},
+			BlockID: tmtypes.BlockID{},
+			Block:   &tmtypes.Block{},
 		}
 		http.Error(w, "not yet implemented", http.StatusNotImplemented)
 	}
 }
 
-func handleBlockResults(log *slog.Logger, cfg HTTPServerConfig) func (w http.ResponseWriter, req *http.Request) {
+func handleBlockResults(log *slog.Logger, cfg HTTPServerConfig) func(w http.ResponseWriter, req *http.Request) {
 	return func(w http.ResponseWriter, req *http.Request) {
 		// Request
 		// height *int64
 		_ = &ctypes.ResultBlockResults{
-			Height: 0,
-			TxResults: []*abcitypes.ExecTxResult{},
-			FinalizeBlockEvents: []abcitypes.Event{},
-			ValidatorUpdates: []abcitypes.ValidatorUpdate{},
+			Height:                0,
+			TxResults:             []*abcitypes.ExecTxResult{},
+			FinalizeBlockEvents:   []abcitypes.Event{},
+			ValidatorUpdates:      []abcitypes.ValidatorUpdate{},
 			ConsensusParamUpdates: &v1types.ConsensusParams{},
 		}
 		http.Error(w, "not yet implemented", http.StatusNotImplemented)
 	}
 }
 
-func handleBlockSearch(log *slog.Logger, cfg HTTPServerConfig) func (w http.ResponseWriter, req *http.Request) {
+func handleBlockSearch(log *slog.Logger, cfg HTTPServerConfig) func(w http.ResponseWriter, req *http.Request) {
 	return func(w http.ResponseWriter, req *http.Request) {
 		// Request
 		// query string
 		// cmtquery.New(query)
 		// cmtquery "github.com/cometbft/cometbft/libs/pubsub/query"
 		_ = &ctypes.ResultBlockSearch{
-			Blocks: []*ctypes.ResultBlock{}, 
+			Blocks:     []*ctypes.ResultBlock{},
 			TotalCount: 0,
 		}
 		http.Error(w, "not yet implemented", http.StatusNotImplemented)
 	}
 }
 
-func handleBlockchainInfo(log *slog.Logger, cfg HTTPServerConfig) func (w http.ResponseWriter, req *http.Request) {
+func handleBlockchainInfo(log *slog.Logger, cfg HTTPServerConfig) func(w http.ResponseWriter, req *http.Request) {
 	return func(w http.ResponseWriter, req *http.Request) {
 		// Request
 		// minHeight *int64
@@ -237,7 +237,7 @@ func handleBlockchainInfo(log *slog.Logger, cfg HTTPServerConfig) func (w http.R
 	}
 }
 
-func handleBroadcastEvidence(log *slog.Logger, cfg HTTPServerConfig) func (w http.ResponseWriter, req *http.Request) {
+func handleBroadcastEvidence(log *slog.Logger, cfg HTTPServerConfig) func(w http.ResponseWriter, req *http.Request) {
 	return func(w http.ResponseWriter, req *http.Request) {
 		// Request
 		// Evidence *tmtypes.Evidence TODO
@@ -248,38 +248,38 @@ func handleBroadcastEvidence(log *slog.Logger, cfg HTTPServerConfig) func (w htt
 	}
 }
 
-func handleBroadcastTxAsync(log *slog.Logger, cfg HTTPServerConfig) func (w http.ResponseWriter, req *http.Request) {
+func handleBroadcastTxAsync(log *slog.Logger, cfg HTTPServerConfig) func(w http.ResponseWriter, req *http.Request) {
 	return func(w http.ResponseWriter, req *http.Request) {
 		http.Error(w, "not yet implemented", http.StatusNotImplemented)
 	}
 }
 
-func handleBroadcastTxCommit(log *slog.Logger, cfg HTTPServerConfig) func (w http.ResponseWriter, req *http.Request) {
+func handleBroadcastTxCommit(log *slog.Logger, cfg HTTPServerConfig) func(w http.ResponseWriter, req *http.Request) {
 	return func(w http.ResponseWriter, req *http.Request) {
 		_ = &ctypes.ResultBroadcastTxCommit{
-			CheckTx: abcitypes.CheckTxResponse{},
+			CheckTx:  abcitypes.CheckTxResponse{},
 			TxResult: abcitypes.ExecTxResult{},
-			Hash: []byte{},
+			Hash:     []byte{},
 		}
 		http.Error(w, "not yet implemented", http.StatusNotImplemented)
 	}
 }
 
-func handleBroadcastTxSync(log *slog.Logger, cfg HTTPServerConfig) func (w http.ResponseWriter, req *http.Request) {
+func handleBroadcastTxSync(log *slog.Logger, cfg HTTPServerConfig) func(w http.ResponseWriter, req *http.Request) {
 	return func(w http.ResponseWriter, req *http.Request) {
 		_ = &ctypes.ResultBroadcastTx{}
 		http.Error(w, "not yet implemented", http.StatusNotImplemented)
 	}
 }
 
-func handleCheckTx(log *slog.Logger, cfg HTTPServerConfig) func (w http.ResponseWriter, req *http.Request) {
+func handleCheckTx(log *slog.Logger, cfg HTTPServerConfig) func(w http.ResponseWriter, req *http.Request) {
 	return func(w http.ResponseWriter, req *http.Request) {
 		_ = &ctypes.ResultCheckTx{}
 		http.Error(w, "not yet implemented", http.StatusNotImplemented)
 	}
 }
 
-func handleCommit(log *slog.Logger, cfg HTTPServerConfig) func (w http.ResponseWriter, req *http.Request) {
+func handleCommit(log *slog.Logger, cfg HTTPServerConfig) func(w http.ResponseWriter, req *http.Request) {
 	return func(w http.ResponseWriter, req *http.Request) {
 		// Request
 		// height *int64
@@ -288,17 +288,17 @@ func handleCommit(log *slog.Logger, cfg HTTPServerConfig) func (w http.ResponseW
 	}
 }
 
-func handleConsensusParams(log *slog.Logger, cfg HTTPServerConfig) func (w http.ResponseWriter, req *http.Request) {
+func handleConsensusParams(log *slog.Logger, cfg HTTPServerConfig) func(w http.ResponseWriter, req *http.Request) {
 	return func(w http.ResponseWriter, req *http.Request) {
 		_ = &ctypes.ResultConsensusParams{
-			BlockHeight: 0,
+			BlockHeight:     0,
 			ConsensusParams: tmtypes.ConsensusParams{},
 		}
 		http.Error(w, "not yet implemented", http.StatusNotImplemented)
 	}
 }
 
-func handleConsensusState(log *slog.Logger, cfg HTTPServerConfig) func (w http.ResponseWriter, req *http.Request) {
+func handleConsensusState(log *slog.Logger, cfg HTTPServerConfig) func(w http.ResponseWriter, req *http.Request) {
 	return func(w http.ResponseWriter, req *http.Request) {
 		_ = &ctypes.ResultConsensusState{
 			RoundState: json.RawMessage{},
@@ -307,30 +307,30 @@ func handleConsensusState(log *slog.Logger, cfg HTTPServerConfig) func (w http.R
 	}
 }
 
-func handleDumpConsensusState(log *slog.Logger, cfg HTTPServerConfig) func (w http.ResponseWriter, req *http.Request) {
+func handleDumpConsensusState(log *slog.Logger, cfg HTTPServerConfig) func(w http.ResponseWriter, req *http.Request) {
 	return func(w http.ResponseWriter, req *http.Request) {
 		_ = &ctypes.ResultDumpConsensusState{
 			RoundState: json.RawMessage{},
-			Peers: []ctypes.PeerStateInfo{},
+			Peers:      []ctypes.PeerStateInfo{},
 		}
 		http.Error(w, "not yet implemented", http.StatusNotImplemented)
 	}
 }
 
-func handleGenesis(log *slog.Logger, cfg HTTPServerConfig) func (w http.ResponseWriter, req *http.Request) {
+func handleGenesis(log *slog.Logger, cfg HTTPServerConfig) func(w http.ResponseWriter, req *http.Request) {
 	return func(w http.ResponseWriter, req *http.Request) {
 		_ = ctypes.ResultGenesis{}
 		http.Error(w, "not yet implemented", http.StatusNotImplemented)
 	}
 }
 
-func handleGenesisChunked(log *slog.Logger, cfg HTTPServerConfig) func (w http.ResponseWriter, req *http.Request) {
+func handleGenesisChunked(log *slog.Logger, cfg HTTPServerConfig) func(w http.ResponseWriter, req *http.Request) {
 	return func(w http.ResponseWriter, req *http.Request) {
 		http.Error(w, "not yet implemented", http.StatusNotImplemented)
 	}
 }
 
-func handleHeader(log *slog.Logger, cfg HTTPServerConfig) func (w http.ResponseWriter, req *http.Request) {
+func handleHeader(log *slog.Logger, cfg HTTPServerConfig) func(w http.ResponseWriter, req *http.Request) {
 	return func(w http.ResponseWriter, req *http.Request) {
 		// Request
 		// height *int64
@@ -341,10 +341,10 @@ func handleHeader(log *slog.Logger, cfg HTTPServerConfig) func (w http.ResponseW
 	}
 }
 
-func handleHeaderByHash(log *slog.Logger, cfg HTTPServerConfig) func (w http.ResponseWriter, req *http.Request) {
+func handleHeaderByHash(log *slog.Logger, cfg HTTPServerConfig) func(w http.ResponseWriter, req *http.Request) {
 	return func(w http.ResponseWriter, req *http.Request) {
 		// Request
-		// hash []byte	
+		// hash []byte
 		_ = &ctypes.ResultHeader{
 			Header: &tmtypes.Header{},
 		}
@@ -352,37 +352,37 @@ func handleHeaderByHash(log *slog.Logger, cfg HTTPServerConfig) func (w http.Res
 	}
 }
 
-func handleHealth(log *slog.Logger, cfg HTTPServerConfig) func (w http.ResponseWriter, req *http.Request) {
+func handleHealth(log *slog.Logger, cfg HTTPServerConfig) func(w http.ResponseWriter, req *http.Request) {
 	return func(w http.ResponseWriter, req *http.Request) {
 		_ = &ctypes.ResultHealth{}
 		http.Error(w, "not yet implemented", http.StatusNotImplemented)
 	}
 }
 
-func handleNetInfo(log *slog.Logger, cfg HTTPServerConfig) func (w http.ResponseWriter, req *http.Request) {
+func handleNetInfo(log *slog.Logger, cfg HTTPServerConfig) func(w http.ResponseWriter, req *http.Request) {
 	return func(w http.ResponseWriter, req *http.Request) {
 		_ = &ctypes.ResultNetInfo{
 			Listening: false,
 			Listeners: []string{},
-			NPeers: 0,
-			Peers: []ctypes.Peer{},
+			NPeers:    0,
+			Peers:     []ctypes.Peer{},
 		}
 		http.Error(w, "not yet implemented", http.StatusNotImplemented)
 	}
 }
 
-func handleNumUnconfirmedTxs(log *slog.Logger, cfg HTTPServerConfig) func (w http.ResponseWriter, req *http.Request) {
+func handleNumUnconfirmedTxs(log *slog.Logger, cfg HTTPServerConfig) func(w http.ResponseWriter, req *http.Request) {
 	return func(w http.ResponseWriter, req *http.Request) {
 		_ = &ctypes.ResultUnconfirmedTxs{
-			Count: 0,
-			Total: 0,
+			Count:      0,
+			Total:      0,
 			TotalBytes: 0,
 		}
 		http.Error(w, "not yet implemented", http.StatusNotImplemented)
 	}
 }
 
-func handleStatus(log *slog.Logger, cfg HTTPServerConfig) func (w http.ResponseWriter, req *http.Request) {
+func handleStatus(log *slog.Logger, cfg HTTPServerConfig) func(w http.ResponseWriter, req *http.Request) {
 	return func(w http.ResponseWriter, req *http.Request) {
 		_ = &ctypes.ResultStatus{
 			NodeInfo: cmtp2p.DefaultNodeInfo{
@@ -401,16 +401,15 @@ func handleStatus(log *slog.Logger, cfg HTTPServerConfig) func (w http.ResponseW
 			},
 			SyncInfo: ctypes.SyncInfo{
 
-				LatestBlockHash: []byte{},
-				LatestAppHash: []byte{},
-				LatestBlockHeight: 0,
-				LatestBlockTime: time.Now(),
-				EarliestBlockHash: []byte{},
-				EarliestAppHash: []byte{},
+				LatestBlockHash:     []byte{},
+				LatestAppHash:       []byte{},
+				LatestBlockHeight:   0,
+				LatestBlockTime:     time.Now(),
+				EarliestBlockHash:   []byte{},
+				EarliestAppHash:     []byte{},
 				EarliestBlockHeight: 0,
-				EarliestBlockTime: time.Now(),
-				CatchingUp: false,
-
+				EarliestBlockTime:   time.Now(),
+				CatchingUp:          false,
 			},
 			ValidatorInfo: ctypes.ValidatorInfo{
 				Address: []byte{},
@@ -422,30 +421,30 @@ func handleStatus(log *slog.Logger, cfg HTTPServerConfig) func (w http.ResponseW
 	}
 }
 
-func handleSubscribe(log *slog.Logger, cfg HTTPServerConfig) func (w http.ResponseWriter, req *http.Request) {
+func handleSubscribe(log *slog.Logger, cfg HTTPServerConfig) func(w http.ResponseWriter, req *http.Request) {
 	return func(w http.ResponseWriter, req *http.Request) {
 		// TODO: subscribe to events via a websocket. Would be nice to add this feature as some interfaces rely on it
 		http.Error(w, "not yet implemented", http.StatusNotImplemented)
 	}
 }
 
-func handleTx(log *slog.Logger, cfg HTTPServerConfig) func (w http.ResponseWriter, req *http.Request) {
+func handleTx(log *slog.Logger, cfg HTTPServerConfig) func(w http.ResponseWriter, req *http.Request) {
 	return func(w http.ResponseWriter, req *http.Request) {
 		// Request
 		// hash []byte
 		// prove bool
 		_ = &ctypes.ResultTx{
-			Hash: []byte{},
-			Height: 0,
+			Hash:     []byte{},
+			Height:   0,
 			TxResult: abcitypes.ExecTxResult{},
-			Tx: tmtypes.Tx{},
-			Proof: tmtypes.TxProof{},
+			Tx:       tmtypes.Tx{},
+			Proof:    tmtypes.TxProof{},
 		}
 		http.Error(w, "not yet implemented", http.StatusNotImplemented)
 	}
 }
 
-func handleTxSearch(log *slog.Logger, cfg HTTPServerConfig) func (w http.ResponseWriter, req *http.Request) {
+func handleTxSearch(log *slog.Logger, cfg HTTPServerConfig) func(w http.ResponseWriter, req *http.Request) {
 	return func(w http.ResponseWriter, req *http.Request) {
 		// Request
 		// query string
@@ -454,40 +453,40 @@ func handleTxSearch(log *slog.Logger, cfg HTTPServerConfig) func (w http.Respons
 		// perPage int
 		// orderBy string
 		_ = &ctypes.ResultTxSearch{
-			Txs: []*ctypes.ResultTx{},
+			Txs:        []*ctypes.ResultTx{},
 			TotalCount: 0,
 		}
 		http.Error(w, "not yet implemented", http.StatusNotImplemented)
 	}
 }
 
-func handleUnconfirmedTxs(log *slog.Logger, cfg HTTPServerConfig) func (w http.ResponseWriter, req *http.Request) {
+func handleUnconfirmedTxs(log *slog.Logger, cfg HTTPServerConfig) func(w http.ResponseWriter, req *http.Request) {
 	return func(w http.ResponseWriter, req *http.Request) {
 		_ = &ctypes.ResultUnconfirmedTxs{
-			Count: 0,
-			Total: 0,
-			Txs: []tmtypes.Tx{},
+			Count:      0,
+			Total:      0,
+			Txs:        []tmtypes.Tx{},
 			TotalBytes: 0,
 		}
 		http.Error(w, "not yet implemented", http.StatusNotImplemented)
 	}
 }
 
-func handleUnsubscribe(log *slog.Logger, cfg HTTPServerConfig) func (w http.ResponseWriter, req *http.Request) {
+func handleUnsubscribe(log *slog.Logger, cfg HTTPServerConfig) func(w http.ResponseWriter, req *http.Request) {
 	return func(w http.ResponseWriter, req *http.Request) {
 		// TODO: subscribe to events via a websocket. Would be nice to add this feature as some interfaces rely on it
 		http.Error(w, "not yet implemented", http.StatusNotImplemented)
 	}
 }
 
-func unsubscribeAll(log *slog.Logger, cfg HTTPServerConfig) func (w http.ResponseWriter, req *http.Request) {
+func unsubscribeAll(log *slog.Logger, cfg HTTPServerConfig) func(w http.ResponseWriter, req *http.Request) {
 	return func(w http.ResponseWriter, req *http.Request) {
 		// TODO: subscribe to events via a websocket. Would be nice to add this feature as some interfaces rely on it
 		http.Error(w, "not yet implemented", http.StatusNotImplemented)
 	}
 }
 
-func handleValidators(log *slog.Logger, cfg HTTPServerConfig) func (w http.ResponseWriter, req *http.Request) {
+func handleValidators(log *slog.Logger, cfg HTTPServerConfig) func(w http.ResponseWriter, req *http.Request) {
 	return func(w http.ResponseWriter, req *http.Request) {
 		// Request
 		// height *int64
@@ -495,9 +494,9 @@ func handleValidators(log *slog.Logger, cfg HTTPServerConfig) func (w http.Respo
 		// perPage int
 		_ = &ctypes.ResultValidators{
 			BlockHeight: 0,
-			Validators: []*tmtypes.Validator{},
-			Count: 0,
-			Total: 0,
+			Validators:  []*tmtypes.Validator{},
+			Count:       0,
+			Total:       0,
 		}
 		http.Error(w, "not yet implemented", http.StatusNotImplemented)
 	}
