@@ -172,6 +172,9 @@ func (c *ConsensusStrategy[T]) ChooseProposedBlock(
 	if err == tmconsensus.ErrProposedBlockChoiceNotReady {
 		return "", nil
 	}
+	if err != nil {
+		return "", err
+	}
 
 	return h, nil
 }
