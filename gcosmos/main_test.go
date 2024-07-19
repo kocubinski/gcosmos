@@ -151,14 +151,53 @@ func TestRootCmd_startWithGordian_multipleValidators(t *testing.T) {
 		},
 	})
 
-	httpAddrDir := t.TempDir()
+	addrDir := t.TempDir()
+	p2pSeedPath := filepath.Join(addrDir, "p2p.seed.txt")
+
+	seedDone := make(chan struct{})
+	go func() {
+		defer close(seedDone)
+		// Just discard the run result.
+		// If the seed fails to start, we will have obvious failures later.
+		_ = c.RootCmds[0].RunC(ctx, "gordian", "seed", p2pSeedPath)
+	}()
+	defer func() {
+		<-seedDone
+	}()
+	defer cancel()
+
+	var seedAddrs string
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		b, err := os.ReadFile(p2pSeedPath)
+		if err != nil {
+			if os.IsNotExist(err) {
+				time.Sleep(20 * time.Millisecond)
+				continue
+			}
+			t.Fatalf("failed to read p2p seed path file %q: %v", p2pSeedPath, err)
+		}
+
+		if !bytes.HasSuffix(b, []byte("\n")) {
+			// Very unlikely partial write to file;
+			// delay and try again.
+			time.Sleep(20 * time.Millisecond)
+			continue
+		}
+
+		// Otherwise it does end with a \n.
+		// We will assume that we have sufficient addresses to connect to,
+		// if there is at least one entry.
+		seedAddrs = strings.TrimSuffix(string(b), "\n")
+	}
+
 	httpAddrFiles := make([]string, interestingVals)
 
 	// Ensure the start command has fully completed by the end of the test.
 	var wg sync.WaitGroup
 	wg.Add(interestingVals)
 	for i := range interestingVals {
-		httpAddrFiles[i] = filepath.Join(httpAddrDir, fmt.Sprintf("http_addr_%d.txt", i))
+		httpAddrFiles[i] = filepath.Join(addrDir, fmt.Sprintf("http_addr_%d.txt", i))
 
 		go func(i int) {
 			defer wg.Done()
@@ -168,6 +207,7 @@ func TestRootCmd_startWithGordian_multipleValidators(t *testing.T) {
 				// Then include the HTTP server flags.
 				startCmd = append(
 					startCmd,
+					"--g-seed-addrs", seedAddrs,
 					"--g-http-addr", "127.0.0.1:0",
 					"--g-http-addr-file", httpAddrFiles[i],
 				)

@@ -18,6 +18,9 @@ import (
 	"github.com/cometbft/cometbft/privval"
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/libp2p/go-libp2p"
+	dht "github.com/libp2p/go-libp2p-kad-dht"
+	libp2phost "github.com/libp2p/go-libp2p/core/host"
+	libp2ppeer "github.com/libp2p/go-libp2p/core/peer"
 	"github.com/rollchains/gordian/gcosmos/gserver/internal/gsi"
 	"github.com/rollchains/gordian/gcrypto"
 	"github.com/rollchains/gordian/gwatchdog"
@@ -30,6 +33,7 @@ import (
 	"github.com/rollchains/gordian/tm/tmp2p/tmlibp2p"
 	"github.com/rollchains/gordian/tm/tmstore"
 	"github.com/rollchains/gordian/tm/tmstore/tmmemstore"
+	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
 )
@@ -57,6 +61,8 @@ type Component[T transaction.Tx] struct {
 	conn   *tmlibp2p.Connection
 	e      *tmengine.Engine
 	driver *gsi.Driver[T]
+
+	seedAddrs string
 
 	httpLn     net.Listener
 	ms         tmstore.MirrorStore
@@ -101,6 +107,24 @@ func (c *Component[T]) Start(ctx context.Context) error {
 	c.h = h
 
 	c.log.Info("Started libp2p host", "id", h.Libp2pHost().ID().String())
+
+	for _, seedAddr := range strings.Split(c.seedAddrs, "\n") {
+		if seedAddr == "" {
+			// If c.seedAddrs was empty, skip so we don't log a misleading warning.
+			continue
+		}
+
+		ai, err := libp2ppeer.AddrInfoFromString(seedAddr)
+		if err != nil {
+			c.log.Warn("Failed to parse seed address", "addr", seedAddr, "err", err)
+			continue
+		}
+
+		if err := h.Libp2pHost().Connect(ctx, *ai); err != nil {
+			c.log.Warn("Failed to connect to seed address", "addr", seedAddr, "err", err)
+			continue
+		}
+	}
 
 	reg := new(gcrypto.Registry)
 	gcrypto.RegisterEd25519(reg)
@@ -244,6 +268,11 @@ func (c *Component[T]) Init(app serverv2.AppI[T], v *viper.Viper, log cosmoslog.
 		c.httpLn = ln
 	}
 
+	c.seedAddrs = v.GetString(seedAddrsFlag)
+	if c.seedAddrs == "" {
+		c.log.Warn("No seed addresses provided; relying on incoming connections to discover peers")
+	}
+
 	c.app = app
 
 	// Load the comet config, in order to read the privval key from disk.
@@ -311,6 +340,8 @@ func (c *Component[T]) Init(app serverv2.AppI[T], v *viper.Viper, log cosmoslog.
 const (
 	httpAddrFlag     = "g-http-addr"
 	httpAddrFileFlag = "g-http-addr-file"
+
+	seedAddrsFlag = "g-seed-addrs"
 )
 
 func (c *Component[T]) StartCmdFlags() *pflag.FlagSet {
@@ -318,6 +349,8 @@ func (c *Component[T]) StartCmdFlags() *pflag.FlagSet {
 
 	flags.String(httpAddrFlag, "", "TCP address of Gordian's introspective HTTP server; if blank, server will not be started")
 	flags.String(httpAddrFileFlag, "", "Write the actual Gordian HTTP listen address to the given file (useful for tests when configured to listen on :0)")
+
+	flags.String(seedAddrsFlag, "", "Newline-separated multiaddrs to connect to; if omitted, relies on incoming connections to discover peers")
 
 	return flags
 }
@@ -330,4 +363,71 @@ func (c *Component[T]) WriteDefaultConfigAt(configPath string) error {
 		return fmt.Errorf("could not create empty config file: %w", err)
 	}
 	return f.Close()
+}
+
+func (c *Component[T]) CLICommands() serverv2.CLIConfig {
+	return serverv2.CLIConfig{
+		Commands: []*cobra.Command{newSeedCommand()},
+	}
+}
+
+func newSeedCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:   "seed",
+		Short: `Run a "seed node" as a central discovery point for other libp2p nodes`,
+		Args:  cobra.ExactArgs(1),
+
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx, cancel := context.WithCancel(cmd.Context())
+			defer cancel()
+
+			h, err := tmlibp2p.NewHost(
+				ctx,
+				tmlibp2p.HostOptions{
+					Options: []libp2p.Option{
+						// Since unspecified, use a dynamic identity and a random listening address.
+						// Specify only tcp for the protocol, just for simplicity in stack traces.
+						libp2p.ListenAddrStrings("/ip4/0.0.0.0/tcp/0"),
+
+						// Unsure if this is something we always want.
+						// Can be controlled by a flag later if undesirable by default.
+						libp2p.ForceReachabilityPublic(),
+					},
+				},
+			)
+			if err != nil {
+				return fmt.Errorf("failed to create libp2p host: %w", err)
+			}
+
+			host := h.Libp2pHost()
+
+			// We currently rely on the libp2p DHT for peer discovery,
+			// so the seed node needs to run the DHT as well.
+			// The validators connect to the DHT through the tmlibp2p.Connection type.
+			if _, err := dht.New(ctx, host, dht.ProtocolPrefix("/gordian")); err != nil {
+				return fmt.Errorf("failed to create DHT peer for seed: %w", err)
+			}
+
+			hostInfo := libp2phost.InfoFromHost(host)
+			p2pAddrs, err := libp2ppeer.AddrInfoToP2pAddrs(hostInfo)
+			if err != nil {
+				return fmt.Errorf("failed to get host p2p addrs: %w", err)
+			}
+
+			var hostAddrs []string
+			for _, a := range p2pAddrs {
+				hostAddrs = append(hostAddrs, a.String())
+			}
+
+			joinedAddrs := strings.Join(hostAddrs, "\n") + "\n" // Trailing newline indicates proper end of input.
+
+			if err := os.WriteFile(args[0], []byte(joinedAddrs), 0600); err != nil {
+				return fmt.Errorf("failed to write seed address output file %q: %w", args[0], err)
+			}
+
+			fmt.Fprintf(cmd.ErrOrStderr(), "Seed running at multiaddrs: %s\n", joinedAddrs)
+
+			return nil
+		},
+	}
 }
