@@ -52,6 +52,8 @@ type Component[T transaction.Tx] struct {
 
 	app serverv2.AppI[T]
 
+	signer gcrypto.Signer
+
 	// Partially set up during Init,
 	// then used during Start.
 	opts []tmengine.Opt
@@ -173,7 +175,7 @@ func (c *Component[T]) Start(ctx context.Context) error {
 
 	// We needed the driver before we could make the consensus strategy.
 	opts = append(opts, tmengine.WithConsensusStrategy(
-		gsi.NewConsensusStrategy(c.log.With("serversys", "cons_strat"), d),
+		gsi.NewConsensusStrategy(c.log.With("serversys", "cons_strat"), d, c.signer),
 	))
 
 	// Depends on conn.
@@ -290,12 +292,11 @@ func (c *Component[T]) Init(app serverv2.AppI[T], v *viper.Viper, log cosmoslog.
 		))
 	}
 
-	var signer gcrypto.Signer
 	// TODO: we should allow a way to explicitly NOT provide a signer.
-	signer = gcrypto.NewEd25519Signer(ed25519.PrivateKey(privKey.Bytes()))
+	c.signer = gcrypto.NewEd25519Signer(ed25519.PrivateKey(privKey.Bytes()))
 
 	var as *tmmemstore.ActionStore
-	if signer != nil {
+	if c.signer != nil {
 		as = tmmemstore.NewActionStore()
 	}
 
@@ -315,7 +316,7 @@ func (c *Component[T]) Init(app serverv2.AppI[T], v *viper.Viper, log cosmoslog.
 	}
 
 	c.opts = []tmengine.Opt{
-		tmengine.WithSigner(signer),
+		tmengine.WithSigner(c.signer),
 
 		tmengine.WithActionStore(as),
 		tmengine.WithBlockStore(bs),

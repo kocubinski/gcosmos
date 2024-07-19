@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"cosmossdk.io/core/transaction"
+	"github.com/rollchains/gordian/gcrypto"
 	"github.com/rollchains/gordian/internal/gchan"
 	"github.com/rollchains/gordian/tm/tmconsensus"
 )
@@ -18,6 +19,8 @@ type ConsensusStrategy[T transaction.Tx] struct {
 
 	d *Driver[T]
 
+	signer gcrypto.Signer
+
 	curH uint64
 	curR uint32
 }
@@ -25,10 +28,12 @@ type ConsensusStrategy[T transaction.Tx] struct {
 func NewConsensusStrategy[T transaction.Tx](
 	log *slog.Logger,
 	d *Driver[T],
+	signer gcrypto.Signer,
 ) *ConsensusStrategy[T] {
 	return &ConsensusStrategy[T]{
-		log: log,
-		d:   d,
+		log:    log,
+		d:      d,
+		signer: signer,
 	}
 }
 
@@ -62,8 +67,11 @@ func (c *ConsensusStrategy[T]) EnterRound(
 	c.curH = rv.Height
 	c.curR = rv.Round
 
-	// TODO: a better system of determining whether we should propose this block.
-	const weShouldPropose = true
+	// Very naive round-robin-ish proposer selection.
+	proposerIdx := (int(rv.Height) + int(rv.Round)) % len(rv.Validators)
+
+	proposingVal := rv.Validators[proposerIdx]
+	weShouldPropose := proposingVal.PubKey.Equal(c.signer.PubKey())
 	if !weShouldPropose {
 		return nil
 	}
@@ -76,7 +84,7 @@ func (c *ConsensusStrategy[T]) EnterRound(
 
 	ba, err := NewBlockAnnotation(time.Now())
 	if err != nil {
-		return errors.New("BUG: failed to json marshal block annotation")
+		return fmt.Errorf("failed to create block annotation: %w", err)
 	}
 
 	if !gchan.SendC(
