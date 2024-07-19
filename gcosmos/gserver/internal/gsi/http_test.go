@@ -25,13 +25,13 @@ func TestHTTPServer_Blocks_Watermark(t *testing.T) {
 
 	ms := tmmemstore.NewMirrorStore()
 
-	h, err := gsi.NewHTTPServer(ctx, gtest.NewLogger(t), gsi.HTTPServerConfig{
+	h := gsi.NewHTTPServer(ctx, gtest.NewLogger(t), gsi.HTTPServerConfig{
 		Listener:    ln,
 		MirrorStore: ms,
 		Libp2pHost:  nil,
 		Libp2pconn:  nil,
 	})
-	require.NoError(t, err)
+	// require.NoError(t, err)
 
 	defer h.Wait()
 	defer cancel()
