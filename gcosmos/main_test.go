@@ -120,7 +120,9 @@ func TestRootCmd_startWithGordian_singleValidator(t *testing.T) {
 }
 
 func TestRootCmd_startWithGordian_multipleValidators(t *testing.T) {
-	t.Skip("Not yet ready")
+	if testing.Short() {
+		t.Skip("skipping slow test in short mode")
+	}
 
 	const totalVals = 11
 	const interestingVals = 4
@@ -256,7 +258,9 @@ func TestRootCmd_startWithGordian_multipleValidators(t *testing.T) {
 		// TODO: we might need to delay until we get a non-error HTTP response.
 
 		// Another deadline to confirm the voting height.
-		deadline = time.Now().Add(10 * time.Second)
+		// This is a lot longer than the deadline to check HTTP addresses
+		// because the very first proposed block at 1/0 is expected to time out.
+		deadline = time.Now().Add(30 * time.Second)
 		var maxHeight uint
 		for time.Now().Before(deadline) {
 			resp, err := http.Get(u)
@@ -268,12 +272,12 @@ func TestRootCmd_startWithGordian_multipleValidators(t *testing.T) {
 			resp.Body.Close()
 
 			maxHeight = m["VotingHeight"]
-			if maxHeight < 3 {
+			if maxHeight < 4 {
 				time.Sleep(100 * time.Millisecond)
 				continue
 			}
 
-			// We got at least to height 3, so quit the loop.
+			// We got at least to height 4, so quit the loop.
 			break
 		}
 
