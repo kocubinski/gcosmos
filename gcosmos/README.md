@@ -16,12 +16,19 @@ You may need to run `go work sync` from the `gcosmos` directory again.
 
 ### New patches
 
-If further patching to the SDK is required for any reason,
-add new patches to the `patches` directory.
-The easiest way to do this is to create a commit locally in the `_cosmosvendor/cosmos-sdk` repository,
-and then run `git format-patch -o ../patches/ HEAD^` to add the patch for only your most recent commit
-into the `patches` directory. The `sync_sdk.bash` script applies any patches declared in that directory
-following the sync to the commit specified in `_cosmosvendor/COSMOS_SDK.commit`.
+New patches to the SDK should build upon the existing patches,
+so long as the existing patches are necessary.
+
+To continue adding patches on top of the existing ones,
+the simplest workflow is:
+
+1. Ensure you are already synced via the `sync_sdk.bash` script.
+2. Ensure you have the latest SDK commit, typically via `git fetch` inside the `_cosmosvendor/cosmos-sdk` directory.
+3. Rebase the existing patch set onto the latest commit, typically with `git rebase origin/main`. Address conflicts as needed.
+4. Optionally commit new code to your SDK checkout.
+4. From your new rebased set of patches, within the `_cosmosvendor/cosmos-sdk` directory,
+   run `git format-patch -o ../patches origin/main` to overwrite the existing set of patches with a new set that no longer has conflicts.
+5. Be sure to update `_cosmosvendor/COSMOS_SDK.commit`.
 
 Of course, upstreaming changes to the actual Cosmos SDK repository would be preferred,
 but sometimes a local patch makes more sense.

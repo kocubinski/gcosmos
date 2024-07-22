@@ -1,4 +1,4 @@
-From b3e231f73ffd2b6325f11158f5c8a7bc4dbbf830 Mon Sep 17 00:00:00 2001
+From 9b8d583cba7bd06d21ed6c4b804518a134f9981f Mon Sep 17 00:00:00 2001
 From: Mark Rushakoff <mark@strange.love>
 Date: Wed, 17 Jul 2024 09:51:38 -0400
 Subject: [PATCH 4/5] chore: allow discovery of anonymous GRPC server addr
@@ -9,12 +9,11 @@ contain the actual bound address.
 
 And fix the server start command to actually expose that flag.
 ---
- server/v2/api/grpc/server.go | 20 ++++++++++++++++++++
- server/v2/commands.go        |  9 ++++++++-
- 2 files changed, 28 insertions(+), 1 deletion(-)
+ server/v2/api/grpc/server.go | 24 ++++++++++++++++++++++++
+ 1 file changed, 24 insertions(+)
 
 diff --git a/server/v2/api/grpc/server.go b/server/v2/api/grpc/server.go
-index 7f73472a33..d5ce6e6df0 100644
+index c5e31f5dfc..3837c9bb1e 100644
 --- a/server/v2/api/grpc/server.go
 +++ b/server/v2/api/grpc/server.go
 @@ -4,7 +4,9 @@ import (
@@ -44,16 +43,20 @@ index 7f73472a33..d5ce6e6df0 100644
  
  	return nil
  }
-@@ -75,6 +80,8 @@ func (s *GRPCServer[T]) Config() any {
+@@ -75,6 +80,12 @@ func (s *GRPCServer[T]) Config() any {
  	return s.config
  }
  
-+const addrFileFlag = "grpc-address-file"
++// This flag has a leading dot to ensure it does not conflict with
++// the core grpc configuration,
++// as SDK setup involves prefix matching that will sometimes match
++// this flag as a false positive.
++const addrFileFlag = ".grpc-address-file"
 +
  func (s *GRPCServer[T]) Start(ctx context.Context) error {
  	if !s.config.Enable {
  		return nil
-@@ -85,6 +92,13 @@ func (s *GRPCServer[T]) Start(ctx context.Context) error {
+@@ -85,6 +96,13 @@ func (s *GRPCServer[T]) Start(ctx context.Context) error {
  		return fmt.Errorf("failed to listen on address %s: %w", s.config.Address, err)
  	}
  
@@ -67,7 +70,7 @@ index 7f73472a33..d5ce6e6df0 100644
  	errCh := make(chan error)
  
  	// Start the gRPC in an external goroutine as Serve is blocking and will return
-@@ -112,3 +126,9 @@ func (s *GRPCServer[T]) Stop(ctx context.Context) error {
+@@ -112,3 +130,9 @@ func (s *GRPCServer[T]) Stop(ctx context.Context) error {
  
  	return nil
  }
@@ -77,33 +80,6 @@ index 7f73472a33..d5ce6e6df0 100644
 +	flags.String(addrFileFlag, "", "Write the actual listen address to the given file (useful for tests when configured to listen on :0)")
 +	return flags
 +}
-diff --git a/server/v2/commands.go b/server/v2/commands.go
-index 2aeb2dda24..77af441c7b 100644
---- a/server/v2/commands.go
-+++ b/server/v2/commands.go
-@@ -103,7 +103,7 @@ func createStartCommand[T transaction.Tx](
- ) *cobra.Command {
- 	flags := server.StartFlags()
- 
--	return &cobra.Command{
-+	cmd := &cobra.Command{
- 		Use:   "start",
- 		Short: "Run the application",
- 		RunE: func(cmd *cobra.Command, args []string) error {
-@@ -144,6 +144,13 @@ func createStartCommand[T transaction.Tx](
- 			return nil
- 		},
- 	}
-+
-+	// Ensure all the flags are available directly on the command too.
-+	for _, fs := range flags {
-+		cmd.Flags().AddFlagSet(fs)
-+	}
-+
-+	return cmd
- }
- 
- // configHandle writes the default config to the home directory if it does not exist and sets the server context
 -- 
 2.44.0
 

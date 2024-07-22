@@ -264,7 +264,7 @@ func TestRootCmd_startWithGordian_multipleValidators(t *testing.T) {
 		var maxHeight uint
 		for time.Now().Before(deadline) {
 			resp, err := http.Get(u)
-			require.NoError(t, err)
+			require.NoErrorf(t, err, "failed to get the watermark for validator %d/%d", i, interestingVals)
 			require.Equal(t, http.StatusOK, resp.StatusCode)
 
 			var m map[string]uint

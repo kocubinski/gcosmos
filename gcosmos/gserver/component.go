@@ -356,9 +356,9 @@ func (c *Component[T]) StartCmdFlags() *pflag.FlagSet {
 	return flags
 }
 
-// WriteDefaultConfigAt satisfies an undocumented interface,
+// WriteCustomConfigAt satisfies an undocumented interface,
 // and here we emulate what Comet does in order to get past some error expecting this file to exist.
-func (c *Component[T]) WriteDefaultConfigAt(configPath string) error {
+func (c *Component[T]) WriteCustomConfigAt(configPath string) error {
 	f, err := os.Create(filepath.Join(configPath, "config.toml"))
 	if err != nil {
 		return fmt.Errorf("could not create empty config file: %w", err)

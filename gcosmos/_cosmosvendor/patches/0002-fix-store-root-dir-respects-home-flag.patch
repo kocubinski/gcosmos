@@ -1,4 +1,4 @@
-From 4e9aa13abebacd993a16038d744d11bb6e0d0915 Mon Sep 17 00:00:00 2001
+From f62d1a52914057f6033b9d5727e3504df8e3c50d Mon Sep 17 00:00:00 2001
 From: Mark Rushakoff <mark@strange.love>
 Date: Mon, 1 Jul 2024 14:43:02 -0400
 Subject: [PATCH 2/5] fix: store root dir respects --home flag

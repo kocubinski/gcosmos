@@ -1,4 +1,4 @@
-From 6b4cecb18d808f2182de8ef7114d46d3a2999cf3 Mon Sep 17 00:00:00 2001
+From 0a70b428ded63c906b13f62c99a89fb2823b7f3a Mon Sep 17 00:00:00 2001
 From: Mark Rushakoff <mark@strange.love>
 Date: Tue, 9 Jul 2024 14:12:55 -0400
 Subject: [PATCH 3/5] chore: use slog for server v2 logging
@@ -11,18 +11,18 @@ This just plugs in easier with gcosmos tests, for now at least.
  create mode 100644 server/v2/slog.go
 
 diff --git a/server/v2/commands.go b/server/v2/commands.go
-index dd62c1518a..2aeb2dda24 100644
+index a0b2b05ae9..50a073cd9c 100644
 --- a/server/v2/commands.go
 +++ b/server/v2/commands.go
-@@ -4,6 +4,7 @@ import (
+@@ -3,6 +3,7 @@ package serverv2
+ import (
  	"context"
  	"errors"
- 	"fmt"
 +	"log/slog"
  	"os"
  	"os/signal"
  	"path/filepath"
-@@ -170,10 +171,10 @@ func configHandle[T transaction.Tx](s *Server[T], cmd *cobra.Command) error {
+@@ -169,10 +170,10 @@ func configHandle[T transaction.Tx](s *Server[T], cmd *cobra.Command) error {
  		return err
  	}
  
