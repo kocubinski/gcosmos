@@ -1,4 +1,4 @@
-From 9b8d583cba7bd06d21ed6c4b804518a134f9981f Mon Sep 17 00:00:00 2001
+From 320b9ee5c8d283c4ea0a2d58599e09230d599895 Mon Sep 17 00:00:00 2001
 From: Mark Rushakoff <mark@strange.love>
 Date: Wed, 17 Jul 2024 09:51:38 -0400
 Subject: [PATCH 4/5] chore: allow discovery of anonymous GRPC server addr

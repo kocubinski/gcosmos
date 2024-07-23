@@ -1,4 +1,4 @@
-From f62d1a52914057f6033b9d5727e3504df8e3c50d Mon Sep 17 00:00:00 2001
+From 9964eda17405c06c25dec70250edc7885745b33e Mon Sep 17 00:00:00 2001
 From: Mark Rushakoff <mark@strange.love>
 Date: Mon, 1 Jul 2024 14:43:02 -0400
 Subject: [PATCH 2/5] fix: store root dir respects --home flag
@@ -6,37 +6,29 @@ Subject: [PATCH 2/5] fix: store root dir respects --home flag
 It was hardcoded to the default home, which is incompatible with tests
 that use a temporary directory per simapp instance.
 ---
- simapp/v2/app_di.go | 10 +++++++---
- 1 file changed, 7 insertions(+), 3 deletions(-)
+ simapp/v2/app_di.go | 2 --
+ 1 file changed, 2 deletions(-)
 
 diff --git a/simapp/v2/app_di.go b/simapp/v2/app_di.go
-index 5f4b2455bc..cffd31aa8a 100644
+index 7219193935..f4c2a34f4e 100644
 --- a/simapp/v2/app_di.go
 +++ b/simapp/v2/app_di.go
-@@ -96,8 +96,12 @@ func NewSimApp[T transaction.Tx](
+@@ -12,7 +12,6 @@ import (
+ 	"cosmossdk.io/core/transaction"
+ 	"cosmossdk.io/depinject"
+ 	"cosmossdk.io/runtime/v2"
+-	serverv2 "cosmossdk.io/server/v2"
+ 	"cosmossdk.io/x/accounts"
+ 	authkeeper "cosmossdk.io/x/auth/keeper"
+ 	authzkeeper "cosmossdk.io/x/authz/keeper"
+@@ -91,7 +90,6 @@ func NewSimApp[T transaction.Tx](
  	logger log.Logger,
  	viper *viper.Viper,
  ) *SimApp[T] {
 -	viper.Set(serverv2.FlagHome, DefaultNodeHome) // TODO possibly set earlier when viper is created
--	scRawDb, err := db.NewGoLevelDB("application", filepath.Join(DefaultNodeHome, "data"), nil)
-+	homeDir := viper.GetString(serverv2.FlagHome)
-+	if homeDir == "" {
-+		homeDir = DefaultNodeHome
-+	}
-+
-+	scRawDb, err := db.NewGoLevelDB("application", filepath.Join(homeDir, "data"), nil)
- 	if err != nil {
- 		panic(err)
- 	}
-@@ -112,7 +116,7 @@ func NewSimApp[T transaction.Tx](
- 				logger,
- 				&root.FactoryOptions{
- 					Logger:  logger,
--					RootDir: DefaultNodeHome,
-+					RootDir: homeDir,
- 					SSType:  0,
- 					SCType:  0,
- 					SCPruningOption: &store.PruningOption{
+ 	var (
+ 		app        = &SimApp[T]{}
+ 		appBuilder *runtime.AppBuilder[T]
 -- 
 2.44.0
 

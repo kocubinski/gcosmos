@@ -1,4 +1,4 @@
-From 3ab7d7691667f0ff8c23b5ca54f1816c943e6ad6 Mon Sep 17 00:00:00 2001
+From d0bbbfbcfe7671210c8a004759e179b28797eb01 Mon Sep 17 00:00:00 2001
 From: Mark Rushakoff <mark@strange.love>
 Date: Wed, 17 Jul 2024 10:49:18 -0400
 Subject: [PATCH 5/5] fix: respect command context in server start
@@ -25,9 +25,9 @@ index 50a073cd9c..bd2e73ff11 100644
 +				case <-ctx.Done():
 +					cancelFn()
 +				}
-
+ 
  				if err := server.Stop(ctx); err != nil {
  					cmd.PrintErrln("failed to stop servers:", err)
---
+-- 
 2.44.0
 
