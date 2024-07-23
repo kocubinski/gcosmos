@@ -59,17 +59,6 @@ func TestWatchdog_Terminate_afterParentCancel(t *testing.T) {
 	require.False(t, gwatchdog.IsTermination(wCtx))
 }
 
-// longResponseTimeoutConfig uses a very short interval and jitter
-// with a long response timeout, so the monitor check begins quickly
-// but should be very easy for any test runner to respond within the timeout.
-func longResponseTimeoutConfig(name string) gwatchdog.MonitorConfig {
-	return gwatchdog.MonitorConfig{
-		Name:     name,
-		Interval: 100 * time.Microsecond, Jitter: 10 * time.Microsecond,
-		ResponseTimeout: time.Minute,
-	}
-}
-
 func TestWatchdog_monitor_notAcceptingSignalCausesTermination(t *testing.T) {
 	t.Parallel()
 

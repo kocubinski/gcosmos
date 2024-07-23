@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"math/rand"
 	"net/rpc"
 	"os"
 	"os/signal"
@@ -136,7 +135,6 @@ func newSeedCmd(log *slog.Logger) *cobra.Command {
 			if len(args) == 0 {
 				// petname package is still relying on old math/rand,
 				// and requires an explicit seed.
-				rand.Seed(time.Now().UnixNano())
 				randName := petname.Generate(2, "-")
 
 				// Unix sockets don't work on Windows anyway (right?)
@@ -426,7 +424,7 @@ func newValidatorCmd(log *slog.Logger) *cobra.Command {
 				break
 			}
 			if connectedID == "" {
-				return fmt.Errorf("Failed to connect to any of %d seed address(es)", len(seedAddrs))
+				return fmt.Errorf("failed to connect to any of %d seed address(es)", len(seedAddrs))
 			}
 
 			// Now that we are connected over libp2p, open the seed RPC.
@@ -713,9 +711,6 @@ func newPetnameCmd() *cobra.Command {
 		Hidden: true,
 		Args:   cobra.NoArgs,
 		Run: func(cmd *cobra.Command, _ []string) {
-			// petname package is still relying on old math/rand,
-			// and requires an explicit seed.
-			rand.Seed(time.Now().UnixNano())
 			fmt.Fprintln(cmd.OutOrStdout(), petname.Generate(2, "-"))
 		},
 	}

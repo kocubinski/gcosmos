@@ -145,7 +145,6 @@ func (h *BootstrapHost) newMux() http.Handler {
 		if _, err := io.WriteString(w, h.s.ChainID()+"\n"); err != nil {
 			h.log.Info("Failed to write chain ID", "err", err)
 		}
-		return
 	}).Methods("GET")
 
 	r.HandleFunc("/chain-id", func(w http.ResponseWriter, req *http.Request) {
@@ -203,7 +202,6 @@ func (h *BootstrapHost) newMux() http.Handler {
 
 		w.WriteHeader(http.StatusNoContent)
 		h.s.SetApp(strings.TrimSpace(string(a)))
-		return
 	}).Methods("POST")
 
 	r.HandleFunc("/register-validator", h.httpRegisterValidator).Methods("POST")

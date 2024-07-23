@@ -18,11 +18,7 @@ func IsTermination(ctx context.Context) bool {
 	}
 
 	var ft ForcedTerminationError
-	if errors.As(e, &ft) {
-		return true
-	}
-
-	return false
+	return errors.As(e, &ft)
 }
 
 // FailureToRespondError indicates a particular subsystem failed to respond
