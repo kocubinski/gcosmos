@@ -149,8 +149,12 @@ func (s *identityConsensusStrategy) EnterRound(ctx context.Context, rv tmconsens
 
 			// Just to exercise the annotations, set them to the ascii value of the proposer index,
 			// prefixed with a "p" or "b" for proposal or block.
-			ProposalAnnotation: strconv.AppendInt([]byte("p"), int64(s.expProposerIndex), 10),
-			BlockAnnotation:    strconv.AppendInt([]byte("b"), int64(s.expProposerIndex), 10),
+			ProposalAnnotations: tmconsensus.Annotations{
+				Driver: strconv.AppendInt([]byte("p"), int64(s.expProposerIndex), 10),
+			},
+			BlockAnnotations: tmconsensus.Annotations{
+				Driver: strconv.AppendInt([]byte("b"), int64(s.expProposerIndex), 10),
+			},
 		}
 	}
 
@@ -167,12 +171,12 @@ func (s *identityConsensusStrategy) ConsiderProposedBlocks(ctx context.Context, 
 		}
 
 		expPA := strconv.AppendInt([]byte("p"), int64(s.expProposerIndex), 10)
-		if !bytes.Equal(pb.Annotations.App, expPA) {
+		if !bytes.Equal(pb.Annotations.Driver, expPA) {
 			return "", nil
 		}
 
 		expBA := strconv.AppendInt([]byte("b"), int64(s.expProposerIndex), 10)
-		if !bytes.Equal(pb.Block.Annotations.App, expBA) {
+		if !bytes.Equal(pb.Block.Annotations.Driver, expBA) {
 			return "", nil
 		}
 

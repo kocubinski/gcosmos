@@ -10,11 +10,8 @@ import (
 type Proposal struct {
 	AppDataID string // TODO: this should switch back to []byte.
 
-	// If set, populates the [ProposedBlock.Annotations.App] field.
-	ProposalAnnotation []byte
-
-	// If set, populates the [Block.Annotations.App] field.
-	BlockAnnotation []byte
+	// Respectively sets [ProposedBlock.Annotations] and [Block.Annotations].
+	ProposalAnnotations, BlockAnnotations Annotations
 }
 
 // ConsensusStrategy determines how a state machine proposes blocks

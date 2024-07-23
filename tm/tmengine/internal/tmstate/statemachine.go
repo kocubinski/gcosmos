@@ -1020,22 +1020,14 @@ func (m *StateMachine) recordProposedBlock(
 
 			PrevAppStateHash: []byte(rlc.PrevFinAppStateHash),
 
-			Annotations: tmconsensus.Annotations{
-				App: p.BlockAnnotation,
-
-				// TODO: where will the engine annotations come from?
-			},
+			Annotations: p.BlockAnnotations,
 		},
 
 		Round: r,
 
 		ProposerPubKey: m.signer.PubKey(),
 
-		Annotations: tmconsensus.Annotations{
-			App: p.ProposalAnnotation,
-
-			// TODO: where will the engine annotations come from?
-		},
+		Annotations: p.ProposalAnnotations,
 	}
 
 	hash, err := m.hashScheme.Block(pb.Block)

@@ -91,8 +91,10 @@ func (c *ConsensusStrategy[T]) EnterRound(
 	if !gchan.SendC(
 		ctx, c.log,
 		proposalOut, tmconsensus.Proposal{
-			AppDataID:       fmt.Sprintf("%d/%d", rv.Height, rv.Round),
-			BlockAnnotation: ba,
+			AppDataID: fmt.Sprintf("%d/%d", rv.Height, rv.Round),
+			BlockAnnotations: tmconsensus.Annotations{
+				Driver: ba,
+			},
 		},
 		"sending proposal to engine",
 	) {
@@ -132,7 +134,7 @@ func (c *ConsensusStrategy[T]) ConsiderProposedBlocks(
 			continue
 		}
 
-		ba, err := BlockAnnotationFromBytes(pb.Block.Annotations.App)
+		ba, err := BlockAnnotationFromBytes(pb.Block.Annotations.Driver)
 		if err != nil {
 			c.log.Debug(
 				"Ignoring proposed block due to error extracting block annotation",
