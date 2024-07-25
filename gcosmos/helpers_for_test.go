@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"cosmossdk.io/core/transaction"
@@ -21,12 +22,22 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+var FixedMnemonics = [...]string{
+	"abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon art",
+	"ability ability ability ability ability ability ability ability ability ability ability ability ability ability ability ability ability ability ability ability ability ability ability able",
+}
+
 type ChainConfig struct {
 	ID string
 
 	NVals int
 
+	// Affects only the validators.
 	StakeStrategy StakeStrategy
+
+	// How many "fixed accounts" to create.
+	// The fixed accounts are created with mnemonics from the FixedMnemonics array.
+	NFixedAccounts int
 }
 
 type StakeStrategy func(idx int) string
@@ -59,6 +70,10 @@ func ConfigureChain(t *testing.T, ctx context.Context, cfg ChainConfig) Chain {
 		panic("test setup issue: ChainConfig.NVals must be greater than zero")
 	}
 
+	if cfg.NFixedAccounts > len(FixedMnemonics) {
+		panic(fmt.Errorf("got NFixedAccounts=%d but can only support up to %d (unless FixedMnemonics is updated)", cfg.NFixedAccounts, len(FixedMnemonics)))
+	}
+
 	rootCmds := make([]CmdEnv, cfg.NVals)
 	keyAddresses := make([]string, cfg.NVals)
 
@@ -79,11 +94,9 @@ func ConfigureChain(t *testing.T, ctx context.Context, cfg ChainConfig) Chain {
 		res.NoError(t)
 
 		// Collect the addresses from the JSON output.
-		var keyAddOutput struct {
-			Address string
-		}
-		require.NoError(t, json.Unmarshal(res.Stdout.Bytes(), &keyAddOutput))
-		keyAddresses[i] = keyAddOutput.Address
+		var keyOut keyAddOutput
+		require.NoError(t, json.Unmarshal(res.Stdout.Bytes(), &keyOut))
+		keyAddresses[i] = keyOut.Address
 	}
 
 	// Add each key as a genesis account on the first validator's environment.
@@ -91,6 +104,43 @@ func ConfigureChain(t *testing.T, ctx context.Context, cfg ChainConfig) Chain {
 		rootCmds[0].Run(
 			"genesis", "add-genesis-account",
 			a, cfg.StakeStrategy(i),
+		).NoError(t)
+	}
+
+	var mnemonicDir string
+	var fixedAddresses []string
+	if cfg.NFixedAccounts > 0 {
+		mnemonicDir = t.TempDir()
+		fixedAddresses = make([]string, cfg.NFixedAccounts)
+	}
+	for i := range cfg.NFixedAccounts {
+		m := FixedMnemonics[i]
+		mPath := filepath.Join(mnemonicDir, fmt.Sprintf("%d.txt", i))
+		require.NoError(t, os.WriteFile(mPath, []byte(m), 0o600))
+
+		keyName := fmt.Sprintf("fixed%d", i)
+
+		// Teach each validator environment about the fixed address keys.
+		for j, e := range rootCmds {
+			res := e.RunWithInput(
+				strings.NewReader(m),
+				"keys", "add", keyName, "--output=json", "--recover", "--source", mPath,
+			)
+
+			res.NoError(t)
+
+			if j == 0 {
+				var keyOut keyAddOutput
+				require.NoError(t, json.Unmarshal(res.Stdout.Bytes(), &keyOut))
+				fixedAddresses[i] = keyOut.Address
+			}
+		}
+
+		// And add each fixed address as a genesis account.
+		// This only needs to happen on the first validator.
+		rootCmds[0].Run(
+			"genesis", "add-genesis-account",
+			keyName, "10000stake",
 		).NoError(t)
 	}
 
@@ -228,4 +278,10 @@ func (r RunResult) NoError(t *testing.T) {
 	t.Helper()
 
 	require.NoErrorf(t, r.Err, "OUT: %s\n\nERR: %s", r.Stdout.String(), r.Stderr.String())
+}
+
+// keyAddOutput is used for unmarshaling the output of the keys add command,
+// so that we can collect the bech32 address for the key that was added.
+type keyAddOutput struct {
+	Address string
 }
