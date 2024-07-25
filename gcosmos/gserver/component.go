@@ -40,17 +40,17 @@ import (
 
 // The various interfaces we expect a Component to satisfy.
 var (
-	_ serverv2.ServerComponent[transaction.Tx] = (*Component[transaction.Tx])(nil)
+	_ serverv2.ServerComponent[transaction.Tx] = (*Component)(nil)
 )
 
 // Component is a server component to be injected into the Cosmos SDK server module.
-type Component[T transaction.Tx] struct {
+type Component struct {
 	rootCtx context.Context
 	cancel  context.CancelCauseFunc
 
 	log *slog.Logger
 
-	app serverv2.AppI[T]
+	app serverv2.AppI[transaction.Tx]
 
 	signer gcrypto.Signer
 
@@ -62,7 +62,7 @@ type Component[T transaction.Tx] struct {
 	h      *tmlibp2p.Host
 	conn   *tmlibp2p.Connection
 	e      *tmengine.Engine
-	driver *gsi.Driver[T]
+	driver *gsi.Driver
 
 	seedAddrs string
 
@@ -75,22 +75,22 @@ type Component[T transaction.Tx] struct {
 // ready to be supplied to the Cosmos SDK server module.
 //
 // It accepts a *slog.Logger directly to avoid dealing with SDK loggers.
-func NewComponent[T transaction.Tx](
+func NewComponent(
 	rootCtx context.Context,
 	log *slog.Logger,
-) (*Component[T], error) {
-	var c Component[T]
+) (*Component, error) {
+	var c Component
 	c.rootCtx, c.cancel = context.WithCancelCause(rootCtx)
 	c.log = log.With("sys", "engine")
 
 	return &c, nil
 }
 
-func (c *Component[T]) Name() string {
+func (c *Component) Name() string {
 	return "gordian"
 }
 
-func (c *Component[T]) Start(ctx context.Context) error {
+func (c *Component) Start(ctx context.Context) error {
 	h, err := tmlibp2p.NewHost(
 		c.rootCtx,
 		tmlibp2p.HostOptions{
@@ -150,7 +150,7 @@ func (c *Component[T]) Start(ctx context.Context) error {
 		c.rootCtx,
 		ctx,
 		c.log.With("serversys", "driver"),
-		gsi.DriverConfig[T]{
+		gsi.DriverConfig{
 			ConsensusAuthority: c.app.GetConsensusAuthority(),
 
 			AppManager: c.app.GetAppManager(),
@@ -216,7 +216,7 @@ func (c *Component[T]) Start(ctx context.Context) error {
 	return nil
 }
 
-func (c *Component[T]) Stop(_ context.Context) error {
+func (c *Component) Stop(_ context.Context) error {
 	c.cancel(errors.New("stopped via SDK server module"))
 	if c.e != nil {
 		c.e.Wait()
@@ -243,7 +243,7 @@ func (c *Component[T]) Stop(_ context.Context) error {
 	return nil
 }
 
-func (c *Component[T]) Init(app serverv2.AppI[T], v *viper.Viper, log cosmoslog.Logger) error {
+func (c *Component) Init(app serverv2.AppI[transaction.Tx], v *viper.Viper, log cosmoslog.Logger) error {
 	if c.log == nil {
 		l, ok := log.Impl().(*slog.Logger)
 		if !ok {
@@ -345,7 +345,7 @@ const (
 	seedAddrsFlag = "g-seed-addrs"
 )
 
-func (c *Component[T]) StartCmdFlags() *pflag.FlagSet {
+func (c *Component) StartCmdFlags() *pflag.FlagSet {
 	flags := pflag.NewFlagSet("gserver", pflag.ExitOnError)
 
 	flags.String(httpAddrFlag, "", "TCP address of Gordian's introspective HTTP server; if blank, server will not be started")
@@ -358,7 +358,7 @@ func (c *Component[T]) StartCmdFlags() *pflag.FlagSet {
 
 // WriteCustomConfigAt satisfies an undocumented interface,
 // and here we emulate what Comet does in order to get past some error expecting this file to exist.
-func (c *Component[T]) WriteCustomConfigAt(configPath string) error {
+func (c *Component) WriteCustomConfigAt(configPath string) error {
 	f, err := os.Create(filepath.Join(configPath, "config.toml"))
 	if err != nil {
 		return fmt.Errorf("could not create empty config file: %w", err)
@@ -366,7 +366,7 @@ func (c *Component[T]) WriteCustomConfigAt(configPath string) error {
 	return f.Close()
 }
 
-func (c *Component[T]) CLICommands() serverv2.CLIConfig {
+func (c *Component) CLICommands() serverv2.CLIConfig {
 	return serverv2.CLIConfig{
 		Commands: []*cobra.Command{newSeedCommand()},
 	}

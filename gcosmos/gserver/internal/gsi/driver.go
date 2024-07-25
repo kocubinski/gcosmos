@@ -26,10 +26,10 @@ import (
 	"github.com/rollchains/gordian/tm/tmdriver"
 )
 
-type DriverConfig[T transaction.Tx] struct {
+type DriverConfig struct {
 	ConsensusAuthority string
 
-	AppManager *appmanager.AppManager[T]
+	AppManager *appmanager.AppManager[transaction.Tx]
 
 	Store *root.Store
 
@@ -37,17 +37,17 @@ type DriverConfig[T transaction.Tx] struct {
 	FinalizeBlockRequests <-chan tmdriver.FinalizeBlockRequest
 }
 
-type Driver[T transaction.Tx] struct {
+type Driver struct {
 	log *slog.Logger
 
 	done chan struct{}
 }
 
-func NewDriver[T transaction.Tx](
+func NewDriver(
 	lifeCtx, valCtx context.Context,
 	log *slog.Logger,
-	cfg DriverConfig[T],
-) (*Driver[T], error) {
+	cfg DriverConfig,
+) (*Driver, error) {
 	// Fine if these panic on conversion failure.
 	cc := valCtx.Value(client.ClientContextKey).(*client.Context)
 	serverCtx := valCtx.Value(server.ServerContextKey).(*server.Context)
@@ -59,7 +59,7 @@ func NewDriver[T transaction.Tx](
 		return nil, fmt.Errorf("failed to run AppGenesisFromFile(%s): %w", genesisPath, err)
 	}
 
-	d := &Driver[T]{
+	d := &Driver{
 		log:  log,
 		done: make(chan struct{}),
 	}
@@ -69,11 +69,11 @@ func NewDriver[T transaction.Tx](
 	return d, nil
 }
 
-func (d *Driver[T]) run(
+func (d *Driver) run(
 	lifeCtx, valCtx context.Context,
 	ag *genutiltypes.AppGenesis,
 	txConfig client.TxConfig,
-	cfg DriverConfig[T],
+	cfg DriverConfig,
 ) {
 	defer close(d.done)
 
@@ -97,11 +97,11 @@ func (d *Driver[T]) run(
 	d.handleFinalizations(lifeCtx, cfg.AppManager, cfg.Store, cfg.FinalizeBlockRequests)
 }
 
-func (d *Driver[T]) handleInitialization(
+func (d *Driver) handleInitialization(
 	lifeCtx, valCtx context.Context,
 	ag *genutiltypes.AppGenesis,
 	consensusAuthority string,
-	appManager *appmanager.AppManager[T],
+	appManager *appmanager.AppManager[transaction.Tx],
 	s *root.Store,
 	txConfig client.TxConfig,
 	initChainCh <-chan tmdriver.InitChainRequest,
@@ -113,7 +113,7 @@ func (d *Driver[T]) handleInitialization(
 	}
 	d.log.Info("Got init chain request", "val", req)
 
-	blockReq := &coreappmgr.BlockRequest[T]{
+	blockReq := &coreappmgr.BlockRequest[transaction.Tx]{
 		Height: req.Genesis.InitialHeight, // Comet does genesis height - 1, do we need that too?
 
 		ChainId:   req.Genesis.ChainID,
@@ -150,7 +150,7 @@ func (d *Driver[T]) handleInitialization(
 	appState := []byte(ag.AppState)
 
 	// Now, init genesis in the SDK-layer application.
-	var codec transaction.Codec[T] = txDecoder[T]{txConfig: txConfig}
+	var codec transaction.Codec[transaction.Tx] = txDecoder[transaction.Tx]{txConfig: txConfig}
 	blockResp, genesisState, err := appManager.InitGenesis(
 		lifeCtx, blockReq, appState, codec,
 	)
@@ -229,9 +229,9 @@ func (d *Driver[T]) handleInitialization(
 	return true
 }
 
-func (d *Driver[T]) handleFinalizations(
+func (d *Driver) handleFinalizations(
 	ctx context.Context,
-	appManager *appmanager.AppManager[T],
+	appManager *appmanager.AppManager[transaction.Tx],
 	s *root.Store,
 	finalizeBlockRequests <-chan tmdriver.FinalizeBlockRequest,
 ) {
@@ -292,7 +292,7 @@ func (d *Driver[T]) handleFinalizations(
 			return
 		}
 
-		blockReq := &coreappmgr.BlockRequest[T]{
+		blockReq := &coreappmgr.BlockRequest[transaction.Tx]{
 			Height: fbReq.Block.Height,
 
 			// TODO: we probably need to pack time into the proposal fields.
@@ -358,6 +358,6 @@ func (d *Driver[T]) handleFinalizations(
 	}
 }
 
-func (d *Driver[T]) Wait() {
+func (d *Driver) Wait() {
 	<-d.done
 }

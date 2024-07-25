@@ -8,17 +8,16 @@ import (
 	"log/slog"
 	"time"
 
-	"cosmossdk.io/core/transaction"
 	"github.com/rollchains/gordian/gcrypto"
 	"github.com/rollchains/gordian/internal/gchan"
 	"github.com/rollchains/gordian/internal/glog"
 	"github.com/rollchains/gordian/tm/tmconsensus"
 )
 
-type ConsensusStrategy[T transaction.Tx] struct {
+type ConsensusStrategy struct {
 	log *slog.Logger
 
-	d *Driver[T]
+	d *Driver
 
 	signer gcrypto.Signer
 
@@ -26,12 +25,12 @@ type ConsensusStrategy[T transaction.Tx] struct {
 	curR uint32
 }
 
-func NewConsensusStrategy[T transaction.Tx](
+func NewConsensusStrategy(
 	log *slog.Logger,
-	d *Driver[T],
+	d *Driver,
 	signer gcrypto.Signer,
-) *ConsensusStrategy[T] {
-	return &ConsensusStrategy[T]{
+) *ConsensusStrategy {
+	return &ConsensusStrategy{
 		log:    log,
 		d:      d,
 		signer: signer,
@@ -59,7 +58,7 @@ func (ba BlockAnnotation) BlockTimeAsTime() (time.Time, error) {
 	return time.Parse(time.RFC3339, ba.BlockTime)
 }
 
-func (c *ConsensusStrategy[T]) EnterRound(
+func (c *ConsensusStrategy) EnterRound(
 	ctx context.Context,
 	rv tmconsensus.RoundView,
 	proposalOut chan<- tmconsensus.Proposal,
@@ -103,7 +102,7 @@ func (c *ConsensusStrategy[T]) EnterRound(
 	return nil
 }
 
-func (c *ConsensusStrategy[T]) ConsiderProposedBlocks(
+func (c *ConsensusStrategy) ConsiderProposedBlocks(
 	ctx context.Context,
 	pbs []tmconsensus.ProposedBlock,
 ) (string, error) {
@@ -166,7 +165,7 @@ func (c *ConsensusStrategy[T]) ConsiderProposedBlocks(
 	return "", tmconsensus.ErrProposedBlockChoiceNotReady
 }
 
-func (c *ConsensusStrategy[T]) ChooseProposedBlock(
+func (c *ConsensusStrategy) ChooseProposedBlock(
 	ctx context.Context,
 	pbs []tmconsensus.ProposedBlock,
 ) (string, error) {
@@ -181,7 +180,7 @@ func (c *ConsensusStrategy[T]) ChooseProposedBlock(
 	return h, nil
 }
 
-func (c *ConsensusStrategy[T]) DecidePrecommit(
+func (c *ConsensusStrategy) DecidePrecommit(
 	ctx context.Context,
 	vs tmconsensus.VoteSummary,
 ) (string, error) {

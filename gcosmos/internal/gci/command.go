@@ -41,7 +41,7 @@ import (
 // in order to get simd start to use Gordian instead of Comet.
 func NewSimdRootCmdWithGordian(lifeCtx context.Context, log *slog.Logger) *cobra.Command {
 	return simdcmd.NewRootCmdWithServer(func(cc client.Context) serverv2.ServerComponent[transaction.Tx] {
-		c, err := gserver.NewComponent[transaction.Tx](lifeCtx, log)
+		c, err := gserver.NewComponent(lifeCtx, log)
 		if err != nil {
 			panic(err)
 		}
