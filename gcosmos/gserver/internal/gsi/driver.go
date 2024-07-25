@@ -282,6 +282,7 @@ func (d *Driver) handleFinalizations(
 		}
 
 		// TODO: we would decode transactions here.
+		var txs []transaction.Tx
 
 		cID, err := s.LastCommitID()
 		if err != nil {
@@ -301,7 +302,7 @@ func (d *Driver) handleFinalizations(
 			Hash:    fbReq.Block.Hash,
 			AppHash: cID.Hash,
 			ChainId: "???", // TODO: the chain ID needs to be threaded here properly.
-			Txs:     nil,   // TODO: use decoded transactions here.
+			Txs:     txs,
 		}
 
 		// The app manager requires that comet info is set on its context

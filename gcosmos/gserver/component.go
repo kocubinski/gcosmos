@@ -51,6 +51,7 @@ type Component struct {
 	log *slog.Logger
 
 	app serverv2.AppI[transaction.Tx]
+	txc transaction.Codec[transaction.Tx]
 
 	signer gcrypto.Signer
 
@@ -78,10 +79,12 @@ type Component struct {
 func NewComponent(
 	rootCtx context.Context,
 	log *slog.Logger,
+	txc transaction.Codec[transaction.Tx],
 ) (*Component, error) {
 	var c Component
 	c.rootCtx, c.cancel = context.WithCancelCause(rootCtx)
 	c.log = log.With("sys", "engine")
+	c.txc = txc
 
 	return &c, nil
 }
@@ -210,6 +213,9 @@ func (c *Component) Start(ctx context.Context) error {
 			MirrorStore: c.ms,
 			Libp2pHost:  c.h,
 			Libp2pconn:  c.conn,
+
+			AppManager: *(c.app.GetAppManager()),
+			TxCodec:    c.txc,
 		})
 	}
 

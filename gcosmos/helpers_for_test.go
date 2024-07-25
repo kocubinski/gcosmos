@@ -57,6 +57,8 @@ func DecrementingStakeStrategy(initialCount uint64) StakeStrategy {
 
 type Chain struct {
 	RootCmds []CmdEnv
+
+	FixedAddresses []string
 }
 
 func ConfigureChain(t *testing.T, ctx context.Context, cfg ChainConfig) Chain {
@@ -198,6 +200,8 @@ func ConfigureChain(t *testing.T, ctx context.Context, cfg ChainConfig) Chain {
 
 	return Chain{
 		RootCmds: rootCmds,
+
+		FixedAddresses: fixedAddresses,
 	}
 }
 

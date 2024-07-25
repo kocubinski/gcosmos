@@ -9,7 +9,9 @@ import (
 	"net/http"
 	"time"
 
+	"cosmossdk.io/core/transaction"
 	abcitypes "github.com/cometbft/cometbft/api/cometbft/abci/v1"
+	"cosmossdk.io/server/v2/appmanager"
 	v1types "github.com/cometbft/cometbft/api/cometbft/types/v1"
 	cmtp2p "github.com/cometbft/cometbft/p2p"
 	ctypes "github.com/cometbft/cometbft/rpc/core/types"
@@ -30,6 +32,9 @@ type HTTPServerConfig struct {
 
 	Libp2pHost *tmlibp2p.Host
 	Libp2pconn *tmlibp2p.Connection
+
+	AppManager appmanager.AppManager[transaction.Tx]
+	TxCodec transaction.Codec[transaction.Tx]
 }
 
 func NewHTTPServer(ctx context.Context, log *slog.Logger, cfg HTTPServerConfig) *HTTPServer {
@@ -81,6 +86,8 @@ func newMux(log *slog.Logger, cfg HTTPServerConfig) http.Handler {
 	r := mux.NewRouter()
 
 	r.HandleFunc("/blocks/watermark", handleBlocksWatermark(log, cfg)).Methods("GET")
+
+	setDebugRoutes(log, cfg, r)
 
 	// CometBFT Query methods for compatability with CometRPC
 	r.HandleFunc("abci_info", handleABCIInfo(log, cfg)).Methods("GET")
