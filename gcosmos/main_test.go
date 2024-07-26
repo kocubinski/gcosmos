@@ -365,8 +365,6 @@ func TestTx_single(t *testing.T) {
 
 		baseURL := "http://" + httpAddr
 
-		// "/debug/submit_tx"
-
 		// Make sure we are beyond the initial height.
 		deadline = time.Now().Add(10 * time.Second)
 		var maxHeight uint
@@ -394,12 +392,11 @@ func TestTx_single(t *testing.T) {
 		// Now that we are past the initial height,
 		// make a transaction that we can submit.
 
-		// TODO: why is this amount accepted? It's more than the sender should have.
-		const sendAmount = "10000000stake"
+		const sendAmount = "100stake"
 
 		// First generate the transaction.
 		res := c.RootCmds[0].Run(
-			"tx", "bank", "send", c.FixedAddresses[0], c.FixedAddresses[1],
+			"tx", "bank", "send", c.FixedAddresses[0], c.FixedAddresses[1], sendAmount,
 			"--generate-only",
 		)
 		res.NoError(t)
@@ -424,8 +421,8 @@ func TestTx_single(t *testing.T) {
 		t.Logf("SIGN OUTPUT: %s", res.Stdout.String())
 		t.Logf("SIGN ERROR : %s", res.Stderr.String())
 
-		// Currently, submitting the transaction just validates the transaction on the SDK side.
-		resp, err := http.Post(baseURL+"/debug/submit_tx", "application/json", &res.Stdout)
+		// Simulating the transaction should catch most issues.
+		resp, err := http.Post(baseURL+"/debug/simulate_tx", "application/json", &res.Stdout)
 		require.NoError(t, err)
 
 		// Just log out what it responds, for now.
