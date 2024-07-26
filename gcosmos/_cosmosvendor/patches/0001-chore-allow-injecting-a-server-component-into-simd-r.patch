@@ -1,4 +1,4 @@
-From 55883cd5184c69698ae1d0ca7b676dec4be91680 Mon Sep 17 00:00:00 2001
+From b6320412fe63771c0dda141d29e503c40997ab8d Mon Sep 17 00:00:00 2001
 From: Mark Rushakoff <mark@strange.love>
 Date: Wed, 17 Jul 2024 10:03:22 -0400
 Subject: [PATCH 1/5] chore: allow injecting a server component into simd root
@@ -10,7 +10,7 @@ Subject: [PATCH 1/5] chore: allow injecting a server component into simd root
  2 files changed, 23 insertions(+), 4 deletions(-)
 
 diff --git a/simapp/v2/simdv2/cmd/commands.go b/simapp/v2/simdv2/cmd/commands.go
-index d1462e5876..54ea9a7d01 100644
+index 8d1e8bd40a..48b15cc8d9 100644
 --- a/simapp/v2/simdv2/cmd/commands.go
 +++ b/simapp/v2/simdv2/cmd/commands.go
 @@ -15,7 +15,6 @@ import (

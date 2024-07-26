@@ -1,4 +1,4 @@
-From 9964eda17405c06c25dec70250edc7885745b33e Mon Sep 17 00:00:00 2001
+From d6114b0364819dafcee1f9cd498f847095bf5b0a Mon Sep 17 00:00:00 2001
 From: Mark Rushakoff <mark@strange.love>
 Date: Mon, 1 Jul 2024 14:43:02 -0400
 Subject: [PATCH 2/5] fix: store root dir respects --home flag
@@ -10,12 +10,12 @@ that use a temporary directory per simapp instance.
  1 file changed, 2 deletions(-)
 
 diff --git a/simapp/v2/app_di.go b/simapp/v2/app_di.go
-index 7219193935..f4c2a34f4e 100644
+index 0099f8f0f9..f702cb79d6 100644
 --- a/simapp/v2/app_di.go
 +++ b/simapp/v2/app_di.go
 @@ -12,7 +12,6 @@ import (
- 	"cosmossdk.io/core/transaction"
  	"cosmossdk.io/depinject"
+ 	"cosmossdk.io/log"
  	"cosmossdk.io/runtime/v2"
 -	serverv2 "cosmossdk.io/server/v2"
  	"cosmossdk.io/x/accounts"

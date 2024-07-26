@@ -1,4 +1,4 @@
-From d0bbbfbcfe7671210c8a004759e179b28797eb01 Mon Sep 17 00:00:00 2001
+From 136ff3437d04905e3e1ba8bd749ceedd61a1eec7 Mon Sep 17 00:00:00 2001
 From: Mark Rushakoff <mark@strange.love>
 Date: Wed, 17 Jul 2024 10:49:18 -0400
 Subject: [PATCH 5/5] fix: respect command context in server start

@@ -1,4 +1,4 @@
-From 6a73b89d49b96ef8c623e03d8c8ea47e3b3bfb4e Mon Sep 17 00:00:00 2001
+From 65d903cc2ceb79521eb89ff131c7387bdf74384c Mon Sep 17 00:00:00 2001
 From: Mark Rushakoff <mark@strange.love>
 Date: Tue, 9 Jul 2024 14:12:55 -0400
 Subject: [PATCH 3/5] chore: use slog for server v2 logging
@@ -39,7 +39,7 @@ index a0b2b05ae9..50a073cd9c 100644
  }
 diff --git a/server/v2/slog.go b/server/v2/slog.go
 new file mode 100644
-index 0000000000..7ec9ce9c08
+index 0000000000..997dd02909
 --- /dev/null
 +++ b/server/v2/slog.go
 @@ -0,0 +1,41 @@
@@ -48,7 +48,7 @@ index 0000000000..7ec9ce9c08
 +import (
 +	"log/slog"
 +
-+	clog "cosmossdk.io/core/log"
++	clog "cosmossdk.io/log"
 +)
 +
 +var _ clog.Logger = SlogLogger{}

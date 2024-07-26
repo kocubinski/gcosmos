@@ -4,7 +4,7 @@ package slogcosmos
 import (
 	"log/slog"
 
-	clog "cosmossdk.io/core/log"
+	clog "cosmossdk.io/log"
 )
 
 var _ clog.Logger = Logger{}
