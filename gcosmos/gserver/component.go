@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"cosmossdk.io/core/transaction"
 	cosmoslog "cosmossdk.io/log"
@@ -17,10 +18,12 @@ import (
 	"cosmossdk.io/store/v2/root"
 	"github.com/cometbft/cometbft/privval"
 	"github.com/cosmos/cosmos-sdk/client"
+	"github.com/cosmos/cosmos-sdk/codec"
 	"github.com/libp2p/go-libp2p"
 	dht "github.com/libp2p/go-libp2p-kad-dht"
 	libp2phost "github.com/libp2p/go-libp2p/core/host"
 	libp2ppeer "github.com/libp2p/go-libp2p/core/peer"
+	"github.com/rollchains/gordian/gcosmos/gmempool"
 	"github.com/rollchains/gordian/gcosmos/gserver/internal/gsi"
 	"github.com/rollchains/gordian/gcrypto"
 	"github.com/rollchains/gordian/gwatchdog"
@@ -50,8 +53,9 @@ type Component struct {
 
 	log *slog.Logger
 
-	app serverv2.AppI[transaction.Tx]
-	txc transaction.Codec[transaction.Tx]
+	app   serverv2.AppI[transaction.Tx]
+	txc   transaction.Codec[transaction.Tx]
+	codec codec.Codec
 
 	signer gcrypto.Signer
 
@@ -80,11 +84,13 @@ func NewComponent(
 	rootCtx context.Context,
 	log *slog.Logger,
 	txc transaction.Codec[transaction.Tx],
+	codec codec.Codec,
 ) (*Component, error) {
 	var c Component
 	c.rootCtx, c.cancel = context.WithCancelCause(rootCtx)
 	c.log = log.With("sys", "engine")
 	c.txc = txc
+	c.codec = codec
 
 	return &c, nil
 }
@@ -147,6 +153,11 @@ func (c *Component) Start(ctx context.Context) error {
 	}
 	c.conn = conn
 
+	am := *(c.app.GetAppManager())
+
+	bufMu := new(sync.Mutex)
+	txBuf := gmempool.NewTxBuffer(c.log.With("d_sys", "tx_buffer"), am)
+
 	initChainCh := make(chan tmdriver.InitChainRequest)
 	blockFinCh := make(chan tmdriver.FinalizeBlockRequest)
 	d, err := gsi.NewDriver(
@@ -162,6 +173,9 @@ func (c *Component) Start(ctx context.Context) error {
 
 			InitChainRequests:     initChainCh,
 			FinalizeBlockRequests: blockFinCh,
+
+			BufMu:    bufMu,
+			TxBuffer: txBuf,
 		},
 	)
 	if err != nil {
@@ -214,8 +228,12 @@ func (c *Component) Start(ctx context.Context) error {
 			Libp2pHost:  c.h,
 			Libp2pconn:  c.conn,
 
-			AppManager: *(c.app.GetAppManager()),
+			AppManager: am,
 			TxCodec:    c.txc,
+			Codec:      c.codec,
+
+			BufMu:    bufMu,
+			TxBuffer: txBuf,
 		})
 	}
 

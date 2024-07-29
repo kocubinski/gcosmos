@@ -1,33 +1,48 @@
 package gsi
 
 import (
+	"bytes"
 	"encoding/json"
 	"io"
 	"log/slog"
 	"net/http"
+	"sync"
 
 	"cosmossdk.io/core/transaction"
 	"cosmossdk.io/server/v2/appmanager"
+	banktypes "cosmossdk.io/x/bank/types"
+	"github.com/cosmos/cosmos-sdk/codec"
 	"github.com/gorilla/mux"
+	"github.com/rollchains/gordian/gcosmos/gmempool"
 )
 
 type debugHandler struct {
 	log *slog.Logger
 
 	txCodec transaction.Codec[transaction.Tx]
+	codec   codec.Codec
 
 	am appmanager.AppManager[transaction.Tx]
+
+	bufMu *sync.Mutex
+	txBuf *gmempool.TxBuffer
 }
 
 func setDebugRoutes(log *slog.Logger, cfg HTTPServerConfig, r *mux.Router) {
 	h := debugHandler{
 		log:     log,
 		txCodec: cfg.TxCodec,
+		codec:   cfg.Codec,
 		am:      cfg.AppManager,
+
+		bufMu: cfg.BufMu,
+		txBuf: cfg.TxBuffer,
 	}
 
 	r.HandleFunc("/debug/submit_tx", h.HandleSubmitTx).Methods("POST")
 	r.HandleFunc("/debug/simulate_tx", h.HandleSimulateTx).Methods("POST")
+
+	r.HandleFunc("/debug/accounts/{id}/balance", h.HandleAccountBalance).Methods("GET")
 }
 
 func (h debugHandler) HandleSubmitTx(w http.ResponseWriter, req *http.Request) {
@@ -65,6 +80,17 @@ func (h debugHandler) HandleSubmitTx(w http.ResponseWriter, req *http.Request) {
 	if res.Error != nil {
 		// This is fine from the server's perspective, no need to log.
 		http.Error(w, "transaction validation failed: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// If it passed basic validation, then we can attempt to add it to the buffer.
+	func() {
+		h.bufMu.Lock()
+		defer h.bufMu.Unlock()
+		err = h.txBuf.AddTx(ctx, tx)
+	}()
+	if err != nil {
+		http.Error(w, "failed to add transaction to buffer: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -113,5 +139,28 @@ func (h debugHandler) HandleSimulateTx(w http.ResponseWriter, req *http.Request)
 
 	if err := json.NewEncoder(w).Encode(res); err != nil {
 		h.log.Warn("Failed to encode simulate_tx result", "err", err)
+	}
+}
+
+func (h debugHandler) HandleAccountBalance(w http.ResponseWriter, r *http.Request) {
+	accountID := mux.Vars(r)["id"]
+
+	msg, err := h.am.Query(r.Context(), 0, &banktypes.QueryBalanceRequest{
+		Address: accountID,
+		Denom:   "stake",
+	})
+	if err != nil {
+		h.log.Warn("Failed to query account balance", "id", accountID, "err", err)
+		http.Error(w, "query failed", http.StatusBadRequest)
+		return
+	}
+
+	b, err := h.codec.MarshalJSON(msg)
+	if err != nil {
+		http.Error(w, "failed to encode response: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if _, err := io.Copy(w, bytes.NewReader(b)); err != nil {
+		h.log.Warn("Failed to encode account balance response", "err", err)
 	}
 }

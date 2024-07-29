@@ -1,7 +1,7 @@
 From 65d903cc2ceb79521eb89ff131c7387bdf74384c Mon Sep 17 00:00:00 2001
 From: Mark Rushakoff <mark@strange.love>
 Date: Tue, 9 Jul 2024 14:12:55 -0400
-Subject: [PATCH 3/5] chore: use slog for server v2 logging
+Subject: [PATCH 3/6] chore: use slog for server v2 logging
 
 This just plugs in easier with gcosmos tests, for now at least.
 ---

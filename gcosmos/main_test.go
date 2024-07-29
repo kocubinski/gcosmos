@@ -389,6 +389,22 @@ func TestTx_single(t *testing.T) {
 
 		require.GreaterOrEqual(t, maxHeight, uint(3))
 
+		type balance struct {
+			Balance struct {
+				Amount string
+			}
+		}
+
+		// Initial fixed account balance is hardcoded to 10000.
+		// Ensure we still match that.
+		resp, err := http.Get(baseURL + "/debug/accounts/" + c.FixedAddresses[0] + "/balance")
+		require.NoError(t, err)
+		require.Equal(t, http.StatusOK, resp.StatusCode)
+		var initBalance balance
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&initBalance))
+		resp.Body.Close()
+		require.Equal(t, "10000", initBalance.Balance.Amount)
+
 		// Now that we are past the initial height,
 		// make a transaction that we can submit.
 
@@ -406,7 +422,7 @@ func TestTx_single(t *testing.T) {
 		require.NoError(t, os.WriteFile(msgPath, res.Stdout.Bytes(), 0o600))
 
 		// TODO: get the real account number, don't just make it up.
-		const accountNumber = 1
+		const accountNumber = 100
 
 		// Sign the transaction offline so that we can send it.
 		res = c.RootCmds[0].Run(
@@ -414,7 +430,7 @@ func TestTx_single(t *testing.T) {
 			"--offline",
 			fmt.Sprintf("--account-number=%d", accountNumber),
 			"--from", c.FixedAddresses[0],
-			"--sequence=0", // Or does the sequence start at 1?
+			"--sequence=30", // Seems like this should be rejected, but it's accepted for some reason?!
 		)
 
 		res.NoError(t)
@@ -422,14 +438,32 @@ func TestTx_single(t *testing.T) {
 		t.Logf("SIGN ERROR : %s", res.Stderr.String())
 
 		// Simulating the transaction should catch most issues.
-		resp, err := http.Post(baseURL+"/debug/simulate_tx", "application/json", &res.Stdout)
+		resp, err = http.Post(baseURL+"/debug/submit_tx", "application/json", &res.Stdout)
 		require.NoError(t, err)
 
 		// Just log out what it responds, for now.
 		// We can't do much with the response until we actually start handling the transaction.
-		t.Logf("status code: %d", resp.StatusCode)
+		require.Equal(t, http.StatusOK, resp.StatusCode)
 		b, err := io.ReadAll(resp.Body)
 		require.NoError(t, err)
 		t.Logf("response body: %s", b)
+
+		// TODO: make some height assertions here instead of just sleeping.
+		time.Sleep(8 * time.Second)
+
+		// Request first account balance again.
+		resp, err = http.Get(baseURL + "/debug/accounts/" + c.FixedAddresses[0] + "/balance")
+		require.NoError(t, err)
+		var newBalance balance
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&newBalance))
+		resp.Body.Close()
+		require.Equal(t, "9900", newBalance.Balance.Amount) // Was at 10k, subtracted 100.
+
+		// And second account should have increased by 100.
+		resp, err = http.Get(baseURL + "/debug/accounts/" + c.FixedAddresses[1] + "/balance")
+		require.NoError(t, err)
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&newBalance))
+		resp.Body.Close()
+		require.Equal(t, "10100", newBalance.Balance.Amount) // Was at 10k, added 100.
 	}
 }

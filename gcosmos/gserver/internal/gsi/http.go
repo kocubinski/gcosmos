@@ -7,16 +7,19 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"sync"
 	"time"
 
 	"cosmossdk.io/core/transaction"
-	abcitypes "github.com/cometbft/cometbft/api/cometbft/abci/v1"
 	"cosmossdk.io/server/v2/appmanager"
+	abcitypes "github.com/cometbft/cometbft/api/cometbft/abci/v1"
 	v1types "github.com/cometbft/cometbft/api/cometbft/types/v1"
 	cmtp2p "github.com/cometbft/cometbft/p2p"
 	ctypes "github.com/cometbft/cometbft/rpc/core/types"
 	tmtypes "github.com/cometbft/cometbft/types"
+	"github.com/cosmos/cosmos-sdk/codec"
 	"github.com/gorilla/mux"
+	"github.com/rollchains/gordian/gcosmos/gmempool"
 	"github.com/rollchains/gordian/tm/tmp2p/tmlibp2p"
 	"github.com/rollchains/gordian/tm/tmstore"
 )
@@ -34,7 +37,11 @@ type HTTPServerConfig struct {
 	Libp2pconn *tmlibp2p.Connection
 
 	AppManager appmanager.AppManager[transaction.Tx]
-	TxCodec transaction.Codec[transaction.Tx]
+	TxCodec    transaction.Codec[transaction.Tx]
+	Codec      codec.Codec
+
+	BufMu    *sync.Mutex
+	TxBuffer *gmempool.TxBuffer
 }
 
 func NewHTTPServer(ctx context.Context, log *slog.Logger, cfg HTTPServerConfig) *HTTPServer {

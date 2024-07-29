@@ -42,7 +42,7 @@ import (
 func NewSimdRootCmdWithGordian(lifeCtx context.Context, log *slog.Logger) *cobra.Command {
 	return simdcmd.NewRootCmdWithServer(func(cc client.Context) serverv2.ServerComponent[transaction.Tx] {
 		codec := txDecoder{txConfig: cc.TxConfig}
-		c, err := gserver.NewComponent(lifeCtx, log, codec)
+		c, err := gserver.NewComponent(lifeCtx, log, codec, cc.Codec)
 		if err != nil {
 			panic(err)
 		}

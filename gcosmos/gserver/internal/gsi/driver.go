@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"path/filepath"
+	"sync"
 	"time"
 
 	coreappmgr "cosmossdk.io/core/app"
@@ -19,6 +20,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/server"
 	genutiltypes "github.com/cosmos/cosmos-sdk/x/genutil/types"
+	"github.com/rollchains/gordian/gcosmos/gmempool"
 	"github.com/rollchains/gordian/gcrypto"
 	"github.com/rollchains/gordian/internal/gchan"
 	"github.com/rollchains/gordian/internal/glog"
@@ -35,10 +37,16 @@ type DriverConfig struct {
 
 	InitChainRequests     <-chan tmdriver.InitChainRequest
 	FinalizeBlockRequests <-chan tmdriver.FinalizeBlockRequest
+
+	BufMu    *sync.Mutex
+	TxBuffer *gmempool.TxBuffer
 }
 
 type Driver struct {
 	log *slog.Logger
+
+	bufMu *sync.Mutex
+	txBuf *gmempool.TxBuffer
 
 	done chan struct{}
 }
@@ -60,7 +68,11 @@ func NewDriver(
 	}
 
 	d := &Driver{
-		log:  log,
+		log: log,
+
+		bufMu: cfg.BufMu,
+		txBuf: cfg.TxBuffer,
+
 		done: make(chan struct{}),
 	}
 
@@ -158,6 +170,14 @@ func (d *Driver) handleInitialization(
 		d.log.Warn("Failed to run appManager.InitGenesis", "appState", fmt.Sprintf("%q", appState), "err", err)
 		return false
 	}
+
+	// Set the initial state on the transaction buffer.
+	// (Maybe this should happen later during init chain?)
+	func() {
+		d.bufMu.Lock()
+		defer d.bufMu.Unlock()
+		d.txBuf.ResetState(genesisState)
+	}()
 
 	for i, res := range blockResp.TxResults {
 		if res.Error != nil {
@@ -281,8 +301,12 @@ func (d *Driver) handleFinalizations(
 			continue
 		}
 
-		// TODO: we would decode transactions here.
-		var txs []transaction.Tx
+		var unlockOnce sync.Once
+		d.bufMu.Lock()
+		defer unlockOnce.Do(func() {
+			d.bufMu.Unlock()
+		})
+		txs := d.txBuf.AddedTxs(nil)
 
 		cID, err := s.LastCommitID()
 		if err != nil {
@@ -322,6 +346,13 @@ func (d *Driver) handleFinalizations(
 			)
 			return
 		}
+
+		// If we successfully delivered the block,
+		// then update the buffer with the new state.
+		d.txBuf.ResetState(newState)
+		unlockOnce.Do(func() {
+			d.bufMu.Unlock()
+		})
 
 		stateChanges, err := newState.GetStateChanges()
 		if err != nil {

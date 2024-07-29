@@ -1,7 +1,7 @@
 From d6114b0364819dafcee1f9cd498f847095bf5b0a Mon Sep 17 00:00:00 2001
 From: Mark Rushakoff <mark@strange.love>
 Date: Mon, 1 Jul 2024 14:43:02 -0400
-Subject: [PATCH 2/5] fix: store root dir respects --home flag
+Subject: [PATCH 2/6] fix: store root dir respects --home flag
 
 It was hardcoded to the default home, which is incompatible with tests
 that use a temporary directory per simapp instance.
