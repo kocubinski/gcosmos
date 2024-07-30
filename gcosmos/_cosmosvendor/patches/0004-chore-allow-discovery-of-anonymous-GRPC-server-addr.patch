@@ -1,4 +1,4 @@
-From 9e1113c69d306ad0494bff16412d05b1859f52e1 Mon Sep 17 00:00:00 2001
+From d4bc3c92dd49bebed7dd3f36559b9478273f74bd Mon Sep 17 00:00:00 2001
 From: Mark Rushakoff <mark@strange.love>
 Date: Wed, 17 Jul 2024 09:51:38 -0400
 Subject: [PATCH 4/6] chore: allow discovery of anonymous GRPC server addr
@@ -9,24 +9,26 @@ contain the actual bound address.
 
 And fix the server start command to actually expose that flag.
 ---
- server/v2/api/grpc/server.go | 24 ++++++++++++++++++++++++
- 1 file changed, 24 insertions(+)
+ server/v2/api/grpc/server.go | 19 +++++++++++++++++++
+ 1 file changed, 19 insertions(+)
 
 diff --git a/server/v2/api/grpc/server.go b/server/v2/api/grpc/server.go
-index c5e31f5dfc..3837c9bb1e 100644
+index e59bd99a83..00c1d79b71 100644
 --- a/server/v2/api/grpc/server.go
 +++ b/server/v2/api/grpc/server.go
-@@ -4,7 +4,9 @@ import (
- 	"context"
+@@ -6,9 +6,11 @@ import (
  	"fmt"
+ 	"io"
  	"net"
 +	"os"
+ 	"strconv"
  
-+	"github.com/spf13/pflag"
+ 	"github.com/cosmos/gogoproto/proto"
++
+ 	"github.com/spf13/pflag"
  	"github.com/spf13/viper"
- 	"google.golang.org/grpc"
- 
-@@ -20,6 +22,8 @@ type GRPCServer[T transaction.Tx] struct {
+ 	"golang.org/x/exp/maps"
+@@ -34,6 +36,8 @@ type Server[T transaction.Tx] struct {
  	cfgOptions []CfgOption
  
  	grpcSrv *grpc.Server
@@ -35,7 +37,7 @@ index c5e31f5dfc..3837c9bb1e 100644
  }
  
  // New creates a new grpc server.
-@@ -53,6 +57,7 @@ func (s *GRPCServer[T]) Init(appI serverv2.AppI[T], v *viper.Viper, logger log.L
+@@ -69,6 +73,7 @@ func (s *Server[T]) Init(appI serverv2.AppI[T], v *viper.Viper, logger log.Logge
  	s.grpcSrv = grpcSrv
  	s.config = cfg
  	s.logger = logger.With(log.ModuleKey, s.Name())
@@ -43,7 +45,15 @@ index c5e31f5dfc..3837c9bb1e 100644
  
  	return nil
  }
-@@ -75,6 +80,12 @@ func (s *GRPCServer[T]) Config() any {
+@@ -84,6 +89,7 @@ func (s *Server[T]) StartCmdFlags() *pflag.FlagSet {
+ 	}
+ 
+ 	flags.String(prefix(FlagAddress), "localhost:9090", "Listen address")
++	flags.String(prefix(addrFileFlag), "", "Write the actual listen address to the given file (useful for tests when configured to listen on :0)")
+ 	return flags
+ }
+ 
+@@ -168,6 +174,12 @@ func (s *Server[T]) Config() any {
  	return s.config
  }
  
@@ -51,12 +61,12 @@ index c5e31f5dfc..3837c9bb1e 100644
 +// the core grpc configuration,
 +// as SDK setup involves prefix matching that will sometimes match
 +// this flag as a false positive.
-+const addrFileFlag = ".grpc-address-file"
++const addrFileFlag = "address-file"
 +
- func (s *GRPCServer[T]) Start(ctx context.Context) error {
+ func (s *Server[T]) Start(ctx context.Context) error {
  	if !s.config.Enable {
  		return nil
-@@ -85,6 +96,13 @@ func (s *GRPCServer[T]) Start(ctx context.Context) error {
+@@ -178,6 +190,13 @@ func (s *Server[T]) Start(ctx context.Context) error {
  		return fmt.Errorf("failed to listen on address %s: %w", s.config.Address, err)
  	}
  
@@ -70,16 +80,6 @@ index c5e31f5dfc..3837c9bb1e 100644
  	errCh := make(chan error)
  
  	// Start the gRPC in an external goroutine as Serve is blocking and will return
-@@ -112,3 +130,9 @@ func (s *GRPCServer[T]) Stop(ctx context.Context) error {
- 
- 	return nil
- }
-+
-+func (s *GRPCServer[T]) StartCmdFlags() *pflag.FlagSet {
-+	flags := pflag.NewFlagSet("grpc", pflag.ExitOnError)
-+	flags.String(addrFileFlag, "", "Write the actual listen address to the given file (useful for tests when configured to listen on :0)")
-+	return flags
-+}
 -- 
 2.44.0
 

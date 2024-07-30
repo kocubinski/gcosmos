@@ -311,7 +311,7 @@ func TestTx_single(t *testing.T) {
 			startCmd,
 			"--g-http-addr", "127.0.0.1:0",
 			"--g-http-addr-file", gHTTPAddrFile,
-			"--.grpc-address-file", grpcAddrFile,
+			"--grpc.address-file", grpcAddrFile,
 		)
 	} else {
 		grpcAddrFile = filepath.Join(addrDir, "grpc_addr.txt")

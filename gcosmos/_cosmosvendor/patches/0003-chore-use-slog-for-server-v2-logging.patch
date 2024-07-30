@@ -1,4 +1,4 @@
-From 65d903cc2ceb79521eb89ff131c7387bdf74384c Mon Sep 17 00:00:00 2001
+From aa98619eff85c66c607a02bb5da93824d12fbf90 Mon Sep 17 00:00:00 2001
 From: Mark Rushakoff <mark@strange.love>
 Date: Tue, 9 Jul 2024 14:12:55 -0400
 Subject: [PATCH 3/6] chore: use slog for server v2 logging
