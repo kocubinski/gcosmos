@@ -11,7 +11,9 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"cosmossdk.io/core/transaction"
 	simdcmd "cosmossdk.io/simapp/v2/simdv2/cmd"
@@ -203,6 +205,129 @@ func ConfigureChain(t *testing.T, ctx context.Context, cfg ChainConfig) Chain {
 
 		FixedAddresses: fixedAddresses,
 	}
+}
+
+type ChainAddresses struct {
+	HTTP []string
+	// TODO: this can also include GRPC when we need it.
+}
+
+func (c Chain) Start(t *testing.T, ctx context.Context, nVals int) ChainAddresses {
+	t.Helper()
+
+	addrDir := t.TempDir()
+	var seedAddrs string
+	if nVals > 1 {
+		// We only need to start a seed node when there are multiple validators.
+		p2pSeedPath := filepath.Join(addrDir, "p2p.seed.txt")
+
+		seedDone := make(chan struct{})
+		go func() {
+			defer close(seedDone)
+			// Just discard the run result.
+			// If the seed fails to start, we will have obvious failures later.
+			_ = c.RootCmds[0].RunC(ctx, "gordian", "seed", p2pSeedPath)
+		}()
+		t.Cleanup(func() {
+			<-seedDone
+		})
+
+		// The seed should start up relatively quickly.
+		deadline := time.Now().Add(5 * time.Second)
+		for time.Now().Before(deadline) {
+			b, err := os.ReadFile(p2pSeedPath)
+			if err != nil {
+				if os.IsNotExist(err) {
+					time.Sleep(20 * time.Millisecond)
+					continue
+				}
+				t.Fatalf("failed to read p2p seed path file %q: %v", p2pSeedPath, err)
+			}
+
+			if !bytes.HasSuffix(b, []byte("\n")) {
+				// Very unlikely partial write to file;
+				// delay and try again.
+				time.Sleep(20 * time.Millisecond)
+				continue
+			}
+
+			// Otherwise it does end with a \n.
+			// We will assume that we have sufficient addresses to connect to,
+			// if there is at least one entry.
+			seedAddrs = strings.TrimSuffix(string(b), "\n")
+		}
+	}
+
+	// Now we start the validators.
+	httpAddrFiles := make([]string, nVals)
+
+	var wg sync.WaitGroup
+	wg.Add(nVals)
+	for i := range nVals {
+		httpAddrFiles[i] = filepath.Join(addrDir, fmt.Sprintf("http_addr_%d.txt", i))
+
+		go func(i int) {
+			defer wg.Done()
+
+			startCmd := []string{"start"}
+			if !runCometInsteadOfGordian {
+				// Then include the HTTP server flags.
+				startCmd = append(
+					startCmd,
+					"--g-http-addr", "127.0.0.1:0",
+					"--g-http-addr-file", httpAddrFiles[i],
+				)
+
+				if nVals > 1 {
+					// Only include the seed addresses when there are multiple validators.
+					startCmd = append(startCmd, "--g-seed-addrs", seedAddrs)
+				}
+			}
+
+			_ = c.RootCmds[i].RunC(ctx, startCmd...)
+		}(i)
+	}
+	t.Cleanup(wg.Wait)
+
+	ca := ChainAddresses{
+		HTTP: make([]string, nVals),
+	}
+
+	// Now all the goroutines to start the servers should be running.
+	// Gather their reported HTTP addresses.
+	for i := range nVals {
+		if runCometInsteadOfGordian {
+			// Nothing to check in this mode.
+			break
+		}
+
+		var httpAddr string
+		deadline := time.Now().Add(5 * time.Second)
+		for time.Now().Before(deadline) {
+			a, err := os.ReadFile(httpAddrFiles[i])
+			if err != nil {
+				// Swallow the error and delay.
+				time.Sleep(25 * time.Millisecond)
+				continue
+			}
+			if !bytes.HasSuffix(a, []byte("\n")) {
+				// Very unlikely incomplete write/read.
+				time.Sleep(25 * time.Millisecond)
+				continue
+			}
+
+			httpAddr = strings.TrimSuffix(string(a), "\n")
+			break
+		}
+
+		if httpAddr == "" {
+			t.Fatalf("did not read http address from %s in time", httpAddrFiles[i])
+		}
+
+		ca.HTTP[i] = httpAddr
+	}
+
+	return ca
 }
 
 func NewRootCmd(

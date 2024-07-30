@@ -1,7 +1,6 @@
 package main_test
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -9,8 +8,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -42,60 +39,13 @@ func TestRootCmd_startWithGordian_singleValidator(t *testing.T) {
 		StakeStrategy: ConstantStakeStrategy(1_000_000_000),
 	})
 
-	var startCmd = []string{"start"}
-	var gHTTPAddrFile string
+	httpAddr := c.Start(t, ctx, 1).HTTP[0]
+
 	if !runCometInsteadOfGordian {
-		gHTTPAddrFile = filepath.Join(t.TempDir(), "http_addr.txt")
-		// Then include the HTTP server flags.
-		startCmd = append(
-			startCmd,
-			"--g-http-addr", "127.0.0.1:0",
-			"--g-http-addr-file", gHTTPAddrFile,
-		)
-	}
-
-	// Ensure the start command has fully completed by the end of the test.
-	startDone := make(chan struct{})
-	go func() {
-		defer close(startDone)
-		_ = c.RootCmds[0].RunC(ctx, startCmd...)
-	}()
-	defer func() {
-		<-startDone
-	}()
-	defer cancel()
-
-	// Get the HTTP address, which may require a few tries,
-	// depending on how quickly the start command begins.
-	if !runCometInsteadOfGordian {
-		// Gratuitously long deadline.
-		var httpAddr string
-		deadline := time.Now().Add(5 * time.Second)
-		for time.Now().Before(deadline) {
-			a, err := os.ReadFile(gHTTPAddrFile)
-			if err != nil {
-				// Swallow the error and delay.
-				time.Sleep(25 * time.Millisecond)
-				continue
-			}
-			if !bytes.HasSuffix(a, []byte("\n")) {
-				// Very unlikely incomplete write/read.
-				time.Sleep(25 * time.Millisecond)
-				continue
-			}
-
-			httpAddr = strings.TrimSuffix(string(a), "\n")
-			break
-		}
-
-		if httpAddr == "" {
-			t.Fatalf("did not read http address from %s in time", gHTTPAddrFile)
-		}
-
 		u := "http://" + httpAddr + "/blocks/watermark"
 		// TODO: we might need to delay until we get a non-error HTTP response.
 
-		deadline = time.Now().Add(10 * time.Second)
+		deadline := time.Now().Add(10 * time.Second)
 		var maxHeight uint
 		for time.Now().Before(deadline) {
 			resp, err := http.Get(u)
@@ -156,73 +106,7 @@ func TestRootCmd_startWithGordian_multipleValidators(t *testing.T) {
 		},
 	})
 
-	addrDir := t.TempDir()
-	p2pSeedPath := filepath.Join(addrDir, "p2p.seed.txt")
-
-	seedDone := make(chan struct{})
-	go func() {
-		defer close(seedDone)
-		// Just discard the run result.
-		// If the seed fails to start, we will have obvious failures later.
-		_ = c.RootCmds[0].RunC(ctx, "gordian", "seed", p2pSeedPath)
-	}()
-	defer func() {
-		<-seedDone
-	}()
-	defer cancel()
-
-	var seedAddrs string
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		b, err := os.ReadFile(p2pSeedPath)
-		if err != nil {
-			if os.IsNotExist(err) {
-				time.Sleep(20 * time.Millisecond)
-				continue
-			}
-			t.Fatalf("failed to read p2p seed path file %q: %v", p2pSeedPath, err)
-		}
-
-		if !bytes.HasSuffix(b, []byte("\n")) {
-			// Very unlikely partial write to file;
-			// delay and try again.
-			time.Sleep(20 * time.Millisecond)
-			continue
-		}
-
-		// Otherwise it does end with a \n.
-		// We will assume that we have sufficient addresses to connect to,
-		// if there is at least one entry.
-		seedAddrs = strings.TrimSuffix(string(b), "\n")
-	}
-
-	httpAddrFiles := make([]string, interestingVals)
-
-	// Ensure the start command has fully completed by the end of the test.
-	var wg sync.WaitGroup
-	wg.Add(interestingVals)
-	for i := range interestingVals {
-		httpAddrFiles[i] = filepath.Join(addrDir, fmt.Sprintf("http_addr_%d.txt", i))
-
-		go func(i int) {
-			defer wg.Done()
-
-			startCmd := []string{"start"}
-			if !runCometInsteadOfGordian {
-				// Then include the HTTP server flags.
-				startCmd = append(
-					startCmd,
-					"--g-seed-addrs", seedAddrs,
-					"--g-http-addr", "127.0.0.1:0",
-					"--g-http-addr-file", httpAddrFiles[i],
-				)
-			}
-
-			_ = c.RootCmds[i].RunC(ctx, startCmd...)
-		}(i)
-	}
-	defer wg.Wait()
-	defer cancel()
+	httpAddrs := c.Start(t, ctx, interestingVals).HTTP
 
 	// Each of the interesting validators must report a height beyond the first few blocks.
 	for i := range interestingVals {
@@ -231,37 +115,11 @@ func TestRootCmd_startWithGordian_multipleValidators(t *testing.T) {
 			break
 		}
 
-		// Gratuitously long deadline to confirm the HTTP address.
-		var httpAddr string
-		deadline := time.Now().Add(5 * time.Second)
-		for time.Now().Before(deadline) {
-			a, err := os.ReadFile(httpAddrFiles[i])
-			if err != nil {
-				// Swallow the error and delay.
-				time.Sleep(25 * time.Millisecond)
-				continue
-			}
-			if !bytes.HasSuffix(a, []byte("\n")) {
-				// Very unlikely incomplete write/read.
-				time.Sleep(25 * time.Millisecond)
-				continue
-			}
-
-			httpAddr = strings.TrimSuffix(string(a), "\n")
-			break
-		}
-
-		if httpAddr == "" {
-			t.Fatalf("did not read http address from %s in time", httpAddrFiles[i])
-		}
-
-		u := "http://" + httpAddr + "/blocks/watermark"
-		// TODO: we might need to delay until we get a non-error HTTP response.
-
-		// Another deadline to confirm the voting height.
-		// This is a lot longer than the deadline to check HTTP addresses
-		// because the very first proposed block at 1/0 is expected to time out.
-		deadline = time.Now().Add(30 * time.Second)
+		// Gratuitous deadline to get the voting height,
+		// because the first proposed block is likely to time out
+		// due to libp2p settle time.
+		u := "http://" + httpAddrs[i] + "/blocks/watermark"
+		deadline := time.Now().Add(30 * time.Second)
 		var maxHeight uint
 		for time.Now().Before(deadline) {
 			resp, err := http.Get(u)
@@ -282,7 +140,7 @@ func TestRootCmd_startWithGordian_multipleValidators(t *testing.T) {
 			break
 		}
 
-		require.GreaterOrEqualf(t, maxHeight, uint(3), "checking max block height on validator at index %d", i)
+		require.GreaterOrEqualf(t, maxHeight, uint(4), "checking max block height on validator at index %d", i)
 	}
 }
 
@@ -300,73 +158,13 @@ func TestTx_single(t *testing.T) {
 		NFixedAccounts: 2,
 	})
 
-	startCmd := []string{"start"}
-	var gHTTPAddrFile, grpcAddrFile string
-	addrDir := t.TempDir()
+	httpAddr := c.Start(t, ctx, 1).HTTP[0]
+
 	if !runCometInsteadOfGordian {
-		gHTTPAddrFile = filepath.Join(addrDir, "http_addr.txt")
-		grpcAddrFile = filepath.Join(addrDir, "grpc_addr.txt")
-		// Then include the HTTP server flags.
-		startCmd = append(
-			startCmd,
-			"--g-http-addr", "127.0.0.1:0",
-			"--g-http-addr-file", gHTTPAddrFile,
-			"--grpc.address-file", grpcAddrFile,
-		)
-	} else {
-		grpcAddrFile = filepath.Join(addrDir, "grpc_addr.txt")
-		// Then include the HTTP server flags.
-		startCmd = append(
-			startCmd,
-			"--.grpc-address-file", grpcAddrFile,
-		)
-	}
-
-	// Ensure the start command has fully completed by the end of the test.
-	startDone := make(chan struct{})
-	go func() {
-		defer close(startDone)
-		res := c.RootCmds[0].RunC(ctx, startCmd...)
-		if res.Err != nil {
-			panic(res.Err)
-		}
-	}()
-	defer func() {
-		<-startDone
-	}()
-	defer cancel()
-
-	// Get the HTTP address, which may require a few tries,
-	// depending on how quickly the start command begins.
-	if !runCometInsteadOfGordian {
-		// Gratuitously long deadline.
-		var httpAddr string
-		deadline := time.Now().Add(5 * time.Second)
-		for time.Now().Before(deadline) {
-			a, err := os.ReadFile(gHTTPAddrFile)
-			if err != nil {
-				// Swallow the error and delay.
-				time.Sleep(25 * time.Millisecond)
-				continue
-			}
-			if !bytes.HasSuffix(a, []byte("\n")) {
-				// Very unlikely incomplete write/read.
-				time.Sleep(25 * time.Millisecond)
-				continue
-			}
-
-			httpAddr = strings.TrimSuffix(string(a), "\n")
-			break
-		}
-
-		if httpAddr == "" {
-			t.Fatalf("did not read http address from %s in time", gHTTPAddrFile)
-		}
-
 		baseURL := "http://" + httpAddr
 
 		// Make sure we are beyond the initial height.
-		deadline = time.Now().Add(10 * time.Second)
+		deadline := time.Now().Add(10 * time.Second)
 		var maxHeight uint
 		for time.Now().Before(deadline) {
 			resp, err := http.Get(baseURL + "/blocks/watermark")
