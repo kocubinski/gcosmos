@@ -50,14 +50,11 @@ func (b *TxBuffer) AddTx(ctx context.Context, tx transaction.Tx) error {
 }
 
 func (b *TxBuffer) AddedTxs(dst []transaction.Tx) []transaction.Tx {
+	// Does this need to clone each transaction?
 	return append(dst, b.txs...)
 }
 
 func (b *TxBuffer) ResetState(state store.ReaderMap) {
-	if state == nil {
-		panic(fmt.Errorf("Called ResetState(state=nil)"))
-	}
-
 	b.pendingState = state
 
 	clear(b.txs)

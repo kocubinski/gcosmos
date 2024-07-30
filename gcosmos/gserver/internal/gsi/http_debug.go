@@ -42,6 +42,8 @@ func setDebugRoutes(log *slog.Logger, cfg HTTPServerConfig, r *mux.Router) {
 	r.HandleFunc("/debug/submit_tx", h.HandleSubmitTx).Methods("POST")
 	r.HandleFunc("/debug/simulate_tx", h.HandleSimulateTx).Methods("POST")
 
+	r.HandleFunc("/debug/pending_txs", h.HandlePendingTxs).Methods("GET")
+
 	r.HandleFunc("/debug/accounts/{id}/balance", h.HandleAccountBalance).Methods("GET")
 }
 
@@ -139,6 +141,33 @@ func (h debugHandler) HandleSimulateTx(w http.ResponseWriter, req *http.Request)
 
 	if err := json.NewEncoder(w).Encode(res); err != nil {
 		h.log.Warn("Failed to encode simulate_tx result", "err", err)
+	}
+}
+
+func (h debugHandler) HandlePendingTxs(w http.ResponseWriter, req *http.Request) {
+	defer req.Body.Close()
+
+	var txs []transaction.Tx
+	func() {
+		h.bufMu.Lock()
+		defer h.bufMu.Unlock()
+
+		txs = h.txBuf.AddedTxs(nil)
+	}()
+
+	encodedTxs := make([]json.RawMessage, len(txs))
+	for i, tx := range txs {
+		b, err := json.Marshal(tx)
+		// b, err := h.txCodec.M(tx)
+		if err != nil {
+			http.Error(w, "failed to encode transaction: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		encodedTxs[i] = json.RawMessage(b)
+	}
+
+	if err := json.NewEncoder(w).Encode(encodedTxs); err != nil {
+		h.log.Warn("Failed to encode pending transactions", "err", err)
 	}
 }
 
