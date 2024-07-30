@@ -317,11 +317,27 @@ func (d *Driver) handleFinalizations(
 			return
 		}
 
+		a, err := BlockAnnotationFromBytes(fbReq.Block.Annotations.Driver)
+		if err != nil {
+			d.log.Warn(
+				"Failed to extract driver annotation from finalize block request",
+				"err", err,
+			)
+			return
+		}
+		blockTime, err := a.BlockTimeAsTime()
+		if err != nil {
+			d.log.Warn(
+				"Failed to parse block time from driver annotation",
+				"err", err,
+			)
+			return
+		}
+
 		blockReq := &coreappmgr.BlockRequest[transaction.Tx]{
 			Height: fbReq.Block.Height,
 
-			// TODO: we probably need to pack time into the proposal fields.
-			Time: time.Now(),
+			Time: blockTime,
 
 			Hash:    fbReq.Block.Hash,
 			AppHash: cID.Hash,
