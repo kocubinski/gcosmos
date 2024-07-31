@@ -720,11 +720,29 @@ func (m *StateMachine) handleProposalViewUpdate(
 		//
 		// Operate on clones to avoid mutating either of the canonical slices.
 
-		// TODO: call rejectMismatchedProposedBlocks here.
+		incoming := rejectMismatchedProposedBlocks(
+			vrv.ProposedBlocks,
+			rlc.PrevFinAppStateHash,
+			rlc.CurVals,
+			rlc.PrevFinNextVals,
+		)
+		have := rejectMismatchedProposedBlocks(
+			rlc.PrevVRV.ProposedBlocks,
+			rlc.PrevFinAppStateHash,
+			rlc.CurVals,
+			rlc.PrevFinNextVals,
+		)
+		// TODO: we could be more efficient than building up the have slice
+		// only to check its length.
+		if len(incoming) <= len(have) {
+			// After filtering, no new entries.
+			// Can't send a request to the consensus manager in this case.
+			return
+		}
 
 		// The timer hasn't elapsed yet so it is only a Consider call at this point.
 		req := tsi.ChooseProposedBlockRequest{
-			PBs: vrv.ProposedBlocks,
+			PBs: incoming,
 
 			Result: rlc.PrevoteHashCh,
 		}

@@ -452,6 +452,8 @@ func TestEngine_plumbing_GossipStrategy(t *testing.T) {
 	})
 
 	pb103 := efx.Fx.NextProposedBlock([]byte("app_data_1_0_3"), 3)
+	pb103.Block.PrevAppStateHash = []byte(initAppStateHash)
+	efx.Fx.RecalculateHash(&pb103.Block)
 	efx.Fx.SignProposal(ctx, &pb103, 3)
 	t.Run("proposed block from network", func(t *testing.T) {
 		require.Equal(t, tmconsensus.HandleProposedBlockAccepted, engine.HandleProposedBlock(ctx, pb103))
