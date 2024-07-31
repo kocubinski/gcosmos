@@ -410,7 +410,7 @@ func (m *StateMachine) sendInitialActionSet(ctx context.Context) (
 		rlc.Reset(ctx, initRE.H, initRE.R)
 		rlc.OutgoingActionsCh = initRE.Actions // Should this be part of the Reset method instead?
 
-		// Still assuming we are initializing at genesis,
+		// Still assuming we are initializing at the chain's initial height,
 		// which will not always be a correct assumption.
 		rlc.PrevFinNextVals = slices.Clone(m.genesis.Validators)
 		rlc.PrevFinAppStateHash = string(m.genesis.CurrentAppStateHash)
@@ -428,8 +428,20 @@ func (m *StateMachine) sendInitialActionSet(ctx context.Context) (
 		}
 		rlc.PrevBlockHash = string(b.Hash)
 
+		// TODO: this should be setting rlc.PrevVRV somewhere.
+		// We need a test in place for that.
+
+		// Overwrite the proposed blocks we present to the consensus strategy,
+		// to exclude any known invalid blocks according to the genesis we just parsed.
+		rer.VRV.RoundView.ProposedBlocks = rejectMismatchedProposedBlocks(
+			rer.VRV.RoundView.ProposedBlocks,
+			rlc.PrevFinAppStateHash,
+			rlc.CurVals, rlc.PrevFinNextVals,
+		)
+
 		// We have to synchronously enter the round,
 		// but we still enter through the consensus manager for this.
+
 		req := tsi.EnterRoundRequest{
 			RV:     rer.VRV.RoundView,
 			Result: make(chan error), // Unbuffered since both sides sync on this.
@@ -694,6 +706,22 @@ func (m *StateMachine) handleProposalViewUpdate(
 
 	if len(vrv.ProposedBlocks) > len(rlc.PrevVRV.ProposedBlocks) {
 		// At least one new proposed block.
+		// We are going to inform the consensus strategy (by way of the consensus manager)
+		// of the new proposed blocks,
+		// but first we need to reject any invalid ones.
+		//
+		// The guarantee from the mirror (as of writing)
+		// is that the incoming proposed block has a valid hash and signature.
+		// The mirror does not assume that the state machine
+		// has correct state in regard to the rest of the network.
+		// So, we need to exclude any incoming proposed blocks that
+		// do not match our expected state -- in particular,
+		// the previous app state hash and the validator set.
+		//
+		// Operate on clones to avoid mutating either of the canonical slices.
+
+		// TODO: call rejectMismatchedProposedBlocks here.
+
 		// The timer hasn't elapsed yet so it is only a Consider call at this point.
 		req := tsi.ChooseProposedBlockRequest{
 			PBs: vrv.ProposedBlocks,

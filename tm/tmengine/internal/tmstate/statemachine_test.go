@@ -849,7 +849,7 @@ func TestStateMachine_enterRoundProposal(t *testing.T) {
 		}
 	})
 
-	t.Run("app annotations on block", func(t *testing.T) {
+	t.Run("annotations on block", func(t *testing.T) {
 		for _, tc := range tmconsensustest.AnnotationCombinations() {
 			tc := tc
 			t.Run(tc.Name, func(t *testing.T) {
@@ -895,6 +895,45 @@ func TestStateMachine_enterRoundProposal(t *testing.T) {
 				require.Equal(t, tc.Annotations, gotPB.Block.Annotations)
 			})
 		}
+	})
+
+	t.Run("proposed block filtering", func(t *testing.T) {
+		t.Run("on initial round entrance", func(t *testing.T) {
+			for _, tc := range tmstatetest.UnacceptableProposedBlockMutations(4, 4) {
+				tc := tc
+				t.Run(tc.Name, func(t *testing.T) {
+					t.Parallel()
+
+					ctx, cancel := context.WithCancel(context.Background())
+					defer cancel()
+
+					sfx := tmstatetest.NewFixture(ctx, t, 4)
+
+					sm := sfx.NewStateMachine()
+					defer sm.Wait()
+					defer cancel()
+
+					re := gtest.ReceiveSoon(t, sfx.RoundEntranceOutCh)
+
+					vrv := sfx.EmptyVRV(1, 0)
+
+					// A different validator produces a proposed block.
+					pb1 := sfx.Fx.NextProposedBlock([]byte("app_data_1"), 3)
+
+					// But, something is wrong with the proposed block.
+					tc.Mutate(&pb1)
+
+					vrv.ProposedBlocks = []tmconsensus.ProposedBlock{pb1}
+
+					cStrat := sfx.CStrat
+					_ = cStrat.ExpectEnterRound(1, 0, nil)
+
+					re.Response <- tmeil.RoundEntranceResponse{VRV: vrv}
+
+					gtest.NotSendingSoon(t, cStrat.ConsiderProposedBlockRequests)
+				})
+			}
+		})
 	})
 }
 
