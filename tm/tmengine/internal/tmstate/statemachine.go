@@ -1200,8 +1200,14 @@ func (m *StateMachine) handleTimerElapsed(ctx context.Context, rlc *tsi.RoundLif
 		if !gchan.SendC(
 			ctx, m.log,
 			m.cm.ChooseProposedBlockRequests, tsi.ChooseProposedBlockRequest{
-				PBs:    slices.Clone(rlc.PrevVRV.ProposedBlocks), // Clone under assumption to avoid data race.
-				Result: rlc.PrevoteHashCh,                        // Is it ever possible this channel is nil?
+				// Exclude invalid proposed blocks.
+				PBs: rejectMismatchedProposedBlocks(
+					rlc.PrevVRV.ProposedBlocks,
+					rlc.PrevFinAppStateHash,
+					rlc.CurVals,
+					rlc.PrevFinNextVals,
+				),
+				Result: rlc.PrevoteHashCh, // Is it ever possible this channel is nil?
 			},
 			"choosing proposed block following proposal timeout",
 		) {

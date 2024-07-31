@@ -1007,9 +1007,19 @@ func TestStateMachine_enterRoundProposal(t *testing.T) {
 
 						gtest.SendSoon(t, sfx.RoundViewInCh, tmeil.StateMachineRoundView{VRV: vrv})
 
+						sfx.RoundTimer.RequireActiveProposalTimer(t, 1, 0)
+
+						// Elapse the timer.
+						require.NoError(t, sfx.RoundTimer.ElapseProposalTimer(1, 0))
+
 						// Because the proposed block was a mismatch,
 						// there is no call to ConsiderProposedBlockRequests.
-						gtest.NotSendingSoon(t, cStrat.ConsiderProposedBlockRequests)
+						gtest.NotSending(t, cStrat.ConsiderProposedBlockRequests)
+
+						// But following the timer elapsing, there is a request to choose a proposed block;
+						// however, the input set of proposed blocks is empty.
+						choosePBReq := gtest.ReceiveSoon(t, cStrat.ChooseProposedBlockRequests)
+						require.Empty(t, choosePBReq.Input)
 					})
 				})
 
@@ -1047,8 +1057,22 @@ func TestStateMachine_enterRoundProposal(t *testing.T) {
 
 						gtest.SendSoon(t, sfx.RoundViewInCh, tmeil.StateMachineRoundView{VRV: vrv})
 
+						sfx.RoundTimer.RequireActiveProposalTimer(t, 1, 0)
+
+						// There is a consider request with only the good proposed block.
 						req := gtest.ReceiveSoon(t, cStrat.ConsiderProposedBlockRequests)
 						require.Equal(t, []tmconsensus.ProposedBlock{pbGood}, req.Input)
+
+						// But the consensus strategy isn't ready to decide yet.
+						gtest.SendSoon(t, req.ChoiceError, tmconsensus.ErrProposedBlockChoiceNotReady)
+
+						// Elapse the timer.
+						require.NoError(t, sfx.RoundTimer.ElapseProposalTimer(1, 0))
+
+						// But following the timer elapsing, there is a request to choose a proposed block;
+						// however, the input set of proposed blocks is empty.
+						choosePBReq := gtest.ReceiveSoon(t, cStrat.ChooseProposedBlockRequests)
+						require.Equal(t, []tmconsensus.ProposedBlock{pbGood}, choosePBReq.Input)
 					})
 				})
 			})
