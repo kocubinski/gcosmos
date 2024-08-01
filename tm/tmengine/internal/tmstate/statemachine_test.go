@@ -171,17 +171,17 @@ func TestStateMachine_initialization(t *testing.T) {
 		// Once the consensus strategy chooses a hash...
 		gtest.SendSoon(t, pbReq.ChoiceHash, string(pb1.Block.Hash))
 
-		// And we are still in minority prevote until the mirror confirms receipt
-		// of the prevote, so there is no timer active.
-		sfx.RoundTimer.RequireNoActiveTimer(t)
-
 		// The state machine constructs a valid vote, saves it to the action store,
 		// and sends it to the mirror.
-		// We check the mirror send first re a synchronization point.
 		action := gtest.ReceiveSoon(t, re.Actions)
 		// Only prevote is set.
 		require.Empty(t, action.PB.Block.Hash)
 		require.Empty(t, action.Precommit.Sig)
+
+		// And because the action has been sent,
+		// and we are still waiting on other prevotes to reach majority,
+		// there is no active timer.
+		sfx.RoundTimer.RequireNoActiveTimer(t)
 
 		require.Equal(t, string(pb1.Block.Hash), action.Prevote.TargetHash)
 

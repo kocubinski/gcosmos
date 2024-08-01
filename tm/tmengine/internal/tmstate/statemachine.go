@@ -305,19 +305,13 @@ func (m *StateMachine) beginRoundLive(
 		}
 
 	case tsi.StepAwaitingPrevotes:
-		if !gchan.SendC(
-			ctx, m.log,
-			// TODO: is ConsiderProposedBlocksRequests correct here?
-			// Or should it be a ChooseProposedBlockRequest?
-			m.cm.ConsiderProposedBlocksRequests, tsi.ChooseProposedBlockRequest{
-				PBs:    initVRV.ProposedBlocks,
-				Result: rlc.PrevoteHashCh,
-			},
-			"making consider proposed blocks request from initial state",
-		) {
-			// Context cancelled and logged. Quit.
-			return false
-		}
+		// See comments in GetStepFromVoteSummary.
+		// If above minority prevotes but below majority,
+		// we will just wait for a proposal as normal.
+		// At worse, we time out on the proposal and prevote nil.
+		panic(errors.New(
+			"BUG: tsi.GetStepFromVoteSummary must not return tsi.StepAwaitingPrevotes",
+		))
 
 	case tsi.StepAwaitingPrecommits:
 		if !gchan.SendC(
