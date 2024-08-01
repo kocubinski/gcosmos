@@ -674,7 +674,11 @@ func (m *StateMachine) handleProposalViewUpdate(
 
 		// And we are making a request to choose or consider in either case too.
 		req := tsi.ChooseProposedBlockRequest{
-			PBs: vrv.ProposedBlocks,
+			PBs: rejectMismatchedProposedBlocks(
+				vrv.ProposedBlocks,
+				rlc.PrevFinAppStateHash,
+				rlc.CurVals, rlc.PrevFinNextVals,
+			),
 
 			Result: rlc.PrevoteHashCh,
 		}
@@ -700,11 +704,15 @@ func (m *StateMachine) handleProposalViewUpdate(
 		rlc.S = tsi.StepPrevoteDelay
 		rlc.StepTimer, rlc.CancelTimer = m.rt.PrevoteDelayTimer(ctx, rlc.H, rlc.R)
 
-		select {
-		case m.cm.ConsiderProposedBlocksRequests <- req:
-			// Okay.
-		default:
-			panic("TODO: handle blocked send to ConsiderProposedBlocksRequests")
+		if len(req.PBs) > 0 {
+			// If we filtered out invalid proposed blocks,
+			// don't send the request.
+			select {
+			case m.cm.ConsiderProposedBlocksRequests <- req:
+				// Okay.
+			default:
+				panic("TODO: handle blocked send to ConsiderProposedBlocksRequests")
+			}
 		}
 		return
 	}
