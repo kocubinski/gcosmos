@@ -266,9 +266,8 @@ func (m *StateMachine) initializeRLC(ctx context.Context) (rlc tsi.RoundLifecycl
 }
 
 // beginRoundLive updates some fields on rlc,
-// makes appropriate calls into the consensus strategy based on data in update,
+// makes appropriate calls into the consensus strategy based on the initVRV value,
 // and starts any necessary timers.
-// The initVRV value seeds the RoundLifecycle.
 func (m *StateMachine) beginRoundLive(
 	ctx context.Context, rlc *tsi.RoundLifecycle, initVRV tmconsensus.VersionedRoundView,
 ) (ok bool) {
@@ -285,11 +284,17 @@ func (m *StateMachine) beginRoundLive(
 	curStep := tsi.GetStepFromVoteSummary(initVRV.VoteSummary)
 	switch curStep {
 	case tsi.StepAwaitingProposal:
-		if len(initVRV.ProposedBlocks) > 0 {
+		// Only send the filtered proposed blocks.
+		if okPBs := rejectMismatchedProposedBlocks(
+			initVRV.ProposedBlocks,
+			rlc.PrevFinAppStateHash,
+			rlc.CurVals,
+			rlc.PrevFinNextVals,
+		); len(okPBs) > 0 {
 			if !gchan.SendC(
 				ctx, m.log,
 				m.cm.ConsiderProposedBlocksRequests, tsi.ChooseProposedBlockRequest{
-					PBs:    initVRV.ProposedBlocks,
+					PBs:    okPBs,
 					Result: rlc.PrevoteHashCh,
 				},
 				"making consider proposed blocks request from initial state",
@@ -302,6 +307,8 @@ func (m *StateMachine) beginRoundLive(
 	case tsi.StepAwaitingPrevotes:
 		if !gchan.SendC(
 			ctx, m.log,
+			// TODO: is ConsiderProposedBlocksRequests correct here?
+			// Or should it be a ChooseProposedBlockRequest?
 			m.cm.ConsiderProposedBlocksRequests, tsi.ChooseProposedBlockRequest{
 				PBs:    initVRV.ProposedBlocks,
 				Result: rlc.PrevoteHashCh,
@@ -682,7 +689,7 @@ func (m *StateMachine) handleProposalViewUpdate(
 			case m.cm.ChooseProposedBlockRequests <- req:
 				// Okay.
 			default:
-				panic("TODO: handle blocked send to ChooseProposedBlocksRequests")
+				panic("TODO: handle blocked send to ChooseProposedBlockRequests")
 			}
 			return
 		}

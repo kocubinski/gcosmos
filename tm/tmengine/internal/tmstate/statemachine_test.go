@@ -896,188 +896,296 @@ func TestStateMachine_enterRoundProposal(t *testing.T) {
 			})
 		}
 	})
+}
 
-	t.Run("proposed block filtering", func(t *testing.T) {
-		if testing.Short() {
-			t.Skip("skipping in short mode due to many sleeps")
-		}
+func TestStateMachine_proposedBlockFiltering(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping in short mode due to many sleeps")
+	}
 
-		for _, tc := range tmstatetest.UnacceptableProposedBlockMutations(4, 4) {
-			tc := tc
-			t.Run("on initial round entrance", func(t *testing.T) {
-				t.Run("when the only proposed block is unacceptable", func(t *testing.T) {
-					t.Run(tc.Name, func(t *testing.T) {
-						t.Parallel()
+	for _, tc := range tmstatetest.UnacceptableProposedBlockMutations(4, 4) {
+		tc := tc
+		t.Run("on initial height and round entrance", func(t *testing.T) {
+			t.Run("when the only proposed block is unacceptable", func(t *testing.T) {
+				t.Run(tc.Name, func(t *testing.T) {
+					t.Parallel()
 
-						ctx, cancel := context.WithCancel(context.Background())
-						defer cancel()
+					ctx, cancel := context.WithCancel(context.Background())
+					defer cancel()
 
-						sfx := tmstatetest.NewFixture(ctx, t, 4)
+					sfx := tmstatetest.NewFixture(ctx, t, 4)
 
-						sm := sfx.NewStateMachine()
-						defer sm.Wait()
-						defer cancel()
+					sm := sfx.NewStateMachine()
+					defer sm.Wait()
+					defer cancel()
 
-						re := gtest.ReceiveSoon(t, sfx.RoundEntranceOutCh)
+					re := gtest.ReceiveSoon(t, sfx.RoundEntranceOutCh)
 
-						vrv := sfx.EmptyVRV(1, 0)
+					vrv := sfx.EmptyVRV(1, 0)
 
-						// A different validator produces a proposed block.
-						pb1 := sfx.Fx.NextProposedBlock([]byte("app_data_1"), 3)
+					// A different validator produces a proposed block.
+					pb1 := sfx.Fx.NextProposedBlock([]byte("app_data_1"), 3)
 
-						// But, something is wrong with the proposed block.
-						tc.Mutate(&pb1)
+					// But, something is wrong with the proposed block.
+					tc.Mutate(&pb1)
 
-						vrv.ProposedBlocks = []tmconsensus.ProposedBlock{pb1}
+					vrv.ProposedBlocks = []tmconsensus.ProposedBlock{pb1}
 
-						cStrat := sfx.CStrat
-						_ = cStrat.ExpectEnterRound(1, 0, nil)
+					cStrat := sfx.CStrat
+					_ = cStrat.ExpectEnterRound(1, 0, nil)
 
-						re.Response <- tmeil.RoundEntranceResponse{VRV: vrv}
+					re.Response <- tmeil.RoundEntranceResponse{VRV: vrv}
 
-						gtest.NotSendingSoon(t, cStrat.ConsiderProposedBlockRequests)
-					})
-				})
-
-				t.Run("when one proposed block is unacceptable and another is fine", func(t *testing.T) {
-					t.Run(tc.Name, func(t *testing.T) {
-						t.Parallel()
-
-						ctx, cancel := context.WithCancel(context.Background())
-						defer cancel()
-
-						sfx := tmstatetest.NewFixture(ctx, t, 4)
-
-						sm := sfx.NewStateMachine()
-						defer sm.Wait()
-						defer cancel()
-
-						re := gtest.ReceiveSoon(t, sfx.RoundEntranceOutCh)
-
-						vrv := sfx.EmptyVRV(1, 0)
-
-						// Other validators produce proposed blocks.
-						pbGood := sfx.Fx.NextProposedBlock([]byte("app_data_1_2"), 2)
-						pbBad := sfx.Fx.NextProposedBlock([]byte("app_data_1_3"), 3)
-
-						// But, something is wrong with the proposed block.
-						tc.Mutate(&pbBad)
-
-						vrv.ProposedBlocks = []tmconsensus.ProposedBlock{pbGood, pbBad}
-
-						cStrat := sfx.CStrat
-						_ = cStrat.ExpectEnterRound(1, 0, nil)
-
-						re.Response <- tmeil.RoundEntranceResponse{VRV: vrv}
-
-						req := gtest.ReceiveSoon(t, cStrat.ConsiderProposedBlockRequests)
-						require.Equal(t, []tmconsensus.ProposedBlock{pbGood}, req.Input)
-					})
+					gtest.NotSendingSoon(t, cStrat.ConsiderProposedBlockRequests)
 				})
 			})
 
-			t.Run("on first new view update", func(t *testing.T) {
-				t.Run("when the only proposed block is unacceptable", func(t *testing.T) {
-					t.Run(tc.Name, func(t *testing.T) {
-						t.Parallel()
+			t.Run("when one proposed block is unacceptable and another is fine", func(t *testing.T) {
+				t.Run(tc.Name, func(t *testing.T) {
+					t.Parallel()
 
-						ctx, cancel := context.WithCancel(context.Background())
-						defer cancel()
+					ctx, cancel := context.WithCancel(context.Background())
+					defer cancel()
 
-						sfx := tmstatetest.NewFixture(ctx, t, 4)
+					sfx := tmstatetest.NewFixture(ctx, t, 4)
 
-						sm := sfx.NewStateMachine()
-						defer sm.Wait()
-						defer cancel()
+					sm := sfx.NewStateMachine()
+					defer sm.Wait()
+					defer cancel()
 
-						re := gtest.ReceiveSoon(t, sfx.RoundEntranceOutCh)
+					re := gtest.ReceiveSoon(t, sfx.RoundEntranceOutCh)
 
-						vrv := sfx.EmptyVRV(1, 0)
+					vrv := sfx.EmptyVRV(1, 0)
 
-						cStrat := sfx.CStrat
-						_ = cStrat.ExpectEnterRound(1, 0, nil)
+					// Other validators produce proposed blocks.
+					pbGood := sfx.Fx.NextProposedBlock([]byte("app_data_1_2"), 2)
+					pbBad := sfx.Fx.NextProposedBlock([]byte("app_data_1_3"), 3)
 
-						re.Response <- tmeil.RoundEntranceResponse{VRV: vrv}
+					// But, something is wrong with the proposed block.
+					tc.Mutate(&pbBad)
 
-						// Now a new round view arrives, with only one invalid block.
-						pb1 := sfx.Fx.NextProposedBlock([]byte("app_data_1"), 3)
-						tc.Mutate(&pb1)
-						vrv.ProposedBlocks = []tmconsensus.ProposedBlock{pb1}
-						vrv.Version++
+					vrv.ProposedBlocks = []tmconsensus.ProposedBlock{pbGood, pbBad}
 
-						gtest.SendSoon(t, sfx.RoundViewInCh, tmeil.StateMachineRoundView{VRV: vrv})
+					cStrat := sfx.CStrat
+					_ = cStrat.ExpectEnterRound(1, 0, nil)
 
-						sfx.RoundTimer.RequireActiveProposalTimer(t, 1, 0)
+					re.Response <- tmeil.RoundEntranceResponse{VRV: vrv}
 
-						// Elapse the timer.
-						require.NoError(t, sfx.RoundTimer.ElapseProposalTimer(1, 0))
-
-						// Because the proposed block was a mismatch,
-						// there is no call to ConsiderProposedBlockRequests.
-						gtest.NotSending(t, cStrat.ConsiderProposedBlockRequests)
-
-						// But following the timer elapsing, there is a request to choose a proposed block;
-						// however, the input set of proposed blocks is empty.
-						choosePBReq := gtest.ReceiveSoon(t, cStrat.ChooseProposedBlockRequests)
-						require.Empty(t, choosePBReq.Input)
-					})
-				})
-
-				t.Run("when one proposed block is unacceptable and another is fine", func(t *testing.T) {
-					t.Run(tc.Name, func(t *testing.T) {
-						t.Parallel()
-
-						ctx, cancel := context.WithCancel(context.Background())
-						defer cancel()
-
-						sfx := tmstatetest.NewFixture(ctx, t, 4)
-
-						sm := sfx.NewStateMachine()
-						defer sm.Wait()
-						defer cancel()
-
-						re := gtest.ReceiveSoon(t, sfx.RoundEntranceOutCh)
-
-						vrv := sfx.EmptyVRV(1, 0)
-
-						cStrat := sfx.CStrat
-						_ = cStrat.ExpectEnterRound(1, 0, nil)
-
-						re.Response <- tmeil.RoundEntranceResponse{VRV: vrv}
-
-						// Now a new round view arrives, with one good and one bad proposed block.
-						pbGood := sfx.Fx.NextProposedBlock([]byte("app_data_1_2"), 2)
-						pbBad := sfx.Fx.NextProposedBlock([]byte("app_data_1_3"), 3)
-
-						// But, something is wrong with the proposed block.
-						tc.Mutate(&pbBad)
-
-						vrv.ProposedBlocks = []tmconsensus.ProposedBlock{pbGood, pbBad}
-						vrv.Version++
-
-						gtest.SendSoon(t, sfx.RoundViewInCh, tmeil.StateMachineRoundView{VRV: vrv})
-
-						sfx.RoundTimer.RequireActiveProposalTimer(t, 1, 0)
-
-						// There is a consider request with only the good proposed block.
-						req := gtest.ReceiveSoon(t, cStrat.ConsiderProposedBlockRequests)
-						require.Equal(t, []tmconsensus.ProposedBlock{pbGood}, req.Input)
-
-						// But the consensus strategy isn't ready to decide yet.
-						gtest.SendSoon(t, req.ChoiceError, tmconsensus.ErrProposedBlockChoiceNotReady)
-
-						// Elapse the timer.
-						require.NoError(t, sfx.RoundTimer.ElapseProposalTimer(1, 0))
-
-						// But following the timer elapsing, there is a request to choose a proposed block;
-						// however, the input set of proposed blocks is empty.
-						choosePBReq := gtest.ReceiveSoon(t, cStrat.ChooseProposedBlockRequests)
-						require.Equal(t, []tmconsensus.ProposedBlock{pbGood}, choosePBReq.Input)
-					})
+					req := gtest.ReceiveSoon(t, cStrat.ConsiderProposedBlockRequests)
+					require.Equal(t, []tmconsensus.ProposedBlock{pbGood}, req.Input)
 				})
 			})
-		}
-	})
+		})
+
+		t.Run("on first new view update at initial height", func(t *testing.T) {
+			t.Run("when the only proposed block is unacceptable", func(t *testing.T) {
+				t.Run(tc.Name, func(t *testing.T) {
+					t.Parallel()
+
+					ctx, cancel := context.WithCancel(context.Background())
+					defer cancel()
+
+					sfx := tmstatetest.NewFixture(ctx, t, 4)
+
+					sm := sfx.NewStateMachine()
+					defer sm.Wait()
+					defer cancel()
+
+					re := gtest.ReceiveSoon(t, sfx.RoundEntranceOutCh)
+
+					vrv := sfx.EmptyVRV(1, 0)
+
+					cStrat := sfx.CStrat
+					_ = cStrat.ExpectEnterRound(1, 0, nil)
+
+					re.Response <- tmeil.RoundEntranceResponse{VRV: vrv}
+
+					// Now a new round view arrives, with only one invalid block.
+					pb1 := sfx.Fx.NextProposedBlock([]byte("app_data_1"), 3)
+					tc.Mutate(&pb1)
+					vrv.ProposedBlocks = []tmconsensus.ProposedBlock{pb1}
+					vrv.Version++
+
+					gtest.SendSoon(t, sfx.RoundViewInCh, tmeil.StateMachineRoundView{VRV: vrv})
+
+					sfx.RoundTimer.RequireActiveProposalTimer(t, 1, 0)
+
+					// Elapse the timer.
+					require.NoError(t, sfx.RoundTimer.ElapseProposalTimer(1, 0))
+
+					// Because the proposed block was a mismatch,
+					// there is no call to ConsiderProposedBlockRequests.
+					gtest.NotSending(t, cStrat.ConsiderProposedBlockRequests)
+
+					// But following the timer elapsing, there is a request to choose a proposed block;
+					// however, the input set of proposed blocks is empty.
+					choosePBReq := gtest.ReceiveSoon(t, cStrat.ChooseProposedBlockRequests)
+					require.Empty(t, choosePBReq.Input)
+				})
+			})
+
+			t.Run("when one proposed block is unacceptable and another is fine", func(t *testing.T) {
+				t.Run(tc.Name, func(t *testing.T) {
+					t.Parallel()
+
+					ctx, cancel := context.WithCancel(context.Background())
+					defer cancel()
+
+					sfx := tmstatetest.NewFixture(ctx, t, 4)
+
+					sm := sfx.NewStateMachine()
+					defer sm.Wait()
+					defer cancel()
+
+					re := gtest.ReceiveSoon(t, sfx.RoundEntranceOutCh)
+
+					vrv := sfx.EmptyVRV(1, 0)
+
+					cStrat := sfx.CStrat
+					_ = cStrat.ExpectEnterRound(1, 0, nil)
+
+					re.Response <- tmeil.RoundEntranceResponse{VRV: vrv}
+
+					// Now a new round view arrives, with one good and one bad proposed block.
+					pbGood := sfx.Fx.NextProposedBlock([]byte("app_data_1_2"), 2)
+					pbBad := sfx.Fx.NextProposedBlock([]byte("app_data_1_3"), 3)
+
+					// But, something is wrong with the proposed block.
+					tc.Mutate(&pbBad)
+
+					vrv.ProposedBlocks = []tmconsensus.ProposedBlock{pbGood, pbBad}
+					vrv.Version++
+
+					gtest.SendSoon(t, sfx.RoundViewInCh, tmeil.StateMachineRoundView{VRV: vrv})
+
+					sfx.RoundTimer.RequireActiveProposalTimer(t, 1, 0)
+
+					// There is a consider request with only the good proposed block.
+					req := gtest.ReceiveSoon(t, cStrat.ConsiderProposedBlockRequests)
+					require.Equal(t, []tmconsensus.ProposedBlock{pbGood}, req.Input)
+
+					// But the consensus strategy isn't ready to decide yet.
+					gtest.SendSoon(t, req.ChoiceError, tmconsensus.ErrProposedBlockChoiceNotReady)
+
+					// Elapse the timer.
+					require.NoError(t, sfx.RoundTimer.ElapseProposalTimer(1, 0))
+
+					// But following the timer elapsing, there is a request to choose a proposed block;
+					// however, the input set of proposed blocks is empty.
+					choosePBReq := gtest.ReceiveSoon(t, cStrat.ChooseProposedBlockRequests)
+					require.Equal(t, []tmconsensus.ProposedBlock{pbGood}, choosePBReq.Input)
+				})
+			})
+		})
+
+		t.Run("on entering the second round at initial height", func(t *testing.T) {
+			t.Run("when the only proposed block is unacceptable", func(t *testing.T) {
+				t.Run(tc.Name, func(t *testing.T) {
+					t.Parallel()
+
+					ctx, cancel := context.WithCancel(context.Background())
+					defer cancel()
+
+					sfx := tmstatetest.NewFixture(ctx, t, 4)
+
+					sm := sfx.NewStateMachine()
+					defer sm.Wait()
+					defer cancel()
+
+					re10 := gtest.ReceiveSoon(t, sfx.RoundEntranceOutCh)
+					require.Equal(t, uint64(1), re10.H)
+					require.Zero(t, re10.R)
+
+					// Everyone else already prevoted and precommitted for nil.
+					vrv := sfx.EmptyVRV(1, 0)
+					vrv = sfx.Fx.UpdateVRVPrevotes(ctx, vrv, map[string][]int{
+						"": {1, 2, 3},
+					})
+					vrv = sfx.Fx.UpdateVRVPrecommits(ctx, vrv, map[string][]int{
+						"": {1, 2, 3}, // Everyone else already prevoted for the block.
+					})
+
+					cStrat := sfx.CStrat
+					_ = cStrat.ExpectEnterRound(1, 0, nil)
+					_ = cStrat.ExpectEnterRound(1, 1, nil)
+
+					re10.Response <- tmeil.RoundEntranceResponse{VRV: vrv}
+
+					re11 := gtest.ReceiveSoon(t, sfx.RoundEntranceOutCh)
+					require.Equal(t, uint64(1), re11.H)
+					require.Equal(t, uint32(1), re11.R)
+
+					vrv = sfx.EmptyVRV(1, 1)
+					pb11 := sfx.Fx.NextProposedBlock([]byte("app_data_1"), 3)
+					pb11.Round = 1
+					tc.Mutate(&pb11)
+					vrv.ProposedBlocks = []tmconsensus.ProposedBlock{pb11}
+
+					re11.Response <- tmeil.RoundEntranceResponse{VRV: vrv}
+
+					// The only proposed block was filtered out,
+					// so nothing is sending on the consider channel.
+					gtest.NotSendingSoon(t, cStrat.ConsiderProposedBlockRequests)
+				})
+			})
+
+			t.Run("when one proposed block is unacceptable and another is fine", func(t *testing.T) {
+				t.Run(tc.Name, func(t *testing.T) {
+					t.Parallel()
+
+					ctx, cancel := context.WithCancel(context.Background())
+					defer cancel()
+
+					sfx := tmstatetest.NewFixture(ctx, t, 4)
+
+					sm := sfx.NewStateMachine()
+					defer sm.Wait()
+					defer cancel()
+
+					re10 := gtest.ReceiveSoon(t, sfx.RoundEntranceOutCh)
+					require.Equal(t, uint64(1), re10.H)
+					require.Zero(t, re10.R)
+
+					// Everyone else already prevoted and precommitted for nil.
+					vrv := sfx.EmptyVRV(1, 0)
+					vrv = sfx.Fx.UpdateVRVPrevotes(ctx, vrv, map[string][]int{
+						"": {1, 2, 3},
+					})
+					vrv = sfx.Fx.UpdateVRVPrecommits(ctx, vrv, map[string][]int{
+						"": {1, 2, 3}, // Everyone else already prevoted for the block.
+					})
+
+					cStrat := sfx.CStrat
+					_ = cStrat.ExpectEnterRound(1, 0, nil)
+					_ = cStrat.ExpectEnterRound(1, 1, nil)
+
+					re10.Response <- tmeil.RoundEntranceResponse{VRV: vrv}
+
+					re11 := gtest.ReceiveSoon(t, sfx.RoundEntranceOutCh)
+					require.Equal(t, uint64(1), re11.H)
+					require.Equal(t, uint32(1), re11.R)
+
+					vrv = sfx.EmptyVRV(1, 1)
+
+					pb11Bad := sfx.Fx.NextProposedBlock([]byte("app_data_1_3"), 3)
+					pb11Bad.Round = 1
+					tc.Mutate(&pb11Bad)
+
+					pb11Good := sfx.Fx.NextProposedBlock([]byte("app_data_1_2"), 2)
+					pb11Good.Round = 1
+
+					vrv.ProposedBlocks = []tmconsensus.ProposedBlock{pb11Bad, pb11Good}
+
+					re11.Response <- tmeil.RoundEntranceResponse{VRV: vrv}
+
+					// The mutated proposed block is filtered out,
+					// but the good one is included.
+					considerReq := gtest.ReceiveSoon(t, cStrat.ConsiderProposedBlockRequests)
+					require.Equal(t, []tmconsensus.ProposedBlock{pb11Good}, considerReq.Input)
+				})
+			})
+		})
+	}
 }
 
 func TestStateMachine_decidePrecommit(t *testing.T) {
