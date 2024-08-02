@@ -192,7 +192,13 @@ func (c *Component) Start(ctx context.Context) error {
 
 	// We needed the driver before we could make the consensus strategy.
 	opts = append(opts, tmengine.WithConsensusStrategy(
-		gsi.NewConsensusStrategy(c.log.With("serversys", "cons_strat"), d, c.signer),
+		gsi.NewConsensusStrategy(
+			c.log.With("serversys", "cons_strat"),
+			d,
+			*(c.app.GetAppManager()),
+			c.signer,
+			bufMu, txBuf,
+		),
 	))
 
 	// Depends on conn.
