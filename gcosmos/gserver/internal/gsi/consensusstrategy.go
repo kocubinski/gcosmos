@@ -90,7 +90,7 @@ func (c *ConsensusStrategy) EnterRound(
 	if !gchan.SendC(
 		ctx, c.log,
 		proposalOut, tmconsensus.Proposal{
-			AppDataID: fmt.Sprintf("%d/%d", rv.Height, rv.Round),
+			AppDataID: AppDataID(rv.Height, rv.Round, nil),
 			BlockAnnotations: tmconsensus.Annotations{
 				Driver: ba,
 			},
@@ -106,7 +106,6 @@ func (c *ConsensusStrategy) ConsiderProposedBlocks(
 	ctx context.Context,
 	pbs []tmconsensus.ProposedBlock,
 ) (string, error) {
-	expAppDataID := fmt.Sprintf("%d/%d", c.curH, c.curR)
 	for _, pb := range pbs {
 		if pb.Block.Height != c.curH {
 			c.log.Debug(
@@ -124,13 +123,36 @@ func (c *ConsensusStrategy) ConsiderProposedBlocks(
 			continue
 		}
 
-		if string(pb.Block.DataID) != expAppDataID {
+		h, r, nTxs, _, err := ParseAppDataID(string(pb.Block.DataID))
+		if err != nil {
 			c.log.Debug(
-				"Ignoring proposed block due to expected app ID mismatch",
+				"Ignoring proposed block due to unparseable app data ID",
 				"h", c.curH, "r", c.curR,
-				"want", glog.Hex(expAppDataID), "got", glog.Hex(pb.Block.DataID),
+				"block_hash", glog.Hex(pb.Block.Hash),
+				"err", err,
 			)
 			continue
+		}
+		if h != c.curH {
+			c.log.Debug(
+				"Ignoring proposed block due to wrong height in app data ID",
+				"h", c.curH, "r", c.curR,
+				"got_h", h,
+			)
+			continue
+		}
+		if r != c.curR {
+			c.log.Debug(
+				"Ignoring proposed block due to wrong round in app data ID",
+				"h", c.curH, "r", c.curR,
+				"got_r", r,
+			)
+			continue
+		}
+		if nTxs != 0 {
+			panic(errors.New(
+				"TODO: handle app data IDs that indicate presence of at least one transaction",
+			))
 		}
 
 		ba, err := BlockAnnotationFromBytes(pb.Block.Annotations.Driver)
