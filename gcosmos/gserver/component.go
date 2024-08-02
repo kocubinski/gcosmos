@@ -258,7 +258,13 @@ func (c *Component) Stop(_ context.Context) error {
 	}
 	if c.httpLn != nil {
 		if err := c.httpLn.Close(); err != nil {
-			c.log.Warn("Error closing HTTP listener", "err", err)
+			// If the HTTP server is closed directly,
+			// it will close the underlying listener,
+			// which will probably happen before our call to close the listener here.
+			// Don't log if the error already indicated the network connection was closed.
+			if !errors.Is(err, net.ErrClosed) {
+				c.log.Warn("Error closing HTTP listener", "err", err)
+			}
 		}
 		if c.httpServer != nil {
 			c.httpServer.Wait()
