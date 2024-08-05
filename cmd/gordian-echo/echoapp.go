@@ -155,7 +155,11 @@ func (s *echoConsensusStrategy) EnterRound(ctx context.Context, rv tmconsensus.R
 	return nil
 }
 
-func (s *echoConsensusStrategy) ConsiderProposedBlocks(ctx context.Context, pbs []tmconsensus.ProposedBlock) (string, error) {
+func (s *echoConsensusStrategy) ConsiderProposedBlocks(
+	ctx context.Context,
+	pbs []tmconsensus.ProposedBlock,
+	_ tmconsensus.ConsiderProposedBlocksReason,
+) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -191,7 +195,7 @@ func (s *echoConsensusStrategy) ConsiderProposedBlocks(ctx context.Context, pbs 
 
 func (s *echoConsensusStrategy) ChooseProposedBlock(ctx context.Context, pbs []tmconsensus.ProposedBlock) (string, error) {
 	// Follow the ConsiderProposedBlocks logic...
-	hash, err := s.ConsiderProposedBlocks(ctx, pbs)
+	hash, err := s.ConsiderProposedBlocks(ctx, pbs, tmconsensus.ConsiderProposedBlocksReason{})
 	if err == tmconsensus.ErrProposedBlockChoiceNotReady {
 		// ... and if there is no choice ready, then vote nil.
 		return "", nil

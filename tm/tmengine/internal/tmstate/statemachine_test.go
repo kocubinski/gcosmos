@@ -127,8 +127,9 @@ func TestStateMachine_initialization(t *testing.T) {
 		gtest.SendSoon(t, sfx.RoundViewInCh, tmeil.StateMachineRoundView{VRV: vrv})
 
 		// ... forces the consensus strategy to consider the available proposed blocks.
-		pbReq := gtest.ReceiveSoon(t, cStrat.ConsiderProposedBlockRequests)
-		require.Equal(t, []tmconsensus.ProposedBlock{pb1}, pbReq.Input)
+		pbReq := gtest.ReceiveSoon(t, cStrat.ConsiderProposedBlocksRequests)
+		require.Equal(t, []tmconsensus.ProposedBlock{pb1}, pbReq.PBs)
+		require.Equal(t, []string{string(pb1.Block.Hash)}, pbReq.Reason.NewProposedBlocks)
 	})
 
 	t.Run("round view response from mirror where network is in minority prevote", func(t *testing.T) {
@@ -165,8 +166,9 @@ func TestStateMachine_initialization(t *testing.T) {
 		require.Equal(t, vrv.RoundView, erc.RV)
 
 		// And it forces the consensus strategy to consider the available proposed blocks.
-		pbReq := gtest.ReceiveSoon(t, cStrat.ConsiderProposedBlockRequests)
-		require.Equal(t, []tmconsensus.ProposedBlock{pb1}, pbReq.Input)
+		pbReq := gtest.ReceiveSoon(t, cStrat.ConsiderProposedBlocksRequests)
+		require.Equal(t, []tmconsensus.ProposedBlock{pb1}, pbReq.PBs)
+		require.Equal(t, []string{string(pb1.Block.Hash)}, pbReq.Reason.NewProposedBlocks)
 
 		// Once the consensus strategy chooses a hash...
 		gtest.SendSoon(t, pbReq.ChoiceHash, string(pb1.Block.Hash))
@@ -364,8 +366,9 @@ func TestStateMachine_stateTransitions(t *testing.T) {
 				vrv.Version++
 				gtest.SendSoon(t, sfx.RoundViewInCh, tmeil.StateMachineRoundView{VRV: vrv})
 
-				considerReq := gtest.ReceiveSoon(t, cStrat.ConsiderProposedBlockRequests)
-				require.Equal(t, vrv.ProposedBlocks, considerReq.Input)
+				considerReq := gtest.ReceiveSoon(t, cStrat.ConsiderProposedBlocksRequests)
+				require.Equal(t, vrv.ProposedBlocks, considerReq.PBs)
+				require.Equal(t, []string{string(pb.Block.Hash)}, considerReq.Reason.NewProposedBlocks)
 			})
 		}
 
@@ -442,7 +445,9 @@ func TestStateMachine_stateTransitions(t *testing.T) {
 
 				// With 75% prevotes, but not consensus, we consider the proposed block and start prevote delay.
 				_ = gtest.ReceiveSoon(t, prevoteDelayStarted)
-				_ = gtest.ReceiveSoon(t, cStrat.ConsiderProposedBlockRequests)
+				considerReq := gtest.ReceiveSoon(t, cStrat.ConsiderProposedBlocksRequests)
+				require.Equal(t, []string{string(pb.Block.Hash)}, considerReq.Reason.NewProposedBlocks)
+				require.True(t, considerReq.Reason.MajorityVotingPowerPresent)
 			})
 		})
 
@@ -490,7 +495,7 @@ func TestStateMachine_stateTransitions(t *testing.T) {
 				// With 75% precommits, but not consensus, we need to decide our own precommit.
 				// We do not submit a prevote.
 				_ = gtest.ReceiveSoon(t, precommitDelayStarted)
-				gtest.NotSending(t, cStrat.ConsiderProposedBlockRequests)
+				gtest.NotSending(t, cStrat.ConsiderProposedBlocksRequests)
 				gtest.NotSending(t, cStrat.ChooseProposedBlockRequests)
 				_ = gtest.ReceiveSoon(t, cStrat.DecidePrecommitRequests)
 			})
@@ -659,7 +664,8 @@ func TestStateMachine_stateTransitions(t *testing.T) {
 
 			// The initial state had a proposed block,
 			// so there was a consider request.
-			cReq := gtest.ReceiveSoon(t, cStrat.ConsiderProposedBlockRequests)
+			cReq := gtest.ReceiveSoon(t, cStrat.ConsiderProposedBlocksRequests)
+			require.Equal(t, []string{string(pb.Block.Hash)}, cReq.Reason.NewProposedBlocks)
 			gtest.SendSoon(t, cReq.ChoiceHash, string(pb.Block.Hash))
 
 			// The mirror sends back our own prevote but nobody else's yet.
@@ -680,7 +686,7 @@ func TestStateMachine_stateTransitions(t *testing.T) {
 			// This update causes both the precommit delay to start
 			// and a precommit decision request.
 			_ = gtest.ReceiveSoon(t, precommitDelayStarted)
-			gtest.NotSending(t, cStrat.ConsiderProposedBlockRequests)
+			gtest.NotSending(t, cStrat.ConsiderProposedBlocksRequests)
 			gtest.NotSending(t, cStrat.ChooseProposedBlockRequests)
 			_ = gtest.ReceiveSoon(t, cStrat.DecidePrecommitRequests)
 		})
@@ -713,7 +719,8 @@ func TestStateMachine_stateTransitions(t *testing.T) {
 			// The initial state had a proposed block,
 			// so there was a consider request.
 			// In this case we prevote nil.
-			cReq := gtest.ReceiveSoon(t, cStrat.ConsiderProposedBlockRequests)
+			cReq := gtest.ReceiveSoon(t, cStrat.ConsiderProposedBlocksRequests)
+			require.Equal(t, []string{string(pb.Block.Hash)}, cReq.Reason.NewProposedBlocks)
 			gtest.SendSoon(t, cReq.ChoiceHash, "")
 
 			// The mirror sends back our own prevote but nobody else's yet.
@@ -740,7 +747,7 @@ func TestStateMachine_stateTransitions(t *testing.T) {
 			re.Response <- tmeil.RoundEntranceResponse{VRV: sfx.EmptyVRV(1, 1)}
 
 			_ = gtest.ReceiveSoon(t, erc11Ch)
-			gtest.NotSending(t, cStrat.ConsiderProposedBlockRequests)
+			gtest.NotSending(t, cStrat.ConsiderProposedBlocksRequests)
 			gtest.NotSending(t, cStrat.ChooseProposedBlockRequests)
 			gtest.NotSending(t, cStrat.DecidePrecommitRequests)
 		})
@@ -773,7 +780,8 @@ func TestStateMachine_stateTransitions(t *testing.T) {
 			// The initial state had a proposed block,
 			// so there was a consider request.
 			// In this case we prevote nil.
-			cReq := gtest.ReceiveSoon(t, cStrat.ConsiderProposedBlockRequests)
+			cReq := gtest.ReceiveSoon(t, cStrat.ConsiderProposedBlocksRequests)
+			require.Equal(t, []string{string(pb.Block.Hash)}, cReq.Reason.NewProposedBlocks)
 			gtest.SendSoon(t, cReq.ChoiceHash, "")
 
 			// The mirror sends back our own prevote but nobody else's yet.
@@ -936,7 +944,7 @@ func TestStateMachine_proposedBlockFiltering(t *testing.T) {
 
 					re.Response <- tmeil.RoundEntranceResponse{VRV: vrv}
 
-					gtest.NotSendingSoon(t, cStrat.ConsiderProposedBlockRequests)
+					gtest.NotSendingSoon(t, cStrat.ConsiderProposedBlocksRequests)
 				})
 			})
 
@@ -971,8 +979,9 @@ func TestStateMachine_proposedBlockFiltering(t *testing.T) {
 
 					re.Response <- tmeil.RoundEntranceResponse{VRV: vrv}
 
-					req := gtest.ReceiveSoon(t, cStrat.ConsiderProposedBlockRequests)
-					require.Equal(t, []tmconsensus.ProposedBlock{pbGood}, req.Input)
+					req := gtest.ReceiveSoon(t, cStrat.ConsiderProposedBlocksRequests)
+					require.Equal(t, []tmconsensus.ProposedBlock{pbGood}, req.PBs)
+					require.Equal(t, []string{string(pbGood.Block.Hash)}, req.Reason.NewProposedBlocks)
 				})
 			})
 		})
@@ -1015,8 +1024,8 @@ func TestStateMachine_proposedBlockFiltering(t *testing.T) {
 						require.NoError(t, sfx.RoundTimer.ElapseProposalTimer(1, 0))
 
 						// Because the proposed block was a mismatch,
-						// there is no call to ConsiderProposedBlockRequests.
-						gtest.NotSending(t, cStrat.ConsiderProposedBlockRequests)
+						// there is no call to ConsiderProposedBlocksRequests.
+						gtest.NotSending(t, cStrat.ConsiderProposedBlocksRequests)
 
 						// But following the timer elapsing, there is a request to choose a proposed block;
 						// however, the input set of proposed blocks is empty.
@@ -1062,8 +1071,9 @@ func TestStateMachine_proposedBlockFiltering(t *testing.T) {
 						sfx.RoundTimer.RequireActiveProposalTimer(t, 1, 0)
 
 						// There is a consider request with only the good proposed block.
-						req := gtest.ReceiveSoon(t, cStrat.ConsiderProposedBlockRequests)
-						require.Equal(t, []tmconsensus.ProposedBlock{pbGood}, req.Input)
+						req := gtest.ReceiveSoon(t, cStrat.ConsiderProposedBlocksRequests)
+						require.Equal(t, []tmconsensus.ProposedBlock{pbGood}, req.PBs)
+						require.Equal(t, []string{string(pbGood.Block.Hash)}, req.Reason.NewProposedBlocks)
 
 						// But the consensus strategy isn't ready to decide yet.
 						gtest.SendSoon(t, req.ChoiceError, tmconsensus.ErrProposedBlockChoiceNotReady)
@@ -1125,7 +1135,7 @@ func TestStateMachine_proposedBlockFiltering(t *testing.T) {
 						// But in this case, we expect no send,
 						// because the only proposed block was unacceptable.
 						// We still do a long check here, to reduce flakiness if running on a loaded machine.
-						gtest.NotSendingSoon(t, cStrat.ConsiderProposedBlockRequests)
+						gtest.NotSendingSoon(t, cStrat.ConsiderProposedBlocksRequests)
 					})
 
 					t.Run("one unacceptable and one acceptable proposed block", func(t *testing.T) {
@@ -1169,8 +1179,10 @@ func TestStateMachine_proposedBlockFiltering(t *testing.T) {
 						_ = gtest.ReceiveSoon(t, prevotingCh)
 
 						// Now we do receive a consider request.
-						considerReq := gtest.ReceiveSoon(t, cStrat.ConsiderProposedBlockRequests)
-						require.Equal(t, []tmconsensus.ProposedBlock{pbGood}, considerReq.Input)
+						considerReq := gtest.ReceiveSoon(t, cStrat.ConsiderProposedBlocksRequests)
+						require.Equal(t, []tmconsensus.ProposedBlock{pbGood}, considerReq.PBs)
+						require.Equal(t, []string{string(pbGood.Block.Hash)}, considerReq.Reason.NewProposedBlocks)
+						require.True(t, considerReq.Reason.MajorityVotingPowerPresent)
 					})
 				})
 
@@ -1303,7 +1315,7 @@ func TestStateMachine_proposedBlockFiltering(t *testing.T) {
 
 					// The only proposed block was filtered out,
 					// so nothing is sending on the consider channel.
-					gtest.NotSendingSoon(t, cStrat.ConsiderProposedBlockRequests)
+					gtest.NotSendingSoon(t, cStrat.ConsiderProposedBlocksRequests)
 				})
 			})
 
@@ -1358,8 +1370,9 @@ func TestStateMachine_proposedBlockFiltering(t *testing.T) {
 
 					// The mutated proposed block is filtered out,
 					// but the good one is included.
-					considerReq := gtest.ReceiveSoon(t, cStrat.ConsiderProposedBlockRequests)
-					require.Equal(t, []tmconsensus.ProposedBlock{pb11Good}, considerReq.Input)
+					considerReq := gtest.ReceiveSoon(t, cStrat.ConsiderProposedBlocksRequests)
+					require.Equal(t, []tmconsensus.ProposedBlock{pb11Good}, considerReq.PBs)
+					require.Equal(t, []string{string(pb11Good.Block.Hash)}, considerReq.Reason.NewProposedBlocks)
 				})
 			})
 		})
@@ -1450,8 +1463,9 @@ func TestStateMachine_decidePrecommit(t *testing.T) {
 
 		// This causes a Consider request to the consensus strategy,
 		// and we will prevote for the block.
-		considerReq := gtest.ReceiveSoon(t, cStrat.ConsiderProposedBlockRequests)
+		considerReq := gtest.ReceiveSoon(t, cStrat.ConsiderProposedBlocksRequests)
 		gtest.SendSoon(t, considerReq.ChoiceHash, string(pb1.Block.Hash))
+		require.Equal(t, []string{string(pb1.Block.Hash)}, considerReq.Reason.NewProposedBlocks)
 
 		// The choice is sent to the mirror as an action.
 		// We have other coverage asserting it sends the hash correctly.
@@ -1523,8 +1537,9 @@ func TestStateMachine_decidePrecommit(t *testing.T) {
 
 		// This causes a Consider request to the consensus strategy,
 		// and we will prevote for the block.
-		considerReq := gtest.ReceiveSoon(t, cStrat.ConsiderProposedBlockRequests)
+		considerReq := gtest.ReceiveSoon(t, cStrat.ConsiderProposedBlocksRequests)
 		gtest.SendSoon(t, considerReq.ChoiceHash, string(pb1.Block.Hash))
+		require.Equal(t, []string{string(pb1.Block.Hash)}, considerReq.Reason.NewProposedBlocks)
 
 		// The choice is sent to the mirror as an action.
 		// We have other coverage asserting it sends the hash correctly.
@@ -1605,8 +1620,9 @@ func TestStateMachine_decidePrecommit(t *testing.T) {
 
 		// This causes a Consider request to the consensus strategy,
 		// and we will prevote for the block.
-		considerReq := gtest.ReceiveSoon(t, cStrat.ConsiderProposedBlockRequests)
+		considerReq := gtest.ReceiveSoon(t, cStrat.ConsiderProposedBlocksRequests)
 		gtest.SendSoon(t, considerReq.ChoiceHash, string(pb1.Block.Hash))
+		require.Equal(t, []string{string(pb1.Block.Hash)}, considerReq.Reason.NewProposedBlocks)
 
 		// The choice is sent to the mirror as an action.
 		// We have other coverage asserting it sends the hash correctly.
@@ -2539,7 +2555,8 @@ func TestStateMachine_followerMode(t *testing.T) {
 
 		// This causes a Consider call.
 		// Even in follower mode, the state machine is allowed to consider and choose proposed blocks.
-		considerReq := gtest.ReceiveSoon(t, cStrat.ConsiderProposedBlockRequests)
+		considerReq := gtest.ReceiveSoon(t, cStrat.ConsiderProposedBlocksRequests)
+		require.Equal(t, []string{string(pb.Block.Hash)}, considerReq.Reason.NewProposedBlocks)
 
 		// The proposal timer is active before we make a decision.
 		sfx.RoundTimer.RequireActiveProposalTimer(t, 1, 0)
@@ -2687,7 +2704,11 @@ func TestStateMachine_timers(t *testing.T) {
 			gtest.SendSoon(t, sfx.RoundViewInCh, tmeil.StateMachineRoundView{VRV: vrv})
 
 			// This causes a Consider call, and we won't pick one at this point.
-			considerReq := gtest.ReceiveSoon(t, cStrat.ConsiderProposedBlockRequests)
+			considerReq := gtest.ReceiveSoon(t, cStrat.ConsiderProposedBlocksRequests)
+			require.ElementsMatch(t, []string{
+				string(pbs[0].Block.Hash),
+				string(pbs[1].Block.Hash),
+			}, considerReq.Reason.NewProposedBlocks)
 			gtest.SendSoon(t, considerReq.ChoiceError, tmconsensus.ErrProposedBlockChoiceNotReady)
 
 			require.NoError(t, sfx.RoundTimer.ElapseProposalTimer(1, 0))
@@ -2734,7 +2755,8 @@ func TestStateMachine_timers(t *testing.T) {
 			gtest.SendSoon(t, sfx.RoundViewInCh, tmeil.StateMachineRoundView{VRV: vrv})
 
 			// This causes a Consider call.
-			considerReq := gtest.ReceiveSoon(t, cStrat.ConsiderProposedBlockRequests)
+			considerReq := gtest.ReceiveSoon(t, cStrat.ConsiderProposedBlocksRequests)
+			require.Equal(t, []string{string(pb.Block.Hash)}, considerReq.Reason.NewProposedBlocks)
 
 			// The proposal timer is active before we make a decision.
 			sfx.RoundTimer.RequireActiveProposalTimer(t, 1, 0)
@@ -2779,7 +2801,7 @@ func TestStateMachine_timers(t *testing.T) {
 			// After the first prevote, the proposal timer is still active,
 			// and no PB requests have started.
 			sfx.RoundTimer.RequireActiveProposalTimer(t, 1, 0)
-			gtest.NotSending(t, cStrat.ConsiderProposedBlockRequests)
+			gtest.NotSending(t, cStrat.ConsiderProposedBlocksRequests)
 			gtest.NotSending(t, cStrat.ChooseProposedBlockRequests)
 
 			// Now more nil prevotes arrive, which tells the state machine that
@@ -2825,7 +2847,7 @@ func TestStateMachine_timers(t *testing.T) {
 			// After the first prevote, the proposal timer is still active,
 			// and no PB requests have started.
 			sfx.RoundTimer.RequireActiveProposalTimer(t, 1, 0)
-			gtest.NotSending(t, cStrat.ConsiderProposedBlockRequests)
+			gtest.NotSending(t, cStrat.ConsiderProposedBlocksRequests)
 			gtest.NotSending(t, cStrat.ChooseProposedBlockRequests)
 
 			// Now another prevote arrives and we are at 50% prevotes,
@@ -2836,7 +2858,7 @@ func TestStateMachine_timers(t *testing.T) {
 			// We are still waiting for proposals,
 			// and there is no new consider or choose request.
 			sfx.RoundTimer.RequireActiveProposalTimer(t, 1, 0)
-			gtest.NotSending(t, cStrat.ConsiderProposedBlockRequests)
+			gtest.NotSending(t, cStrat.ConsiderProposedBlocksRequests)
 			gtest.NotSending(t, cStrat.ChooseProposedBlockRequests)
 		})
 	})
@@ -2875,8 +2897,9 @@ func TestStateMachine_timers(t *testing.T) {
 			re.Response <- tmeil.RoundEntranceResponse{VRV: vrv} // No PrevBlockHash at initial height.
 
 			// Our validator votes for the proposed block.
-			considerPBReq := gtest.ReceiveSoon(t, cStrat.ConsiderProposedBlockRequests)
-			require.Equal(t, []tmconsensus.ProposedBlock{pb1}, considerPBReq.Input)
+			considerPBReq := gtest.ReceiveSoon(t, cStrat.ConsiderProposedBlocksRequests)
+			require.Equal(t, []tmconsensus.ProposedBlock{pb1}, considerPBReq.PBs)
+			require.Equal(t, []string{string(pb1.Block.Hash)}, considerPBReq.Reason.NewProposedBlocks)
 			gtest.SendSoon(t, considerPBReq.ChoiceHash, string(pb1.Block.Hash))
 
 			// Just drain the action; we have other coverage that this behaves correctly.
@@ -3053,7 +3076,8 @@ func TestStateMachine_jumpAhead(t *testing.T) {
 		// The state machine will want to handle the round entrance,
 		// but the mock consensus strategy may be blocked on the proposed block for 1/0,
 		// so unblock that in order to allow the round entrance to proceed.
-		cbReq := gtest.ReceiveSoon(t, cStrat.ConsiderProposedBlockRequests)
+		cbReq := gtest.ReceiveSoon(t, cStrat.ConsiderProposedBlocksRequests)
+		require.Equal(t, []string{string(pb1.Block.Hash)}, cbReq.Reason.NewProposedBlocks)
 		gtest.SendSoon(t, cbReq.ChoiceHash, "")
 
 		re = gtest.ReceiveSoon(t, sfx.RoundEntranceOutCh)

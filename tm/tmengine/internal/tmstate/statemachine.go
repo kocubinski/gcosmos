@@ -291,12 +291,14 @@ func (m *StateMachine) beginRoundLive(
 			rlc.CurVals,
 			rlc.PrevFinNextVals,
 		); len(okPBs) > 0 {
+			req := tsi.ConsiderProposedBlocksRequest{
+				PBs:    okPBs,
+				Result: rlc.PrevoteHashCh,
+			}
+			req.MarkReasonNewHashes(rlc)
 			if !gchan.SendC(
 				ctx, m.log,
-				m.cm.ConsiderProposedBlocksRequests, tsi.ChooseProposedBlockRequest{
-					PBs:    okPBs,
-					Result: rlc.PrevoteHashCh,
-				},
+				m.cm.ConsiderProposedBlocksRequests, req,
 				"making consider proposed blocks request from initial state",
 			) {
 				// Context cancelled and logged. Quit.
@@ -404,6 +406,10 @@ func (m *StateMachine) sendInitialActionSet(ctx context.Context) (
 	// Closing the outgoing Response channel is not strictly necessary,
 	// but it is a little helpful in tests in case a StateMachineRoundEntrance is mistakenly reused.
 	close(initRE.Response)
+
+	// Initialize this to a default size;
+	// it needs to be a non-nil map regardless of the initial update.
+	rlc.PrevConsideredHashes = map[string]struct{}{}
 
 	// We have a response -- do we need to call into the consensus strategy,
 	// or do we only need to replay the block?
@@ -689,6 +695,11 @@ func (m *StateMachine) handleProposalViewUpdate(
 			default:
 				panic("TODO: handle blocked send to ChooseProposedBlockRequests")
 			}
+
+			// Don't need to hold on to any of the previously sent hashes
+			// after sending the choose request.
+			clear(rlc.PrevConsideredHashes)
+
 			return
 		}
 
@@ -701,6 +712,12 @@ func (m *StateMachine) handleProposalViewUpdate(
 		if len(req.PBs) > 0 {
 			// If we filtered out invalid proposed blocks,
 			// don't send the request.
+			req := tsi.ConsiderProposedBlocksRequest{
+				PBs:    req.PBs, // Outer declaration of req as a choose request.
+				Result: rlc.PrevoteHashCh,
+			}
+			req.MarkReasonNewHashes(rlc)
+			req.Reason.MajorityVotingPowerPresent = true
 			select {
 			case m.cm.ConsiderProposedBlocksRequests <- req:
 				// Okay.
@@ -750,11 +767,12 @@ func (m *StateMachine) handleProposalViewUpdate(
 		}
 
 		// The timer hasn't elapsed yet so it is only a Consider call at this point.
-		req := tsi.ChooseProposedBlockRequest{
+		req := tsi.ConsiderProposedBlocksRequest{
 			PBs: incoming,
 
 			Result: rlc.PrevoteHashCh,
 		}
+		req.MarkReasonNewHashes(rlc)
 		select {
 		case m.cm.ConsiderProposedBlocksRequests <- req:
 			// Okay.
@@ -1223,6 +1241,10 @@ func (m *StateMachine) handleTimerElapsed(ctx context.Context, rlc *tsi.RoundLif
 			// Context cancelled and logged. Quit.
 			return false
 		}
+
+		// Don't need to hold on to any of the previously sent hashes
+		// after sending the choose request.
+		clear(rlc.PrevConsideredHashes)
 
 		// Move on to awaiting prevotes.
 		rlc.S = tsi.StepAwaitingPrevotes

@@ -145,8 +145,9 @@ func TestEngine_plumbing_ConsensusStrategy(t *testing.T) {
 		// That update will include the new proposed block.
 		// When the state machine receives that new proposed block,
 		// it calls the consensus strategy's ConsiderProposedBlocks method.
-		cReq := gtest.ReceiveSoon(t, efx.ConsensusStrategy.ConsiderProposedBlockRequests)
-		require.Equal(t, []tmconsensus.ProposedBlock{pb}, cReq.Input)
+		cReq := gtest.ReceiveSoon(t, efx.ConsensusStrategy.ConsiderProposedBlocksRequests)
+		require.Equal(t, []tmconsensus.ProposedBlock{pb}, cReq.PBs)
+		require.Equal(t, []string{string(pb.Block.Hash)}, cReq.Reason.NewProposedBlocks)
 
 		// The state machine votes for the block it proposed.
 		cReq.ChoiceHash <- blockHash
@@ -327,8 +328,9 @@ func TestEngine_plumbing_ConsensusStrategy(t *testing.T) {
 		efx.Fx.SignProposal(ctx, &pb21, 1)
 		require.Equal(t, tmconsensus.HandleProposedBlockAccepted, engine.HandleProposedBlock(ctx, pb21))
 
-		cpbReq := gtest.ReceiveSoon(t, cs.ConsiderProposedBlockRequests)
-		require.Equal(t, []tmconsensus.ProposedBlock{pb21}, cpbReq.Input)
+		cpbReq := gtest.ReceiveSoon(t, cs.ConsiderProposedBlocksRequests)
+		require.Equal(t, []tmconsensus.ProposedBlock{pb21}, cpbReq.PBs)
+		require.Equal(t, []string{string(pb21.Block.Hash)}, cpbReq.Reason.NewProposedBlocks)
 
 		// There is technically a data race on asserting this timer active
 		// immediately after making the enter round call.
@@ -467,7 +469,8 @@ func TestEngine_plumbing_GossipStrategy(t *testing.T) {
 		require.Nil(t, u.Committing)
 		require.Nil(t, u.NextRound)
 
-		cReq := gtest.ReceiveSoon(t, cs.ConsiderProposedBlockRequests)
+		cReq := gtest.ReceiveSoon(t, cs.ConsiderProposedBlocksRequests)
+		require.Equal(t, []string{string(pb103.Block.Hash)}, cReq.Reason.NewProposedBlocks)
 		gtest.SendSoon(t, cReq.ChoiceError, tmconsensus.ErrProposedBlockChoiceNotReady)
 	})
 
@@ -533,7 +536,8 @@ func TestEngine_plumbing_GossipStrategy(t *testing.T) {
 	})
 
 	t.Run("prevote from state machine", func(t *testing.T) {
-		cReq := gtest.ReceiveSoon(t, cs.ConsiderProposedBlockRequests)
+		cReq := gtest.ReceiveSoon(t, cs.ConsiderProposedBlocksRequests)
+		require.Equal(t, []string{blockHash100}, cReq.Reason.NewProposedBlocks)
 		gtest.SendSoon(t, cReq.ChoiceHash, blockHash100)
 
 		u := gtest.ReceiveSoon(t, gs.Updates)

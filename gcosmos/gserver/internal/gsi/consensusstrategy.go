@@ -137,6 +137,7 @@ func (c *ConsensusStrategy) EnterRound(
 func (c *ConsensusStrategy) ConsiderProposedBlocks(
 	ctx context.Context,
 	pbs []tmconsensus.ProposedBlock,
+	_ tmconsensus.ConsiderProposedBlocksReason,
 ) (string, error) {
 PB_LOOP:
 	for _, pb := range pbs {
@@ -263,7 +264,7 @@ func (c *ConsensusStrategy) ChooseProposedBlock(
 	ctx context.Context,
 	pbs []tmconsensus.ProposedBlock,
 ) (string, error) {
-	h, err := c.ConsiderProposedBlocks(ctx, pbs)
+	h, err := c.ConsiderProposedBlocks(ctx, pbs, tmconsensus.ConsiderProposedBlocksReason{})
 	if err == tmconsensus.ErrProposedBlockChoiceNotReady {
 		return "", nil
 	}
