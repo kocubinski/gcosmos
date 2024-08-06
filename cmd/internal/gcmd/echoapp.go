@@ -145,7 +145,7 @@ func (s *EchoConsensusStrategy) EnterRound(ctx context.Context, rv tmconsensus.R
 		appData := fmt.Sprintf("Height: %d; Round: %d", s.curH, s.curR)
 		dataHash := sha256.Sum256([]byte(appData))
 		proposalOut <- tmconsensus.Proposal{
-			AppDataID: string(dataHash[:]),
+			DataID: string(dataHash[:]),
 		}
 		s.log.Info("Proposing block", "h", s.curH, "r", s.curR)
 	}

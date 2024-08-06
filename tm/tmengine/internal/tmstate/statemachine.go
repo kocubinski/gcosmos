@@ -1099,7 +1099,7 @@ func (m *StateMachine) recordProposedBlock(
 			Validators:     slices.Clone(rlc.CurVals),
 			NextValidators: slices.Clone(rlc.PrevFinNextVals),
 
-			DataID: []byte(p.AppDataID),
+			DataID: []byte(p.DataID),
 
 			PrevAppStateHash: []byte(rlc.PrevFinAppStateHash),
 

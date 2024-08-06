@@ -145,7 +145,7 @@ func (s *identityConsensusStrategy) EnterRound(ctx context.Context, rv tmconsens
 		appData := fmt.Sprintf("Height: %d; Round: %d", s.curH, s.curR)
 		dataHash := sha256.Sum256([]byte(appData))
 		proposalOut <- tmconsensus.Proposal{
-			AppDataID: string(dataHash[:]),
+			DataID: string(dataHash[:]),
 
 			// Just to exercise the annotations, set them to the ascii value of the proposer index,
 			// prefixed with a "p" or "b" for proposal or block.

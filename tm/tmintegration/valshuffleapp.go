@@ -224,7 +224,7 @@ func (s *valShuffleConsensusStrategy) EnterRound(ctx context.Context, rv tmconse
 	appData = append(appData, keyHash...)
 	appData = append(appData, powHash...)
 	proposalOut <- tmconsensus.Proposal{
-		AppDataID: string(appData),
+		DataID: string(appData),
 	}
 
 	return nil

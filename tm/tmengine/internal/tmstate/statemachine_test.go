@@ -78,7 +78,7 @@ func TestStateMachine_initialization(t *testing.T) {
 		// Now, if the consensus strategy were to send a proposed block,
 		// the state machine would pass it on to the mirror.
 		p := tmconsensus.Proposal{
-			AppDataID: "foobar",
+			DataID: "foobar",
 		}
 		gtest.SendSoon(t, erc.ProposalOut, p)
 
@@ -840,7 +840,7 @@ func TestStateMachine_enterRoundProposal(t *testing.T) {
 
 				require.Equal(t, 1, cap(erc.ProposalOut))
 				erc.ProposalOut <- tmconsensus.Proposal{
-					AppDataID:           "app_data",
+					DataID:              "app_data",
 					ProposalAnnotations: tc.Annotations,
 				}
 
@@ -888,7 +888,7 @@ func TestStateMachine_enterRoundProposal(t *testing.T) {
 
 				require.Equal(t, 1, cap(erc.ProposalOut))
 				erc.ProposalOut <- tmconsensus.Proposal{
-					AppDataID:        "app_data",
+					DataID:           "app_data",
 					BlockAnnotations: tc.Annotations,
 				}
 

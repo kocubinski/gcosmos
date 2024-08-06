@@ -101,7 +101,7 @@ func TestEngine_plumbing_ConsensusStrategy(t *testing.T) {
 
 		// Application proposes a data hash.
 		erc.ProposalOut <- tmconsensus.Proposal{
-			AppDataID: "app_data_1",
+			DataID: "app_data_1",
 		}
 
 		// This causes a voting view update to be sent to the gossip strategy.
@@ -478,7 +478,7 @@ func TestEngine_plumbing_GossipStrategy(t *testing.T) {
 	var blockHash100 string
 	t.Run("proposed block from state machine", func(t *testing.T) {
 		gtest.SendSoon(t, erc.ProposalOut, tmconsensus.Proposal{
-			AppDataID: "app_data_1_0_0",
+			DataID: "app_data_1_0_0",
 		})
 
 		// The proposed blocks that arrive from the state machine

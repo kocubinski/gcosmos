@@ -15,9 +15,9 @@ const txsHashSize = 32
 
 // We need the zero hash for the special, but probably common,
 // case of zero transactions.
-//go:generate go run ./appdataid_generate.go
+//go:generate go run ./blockdataid_generate.go
 
-func AppDataID(
+func BlockDataID(
 	height uint64,
 	round uint32,
 	txs []transaction.Tx,
@@ -42,7 +42,7 @@ func AppDataID(
 	return fmt.Sprintf("%d:%d:%d:%x", height, round, len(txs), txsHash)
 }
 
-func ParseAppDataID(id string) (
+func ParseBlockDataID(id string) (
 	height uint64, round uint32,
 	nTxs int,
 	txsHash [txsHashSize]byte,

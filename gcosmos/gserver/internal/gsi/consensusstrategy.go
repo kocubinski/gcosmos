@@ -115,13 +115,13 @@ func (c *ConsensusStrategy) EnterRound(
 		pendingTxs = c.txBuf.AddedTxs(nil)
 	}()
 
-	appDataID := AppDataID(rv.Height, rv.Round, pendingTxs)
-	c.curProposals[appDataID] = pendingTxs
+	blockDataID := BlockDataID(rv.Height, rv.Round, pendingTxs)
+	c.curProposals[blockDataID] = pendingTxs
 
 	if !gchan.SendC(
 		ctx, c.log,
 		proposalOut, tmconsensus.Proposal{
-			AppDataID: appDataID,
+			DataID: blockDataID,
 			BlockAnnotations: tmconsensus.Annotations{
 				Driver: ba,
 			},
@@ -157,7 +157,7 @@ PB_LOOP:
 			continue
 		}
 
-		h, r, nTxs, _, err := ParseAppDataID(string(pb.Block.DataID))
+		h, r, nTxs, _, err := ParseBlockDataID(string(pb.Block.DataID))
 		if err != nil {
 			c.log.Debug(
 				"Ignoring proposed block due to unparseable app data ID",
