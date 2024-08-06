@@ -14,6 +14,7 @@ import (
 	"github.com/rollchains/gordian/tm/tmengine/internal/tmeil"
 	"github.com/rollchains/gordian/tm/tmengine/internal/tmemetrics"
 	"github.com/rollchains/gordian/tm/tmengine/internal/tmstate/tmstatetest"
+	"github.com/rollchains/gordian/tm/tmengine/tmelink"
 	"github.com/stretchr/testify/require"
 )
 
@@ -3086,6 +3087,321 @@ func TestStateMachine_jumpAhead(t *testing.T) {
 		re.Response <- tmeil.RoundEntranceResponse{VRV: nextVRV}
 
 		_ = gtest.ReceiveSoon(t, er11Ch)
+	})
+}
+
+func TestStateMachine_blockDataArrival(t *testing.T) {
+	t.Run("matching, after proposed block received on first update", func(t *testing.T) {
+		t.Parallel()
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		sfx := tmstatetest.NewFixture(ctx, t, 4)
+
+		sm := sfx.NewStateMachine()
+		defer sm.Wait()
+		defer cancel()
+
+		re := gtest.ReceiveSoon(t, sfx.RoundEntranceOutCh)
+
+		// Set up consensus strategy expectation before mocking the response.
+		cStrat := sfx.CStrat
+		enterCh := cStrat.ExpectEnterRound(1, 0, nil)
+
+		// Channel is 1-buffered, don't have to select.
+		vrv := sfx.EmptyVRV(1, 0)
+		re.Response <- tmeil.RoundEntranceResponse{VRV: vrv}
+
+		// And since we sent a VRV, the state machine calls into consensus strategy,
+		// with vrv's RoundView.
+		erc := gtest.ReceiveSoon(t, enterCh)
+		require.Equal(t, vrv.RoundView, erc.RV)
+
+		pb1 := sfx.Fx.NextProposedBlock([]byte("app_data_1"), 1)
+		sfx.Fx.SignProposal(ctx, &pb1, 1)
+		vrv.ProposedBlocks = []tmconsensus.ProposedBlock{pb1}
+		vrv.Version++
+
+		// Sending an updated set of proposed blocks...
+		gtest.SendSoon(t, sfx.RoundViewInCh, tmeil.StateMachineRoundView{VRV: vrv})
+
+		// ... forces the consensus strategy to consider the available proposed blocks.
+		pbReq := gtest.ReceiveSoon(t, cStrat.ConsiderProposedBlocksRequests)
+		require.Equal(t, []tmconsensus.ProposedBlock{pb1}, pbReq.PBs)
+		require.Equal(t, []string{string(pb1.Block.Hash)}, pbReq.Reason.NewProposedBlocks)
+
+		// Don't make a decision yet.
+		// This send synchronizes the test, which is blocked on the consensus strategy handling.
+		gtest.SendSoon(t, pbReq.ChoiceError, tmconsensus.ErrProposedBlockChoiceNotReady)
+
+		// Now the block data arrives.
+		gtest.SendSoon(t, sfx.BlockDataArrivalCh, tmelink.BlockDataArrival{
+			Height: 1, Round: 0,
+			ID: string(pb1.Block.DataID),
+		})
+
+		// This triggers a new consider request.
+		pbReq = gtest.ReceiveSoon(t, cStrat.ConsiderProposedBlocksRequests)
+
+		// Proposed blocks unchanged.
+		require.Equal(t, []tmconsensus.ProposedBlock{pb1}, pbReq.PBs)
+
+		// No new blocks.
+		require.Empty(t, pbReq.Reason.NewProposedBlocks)
+
+		// The block data is indicated as the reason.
+		require.Equal(t, []string{string(pb1.Block.DataID)}, pbReq.Reason.UpdatedBlockDataIDs)
+	})
+
+	t.Run("matching, after proposed block received during enter round", func(t *testing.T) {
+		t.Parallel()
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		sfx := tmstatetest.NewFixture(ctx, t, 4)
+
+		sm := sfx.NewStateMachine()
+		defer sm.Wait()
+		defer cancel()
+
+		re := gtest.ReceiveSoon(t, sfx.RoundEntranceOutCh)
+
+		// Set up consensus strategy expectation before mocking the response.
+		cStrat := sfx.CStrat
+		enterCh := cStrat.ExpectEnterRound(1, 0, nil)
+
+		// Channel is 1-buffered, don't have to select.
+		vrv := sfx.EmptyVRV(1, 0)
+		pb1 := sfx.Fx.NextProposedBlock([]byte("app_data_1"), 1)
+		sfx.Fx.SignProposal(ctx, &pb1, 1)
+		vrv.ProposedBlocks = []tmconsensus.ProposedBlock{pb1}
+
+		re.Response <- tmeil.RoundEntranceResponse{VRV: vrv}
+
+		// And since we sent a VRV, the state machine calls into consensus strategy,
+		// with vrv's RoundView.
+		erc := gtest.ReceiveSoon(t, enterCh)
+		require.Equal(t, vrv.RoundView, erc.RV)
+
+		// ... forces the consensus strategy to consider the available proposed blocks.
+		pbReq := gtest.ReceiveSoon(t, cStrat.ConsiderProposedBlocksRequests)
+		require.Equal(t, []tmconsensus.ProposedBlock{pb1}, pbReq.PBs)
+		require.Equal(t, []string{string(pb1.Block.Hash)}, pbReq.Reason.NewProposedBlocks)
+
+		// Don't make a decision yet.
+		// This send synchronizes the test, which is blocked on the consensus strategy handling.
+		gtest.SendSoon(t, pbReq.ChoiceError, tmconsensus.ErrProposedBlockChoiceNotReady)
+
+		// Now the block data arrives.
+		gtest.SendSoon(t, sfx.BlockDataArrivalCh, tmelink.BlockDataArrival{
+			Height: 1, Round: 0,
+			ID: string(pb1.Block.DataID),
+		})
+
+		// This triggers a new consider request.
+		pbReq = gtest.ReceiveSoon(t, cStrat.ConsiderProposedBlocksRequests)
+
+		// Proposed blocks unchanged.
+		require.Equal(t, []tmconsensus.ProposedBlock{pb1}, pbReq.PBs)
+
+		// No new blocks.
+		require.Empty(t, pbReq.Reason.NewProposedBlocks)
+
+		// The block data is indicated as the reason.
+		require.Equal(t, []string{string(pb1.Block.DataID)}, pbReq.Reason.UpdatedBlockDataIDs)
+	})
+
+	t.Run("separate, multiple, valid block data arrivals", func(t *testing.T) {
+		t.Parallel()
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		sfx := tmstatetest.NewFixture(ctx, t, 4)
+
+		sm := sfx.NewStateMachine()
+		defer sm.Wait()
+		defer cancel()
+
+		re := gtest.ReceiveSoon(t, sfx.RoundEntranceOutCh)
+
+		// Set up consensus strategy expectation before mocking the response.
+		cStrat := sfx.CStrat
+		enterCh := cStrat.ExpectEnterRound(1, 0, nil)
+
+		// Channel is 1-buffered, don't have to select.
+		vrv := sfx.EmptyVRV(1, 0)
+		pb1 := sfx.Fx.NextProposedBlock([]byte("app_data_1_1"), 1)
+		sfx.Fx.SignProposal(ctx, &pb1, 1)
+		pb2 := sfx.Fx.NextProposedBlock([]byte("app_data_1_2"), 2)
+		sfx.Fx.SignProposal(ctx, &pb1, 2)
+		vrv.ProposedBlocks = []tmconsensus.ProposedBlock{pb1, pb2}
+
+		re.Response <- tmeil.RoundEntranceResponse{VRV: vrv}
+
+		// And since we sent a VRV, the state machine calls into consensus strategy,
+		// with vrv's RoundView.
+		erc := gtest.ReceiveSoon(t, enterCh)
+		require.Equal(t, vrv.RoundView, erc.RV)
+
+		// ... forces the consensus strategy to consider the available proposed blocks.
+		pbReq := gtest.ReceiveSoon(t, cStrat.ConsiderProposedBlocksRequests)
+		require.Equal(t, []tmconsensus.ProposedBlock{pb1, pb2}, pbReq.PBs)
+		require.ElementsMatch(t, []string{string(pb1.Block.Hash), string(pb2.Block.Hash)}, pbReq.Reason.NewProposedBlocks)
+
+		// Don't make a decision yet.
+		// This send synchronizes the test, which is blocked on the consensus strategy handling.
+		gtest.SendSoon(t, pbReq.ChoiceError, tmconsensus.ErrProposedBlockChoiceNotReady)
+
+		// Now the block data arrives for one.
+		gtest.SendSoon(t, sfx.BlockDataArrivalCh, tmelink.BlockDataArrival{
+			Height: 1, Round: 0,
+			ID: string(pb1.Block.DataID),
+		})
+
+		// This triggers a new consider request.
+		pbReq = gtest.ReceiveSoon(t, cStrat.ConsiderProposedBlocksRequests)
+
+		// Proposed blocks unchanged.
+		require.Equal(t, []tmconsensus.ProposedBlock{pb1, pb2}, pbReq.PBs)
+
+		// No new blocks.
+		require.Empty(t, pbReq.Reason.NewProposedBlocks)
+
+		// The block data is indicated as the reason.
+		require.Equal(t, []string{string(pb1.Block.DataID)}, pbReq.Reason.UpdatedBlockDataIDs)
+
+		// No choice yet.
+		gtest.SendSoon(t, pbReq.ChoiceError, tmconsensus.ErrProposedBlockChoiceNotReady)
+
+		// Now the other data arrives.
+		gtest.SendSoon(t, sfx.BlockDataArrivalCh, tmelink.BlockDataArrival{
+			Height: 1, Round: 0,
+			ID: string(pb2.Block.DataID),
+		})
+
+		// This triggers a new consider request.
+		pbReq = gtest.ReceiveSoon(t, cStrat.ConsiderProposedBlocksRequests)
+		require.Equal(t, []tmconsensus.ProposedBlock{pb1, pb2}, pbReq.PBs)
+		require.Empty(t, pbReq.Reason.NewProposedBlocks)
+		require.Equal(t, []string{string(pb2.Block.DataID)}, pbReq.Reason.UpdatedBlockDataIDs)
+	})
+
+	t.Run("block data arrives before first proposed block", func(t *testing.T) {
+		t.Parallel()
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		sfx := tmstatetest.NewFixture(ctx, t, 4)
+
+		sm := sfx.NewStateMachine()
+		defer sm.Wait()
+		defer cancel()
+
+		re := gtest.ReceiveSoon(t, sfx.RoundEntranceOutCh)
+
+		// Set up consensus strategy expectation before mocking the response.
+		cStrat := sfx.CStrat
+		enterCh := cStrat.ExpectEnterRound(1, 0, nil)
+
+		// Channel is 1-buffered, don't have to select.
+		vrv := sfx.EmptyVRV(1, 0)
+		re.Response <- tmeil.RoundEntranceResponse{VRV: vrv}
+
+		// And since we sent a VRV, the state machine calls into consensus strategy,
+		// with vrv's RoundView.
+		erc := gtest.ReceiveSoon(t, enterCh)
+		require.Equal(t, vrv.RoundView, erc.RV)
+
+		// Make the proposed block, but don't send it yet.
+		pb1 := sfx.Fx.NextProposedBlock([]byte("app_data_1"), 1)
+		sfx.Fx.SignProposal(ctx, &pb1, 1)
+
+		// The block data arrives.
+		// Maybe it's a push model, or maybe the proposed block connection was just slow.
+		gtest.SendSoon(t, sfx.BlockDataArrivalCh, tmelink.BlockDataArrival{
+			Height: 1, Round: 0,
+			ID: string(pb1.Block.DataID),
+		})
+
+		// The consider proposed block request isn't sending yet.
+		gtest.NotSending(t, cStrat.ConsiderProposedBlocksRequests)
+
+		// Now a new VRV arrives.
+		vrv.ProposedBlocks = []tmconsensus.ProposedBlock{pb1}
+		vrv.Version++
+		gtest.SendSoon(t, sfx.RoundViewInCh, tmeil.StateMachineRoundView{VRV: vrv})
+
+		// And we get a new consider request.
+		pbReq := gtest.ReceiveSoon(t, cStrat.ConsiderProposedBlocksRequests)
+		require.Equal(t, []tmconsensus.ProposedBlock{pb1}, pbReq.PBs)
+		require.Equal(t, []string{string(pb1.Block.Hash)}, pbReq.Reason.NewProposedBlocks)
+
+		// Because we got the block data before the new block,
+		// the updated block data IDs is empty.
+		// It is the consensus strategy's responsibility to check the new blocks' data.
+		require.Empty(t, pbReq.Reason.UpdatedBlockDataIDs)
+	})
+
+	t.Run("height and round mismatches", func(t *testing.T) {
+		t.Parallel()
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		sfx := tmstatetest.NewFixture(ctx, t, 4)
+
+		sm := sfx.NewStateMachine()
+		defer sm.Wait()
+		defer cancel()
+
+		re := gtest.ReceiveSoon(t, sfx.RoundEntranceOutCh)
+
+		// Set up consensus strategy expectation before mocking the response.
+		cStrat := sfx.CStrat
+		enterCh := cStrat.ExpectEnterRound(1, 0, nil)
+
+		// Channel is 1-buffered, don't have to select.
+		vrv := sfx.EmptyVRV(1, 0)
+		pb1 := sfx.Fx.NextProposedBlock([]byte("app_data_1"), 1)
+		sfx.Fx.SignProposal(ctx, &pb1, 1)
+		vrv.ProposedBlocks = []tmconsensus.ProposedBlock{pb1}
+
+		re.Response <- tmeil.RoundEntranceResponse{VRV: vrv}
+
+		// And since we sent a VRV, the state machine calls into consensus strategy,
+		// with vrv's RoundView.
+		erc := gtest.ReceiveSoon(t, enterCh)
+		require.Equal(t, vrv.RoundView, erc.RV)
+
+		// ... forces the consensus strategy to consider the available proposed blocks.
+		pbReq := gtest.ReceiveSoon(t, cStrat.ConsiderProposedBlocksRequests)
+		require.Equal(t, []tmconsensus.ProposedBlock{pb1}, pbReq.PBs)
+		require.Equal(t, []string{string(pb1.Block.Hash)}, pbReq.Reason.NewProposedBlocks)
+
+		// Don't make a decision yet.
+		// This send synchronizes the test, which is blocked on the consensus strategy handling.
+		gtest.SendSoon(t, pbReq.ChoiceError, tmconsensus.ErrProposedBlockChoiceNotReady)
+
+		// Now a variety of block data arrives.
+		gtest.SendSoon(t, sfx.BlockDataArrivalCh, tmelink.BlockDataArrival{
+			Height: 1, Round: 1, // Right height, wrong round.
+			ID: string(pb1.Block.DataID),
+		})
+		gtest.SendSoon(t, sfx.BlockDataArrivalCh, tmelink.BlockDataArrival{
+			Height: 2, Round: 0, // Wrong height, right round.
+			ID: string(pb1.Block.DataID),
+		})
+		gtest.SendSoon(t, sfx.BlockDataArrivalCh, tmelink.BlockDataArrival{
+			Height: 1, Round: 0, // Right height and round.
+			ID: string(pb1.Block.DataID) + "!", // Modified ID.
+		})
+
+		// None of these triggered a consider request.
+		gtest.NotSendingSoon(t, cStrat.ConsiderProposedBlocksRequests)
 	})
 }
 

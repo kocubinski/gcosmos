@@ -23,9 +23,10 @@ type ConsiderProposedBlocksReason struct {
 	// The hashes of the new blocks since the previous call to ConsiderProposedBlocks.
 	NewProposedBlocks []string
 
-	// Any app data IDs that have been marked as updated
+	// Any data IDs that have been marked as updated
 	// since the previous call to ConsensusStrategy.
-	UpdatedAppData []string
+	// The data IDs are provided in an arbitrary order.
+	UpdatedBlockDataIDs []string
 
 	// Indicates whether >2/3 of voting power is present,
 	// but does not necessarily indicate that the voting power
