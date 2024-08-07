@@ -12,6 +12,7 @@ import (
 	"cosmossdk.io/core/transaction"
 	"cosmossdk.io/server/v2/appmanager"
 	"github.com/rollchains/gordian/gcosmos/gmempool"
+	"github.com/rollchains/gordian/gcosmos/gserver/internal/gsbd"
 	"github.com/rollchains/gordian/gcrypto"
 	"github.com/rollchains/gordian/internal/gchan"
 	"github.com/rollchains/gordian/internal/glog"
@@ -43,6 +44,8 @@ func NewConsensusStrategy(
 	signer gcrypto.Signer,
 	bufMu *sync.Mutex,
 	txBuf *gmempool.TxBuffer,
+
+	// TODO: accept gsbd.Provider, in order to provide block data.
 ) *ConsensusStrategy {
 	return &ConsensusStrategy{
 		log:    log,
@@ -115,7 +118,8 @@ func (c *ConsensusStrategy) EnterRound(
 		pendingTxs = c.txBuf.AddedTxs(nil)
 	}()
 
-	blockDataID := BlockDataID(rv.Height, rv.Round, pendingTxs)
+	blockDataID := gsbd.DataID(rv.Height, rv.Round, pendingTxs)
+
 	c.curProposals[blockDataID] = pendingTxs
 
 	if !gchan.SendC(
@@ -157,7 +161,7 @@ PB_LOOP:
 			continue
 		}
 
-		h, r, nTxs, _, err := ParseBlockDataID(string(pb.Block.DataID))
+		h, r, nTxs, _, err := gsbd.ParseDataID(string(pb.Block.DataID))
 		if err != nil {
 			c.log.Debug(
 				"Ignoring proposed block due to unparseable app data ID",

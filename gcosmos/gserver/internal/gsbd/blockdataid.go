@@ -1,4 +1,4 @@
-package gsi
+package gsbd
 
 import (
 	"encoding/hex"
@@ -17,7 +17,7 @@ const txsHashSize = 32
 // case of zero transactions.
 //go:generate go run ./blockdataid_generate.go
 
-func BlockDataID(
+func DataID(
 	height uint64,
 	round uint32,
 	txs []transaction.Tx,
@@ -42,7 +42,7 @@ func BlockDataID(
 	return fmt.Sprintf("%d:%d:%d:%x", height, round, len(txs), txsHash)
 }
 
-func ParseBlockDataID(id string) (
+func ParseDataID(id string) (
 	height uint64, round uint32,
 	nTxs int,
 	txsHash [txsHashSize]byte,
