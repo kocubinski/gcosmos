@@ -6,18 +6,18 @@ import (
 	"cosmossdk.io/core/transaction"
 )
 
-// Host has one method to provide block data.
-type Host interface {
-	// Make the provided pending transactions available for retrieval.
+// Provider has one method to provide block data.
+type Provider interface {
+	// Make the provided transactions available for retrieval.
 	// The dataID return value should be set as the DataID in a [tmconsensus.Proposal].
 	// The addrs can be included in the proposal's driver annotation
 	// to indicate to the other validators where to retrieve the data.
-	Provide(ctx context.Context, height uint64, round uint32, pendingTxs []transaction.Tx) (
+	Provide(ctx context.Context, height uint64, round uint32, txs []transaction.Tx) (
 		ProvideResult, error,
 	)
 }
 
-// ProvideResult is the return value from [Host.Provide].
+// ProvideResult is the return value from [Provider.Provide].
 type ProvideResult struct {
 	// DataID should be set at the DataID field in a [tmconsensus.Proposal].
 	DataID string

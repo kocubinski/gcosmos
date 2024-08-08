@@ -31,6 +31,8 @@ type ConsensusStrategy struct {
 
 	signer gcrypto.Signer
 
+	provider gsbd.Provider
+
 	curH uint64
 	curR uint32
 
@@ -44,8 +46,7 @@ func NewConsensusStrategy(
 	signer gcrypto.Signer,
 	bufMu *sync.Mutex,
 	txBuf *gmempool.TxBuffer,
-
-	// TODO: accept gsbd.Provider, in order to provide block data.
+	blockDataProvider gsbd.Provider,
 ) *ConsensusStrategy {
 	return &ConsensusStrategy{
 		log:    log,
@@ -55,6 +56,8 @@ func NewConsensusStrategy(
 
 		bufMu: bufMu,
 		txBuf: txBuf,
+
+		provider: blockDataProvider,
 
 		curProposals: make(map[string][]transaction.Tx),
 	}
@@ -118,7 +121,26 @@ func (c *ConsensusStrategy) EnterRound(
 		pendingTxs = c.txBuf.AddedTxs(nil)
 	}()
 
-	blockDataID := gsbd.DataID(rv.Height, rv.Round, pendingTxs)
+	var blockDataID string
+	var pda []byte
+	if len(pendingTxs) == 0 {
+		blockDataID = gsbd.DataID(c.curH, c.curR, nil)
+	} else {
+		res, err := c.provider.Provide(ctx, c.curH, c.curR, pendingTxs)
+		if err != nil {
+			return fmt.Errorf("failed to provide block data: %w", err)
+		}
+
+		pda, err = json.Marshal(ProposalDriverAnnotation{
+			DataSize:  res.DataSize,
+			Locations: res.Addrs,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to marshal proposal driver annotations: %w", err)
+		}
+
+		blockDataID = res.DataID
+	}
 
 	c.curProposals[blockDataID] = pendingTxs
 
@@ -128,6 +150,9 @@ func (c *ConsensusStrategy) EnterRound(
 			DataID: blockDataID,
 			BlockAnnotations: tmconsensus.Annotations{
 				Driver: ba,
+			},
+			ProposalAnnotations: tmconsensus.Annotations{
+				Driver: pda,
 			},
 		},
 		"sending proposal to engine",
