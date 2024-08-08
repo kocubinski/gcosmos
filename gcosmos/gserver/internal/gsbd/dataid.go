@@ -15,7 +15,7 @@ const txsHashSize = 32
 
 // We need the zero hash for the special, but probably common,
 // case of zero transactions.
-//go:generate go run ./blockdataid_generate.go
+//go:generate go run ./dataid_generate.go
 
 func DataID(
 	height uint64,
