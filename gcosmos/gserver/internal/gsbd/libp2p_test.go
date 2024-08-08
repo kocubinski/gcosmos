@@ -51,7 +51,7 @@ func TestLibp2pHost_roundTrip(t *testing.T) {
 
 	require.NoError(t, net.Stabilize(ctx))
 
-	provider := gsbd.NewLibp2pProviderHost(host.Host().Libp2pHost())
+	provider := gsbd.NewLibp2pProviderHost(log.With("sys", "host"), host.Host().Libp2pHost())
 
 	// Generated from one of the gcosmos integration tests.
 	// We don't really care about the actual content, so long as it is a transaction.Tx.

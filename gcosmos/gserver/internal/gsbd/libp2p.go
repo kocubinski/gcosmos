@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -22,13 +23,17 @@ import (
 const blockDataV1Prefix = "/gordian/blockdata/v1/"
 
 type Libp2pHost struct {
+	log *slog.Logger
+
 	host libp2phost.Host
 }
 
 func NewLibp2pProviderHost(
+	log *slog.Logger,
 	host libp2phost.Host,
 ) *Libp2pHost {
 	return &Libp2pHost{
+		log:  log,
 		host: host,
 	}
 }
@@ -38,6 +43,12 @@ func (h *Libp2pHost) Provide(
 	height uint64, round uint32,
 	pendingTxs []transaction.Tx,
 ) (ProvideResult, error) {
+	if len(pendingTxs) == 0 {
+		panic(errors.New(
+			"BUG: do not call Provide without at least one transaction",
+		))
+	}
+
 	items := make([][]byte, len(pendingTxs))
 	for i, tx := range pendingTxs {
 		items[i] = tx.Bytes()
@@ -52,12 +63,11 @@ func (h *Libp2pHost) Provide(
 
 	dataID := DataID(height, round, pendingTxs)
 
-	// TODO: the router.AddHandler is a poor approach.
-	// It should use host.SetStreamHandler
-	// in order to get stream manipulation,
-	// in particular CloseRead so we can ignore a faulty client's input.
 	pID := libp2pprotocol.ID(blockDataV1Prefix + dataID)
-	h.host.Mux().AddHandler(pID, h.makeBlockDataHandler(j))
+	h.host.SetStreamHandler(pID, h.makeBlockDataHandler(j))
+
+	// TODO: we need a way to prune old handlers.
+	// Currently we just leak a handler every time we propose a block.
 
 	ai := libp2phost.InfoFromHost(h.host)
 	jai, err := json.Marshal(ai)
@@ -90,26 +100,39 @@ const (
 // We could add a v2 endpoint that allows the client to specify a preference,
 // or we could possibly try multiple compression schemes
 // and only serve the best one.
-func (h *Libp2pHost) makeBlockDataHandler(j []byte) libp2pprotocol.HandlerFunc {
+func (h *Libp2pHost) makeBlockDataHandler(j []byte) libp2pnetwork.StreamHandler {
 	c := snappy.Encode(nil, j)
 	szBuf := binary.AppendVarint(nil, int64(len(c)))
-	return func(_ libp2pprotocol.ID, rwc io.ReadWriteCloser) error {
-		defer rwc.Close()
+	outerLog := h.log.With("handler", "blockdata")
 
-		if _, err := rwc.Write([]byte{snappyHeader}); err != nil {
-			return err
+	if len(c) >= len(j) {
+		h.log.Warn("TODO: add handler to serve uncompressed block data", "growth", len(j)-len(c))
+	}
+
+	return func(s libp2pnetwork.Stream) {
+		defer s.Close()
+
+		// We will not accept incoming writes on this stream,
+		// so close for reads immediately.
+		_ = s.CloseRead()
+
+		if _, err := s.Write([]byte{snappyHeader}); err != nil {
+			outerLog.Debug("Failed to write snappy header", "err", err)
+			return
 		}
 
-		if _, err := io.Copy(rwc, bytes.NewReader(szBuf)); err != nil {
-			return err
+		if _, err := io.Copy(s, bytes.NewReader(szBuf)); err != nil {
+			outerLog.Debug("Failed to write size", "err", err)
+			return
 		}
 
 		src := bytes.NewReader(c)
-		if _, err := src.WriteTo(rwc); err != nil {
-			return err
+		if _, err := src.WriteTo(s); err != nil {
+			outerLog.Debug("Failed to write compressed data", "err", err)
+			return
 		}
 
-		return nil
+		// Success.
 	}
 }
 
