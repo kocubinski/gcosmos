@@ -16,20 +16,13 @@ import (
 	libp2pnetwork "github.com/libp2p/go-libp2p/core/network"
 	libp2ppeer "github.com/libp2p/go-libp2p/core/peer"
 	libp2pprotocol "github.com/libp2p/go-libp2p/core/protocol"
+	"github.com/rollchains/gordian/gcosmos/gccodec"
 )
 
 const blockDataV1Prefix = "/gordian/blockdata/v1/"
 
 type Libp2pHost struct {
 	host libp2phost.Host
-
-	// To get the listen addresses at runtime.
-	// Although probably not likely,
-	// the addresses can be changed at runtime,
-	// so we should not rely on the initial value at the time of construction.
-	net libp2pnetwork.Network
-
-	router libp2pprotocol.Router
 }
 
 func NewLibp2pProviderHost(
@@ -37,10 +30,6 @@ func NewLibp2pProviderHost(
 ) *Libp2pHost {
 	return &Libp2pHost{
 		host: host,
-
-		net: host.Network(),
-
-		router: host.Mux(),
 	}
 }
 
@@ -49,16 +38,11 @@ func (h *Libp2pHost) Provide(
 	height uint64, round uint32,
 	pendingTxs []transaction.Tx,
 ) (ProvideResult, error) {
-	items := make([]json.RawMessage, len(pendingTxs))
+	items := make([][]byte, len(pendingTxs))
 	for i, tx := range pendingTxs {
-		j, err := json.Marshal(tx)
-		if err != nil {
-			return ProvideResult{}, fmt.Errorf(
-				"failed to marshal transaction: %w", err,
-			)
-		}
-		items[i] = j
+		items[i] = tx.Bytes()
 	}
+
 	j, err := json.Marshal(items)
 	if err != nil {
 		return ProvideResult{}, fmt.Errorf(
@@ -73,7 +57,7 @@ func (h *Libp2pHost) Provide(
 	// in order to get stream manipulation,
 	// in particular CloseRead so we can ignore a faulty client's input.
 	pID := libp2pprotocol.ID(blockDataV1Prefix + dataID)
-	h.router.AddHandler(pID, h.makeBlockDataHandler(j))
+	h.host.Mux().AddHandler(pID, h.makeBlockDataHandler(j))
 
 	ai := libp2phost.InfoFromHost(h.host)
 	jai, err := json.Marshal(ai)
@@ -138,18 +122,33 @@ type Libp2pClient struct {
 	log *slog.Logger
 
 	h libp2phost.Host
+
+	decoder gccodec.TxDecoder[transaction.Tx]
 }
 
-func NewLibp2pClient(log *slog.Logger, host libp2phost.Host) *Libp2pClient {
-	return &Libp2pClient{log: log, h: host}
+func NewLibp2pClient(
+	log *slog.Logger,
+	host libp2phost.Host,
+	decoder gccodec.TxDecoder[transaction.Tx],
+) *Libp2pClient {
+	return &Libp2pClient{log: log, h: host, decoder: decoder}
 }
 
 func (c *Libp2pClient) Retrieve(
 	ctx context.Context,
 	ai libp2ppeer.AddrInfo,
 	dataID string,
-	expSize int,
-) ([]byte, error) {
+	expDecodedSize int,
+) ([]transaction.Tx, error) {
+	// Parse the data ID before anything else.
+	// We don't need the height or round,
+	// so we could potentially justify a lighter weight parser...
+	// but this isn't really in a hot path, so it's probably fine.
+	_, _, nTxs, txsHash, err := ParseDataID(dataID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse data ID: %w", err)
+	}
+
 	// Ensure we have a connection.
 	if err := c.h.Connect(ctx, ai); err != nil {
 		return nil, fmt.Errorf("failed to connect to peer: %w", err)
@@ -172,19 +171,27 @@ func (c *Libp2pClient) Retrieve(
 		return nil, fmt.Errorf("failed to read first byte from stream: %w", err)
 	}
 
+	var encoded []byte
 	switch firstByte[0] {
 	case uncompressedHeader:
 		panic("TODO")
 	case snappyHeader:
-		return c.readSnappy(expSize, s)
+		encoded, err = c.readSnappy(expDecodedSize, s)
+		if err != nil {
+			return nil, err
+		}
 	default:
 		return nil, fmt.Errorf("unrecognized header byte %x", firstByte[0])
 	}
+
+	// We're done reading data, so close the connection now.
+	_ = s.Close()
+
+	return c.decode(encoded, nTxs, txsHash)
 }
 
 func (c *Libp2pClient) readSnappy(
-	// ctx context.Context,
-	expSize int,
+	expDecodedSize int,
 	s libp2pnetwork.Stream,
 ) ([]byte, error) {
 	// The next "header" section following the type header,
@@ -209,11 +216,11 @@ func (c *Libp2pClient) readSnappy(
 		)
 	}
 
-	maxCSize := snappy.MaxEncodedLen(expSize)
+	maxCSize := snappy.MaxEncodedLen(expDecodedSize)
 	if cSize > maxCSize {
 		return nil, fmt.Errorf(
 			"invalid compressed size: %d larger than max snappy-encoded size %d of %d",
-			cSize, maxCSize, expSize,
+			cSize, maxCSize, expDecodedSize,
 		)
 	}
 
@@ -239,10 +246,10 @@ func (c *Libp2pClient) readSnappy(
 	if err != nil {
 		return nil, fmt.Errorf("failed to read decoded length from compressed data: %w", err)
 	}
-	if uSize != expSize {
+	if uSize != expDecodedSize {
 		return nil, fmt.Errorf(
 			"compressed data's decoded length %d differed from expected size %d",
-			uSize, expSize,
+			uSize, expDecodedSize,
 		)
 	}
 
@@ -254,12 +261,60 @@ func (c *Libp2pClient) readSnappy(
 		return nil, fmt.Errorf("failed to decode snappy data: %w", err)
 	}
 
-	if len(u) != expSize {
+	if len(u) != expDecodedSize {
 		return nil, fmt.Errorf(
 			"impossible: decoded length %d differed from expected length %d",
-			len(u), expSize,
+			len(u), expDecodedSize,
 		)
 	}
 
 	return u, nil
+}
+
+func (c *Libp2pClient) decode(
+	encoded []byte,
+	expNTxs int,
+	expTxsHash [txsHashSize]byte,
+) ([]transaction.Tx, error) {
+	// The encoded data is currently a JSON array of byte slices.
+	// Not efficient, but simple to use.
+	var items [][]byte
+	if err := json.Unmarshal(encoded, &items); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal retrieved data: %w", err)
+	}
+	if len(items) != expNTxs {
+		return nil, fmt.Errorf(
+			"unmarshalled incorrect number of encoded transactions: want %d, got %d",
+			expNTxs, len(items),
+		)
+	}
+
+	txs := make([]transaction.Tx, len(items))
+	for i := range items {
+		tx, err := c.decoder.Decode(items[i])
+		if err != nil {
+			return nil, fmt.Errorf("failed to decode transaction at index %d: %w", i, err)
+		}
+
+		txs[i] = tx
+
+		// Possibly help GC by removing the reference to the decoded byte slice
+		// as soon as we're done with it.
+		items[i] = nil
+	}
+
+	// Finally, confirm the full transaction hash.
+	// If this ends up being a hot path in CPU use,
+	// we could potentially accumulate the individual transaction hashes
+	// while decoding the transactions.
+	// But, doing it late is probably the better defensive choice.
+	gotTxsHash := TxsHash(txs)
+	if gotTxsHash != expTxsHash {
+		return nil, fmt.Errorf(
+			"decoded transactions hash %x differed from input %x",
+			gotTxsHash, expTxsHash,
+		)
+	}
+
+	return txs, nil
 }

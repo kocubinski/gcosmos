@@ -1,6 +1,7 @@
 package gsbd_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"testing"
@@ -19,6 +20,7 @@ import (
 	"github.com/rollchains/gordian/internal/gtest"
 	"github.com/rollchains/gordian/tm/tmcodec/tmjson"
 	"github.com/rollchains/gordian/tm/tmp2p/tmlibp2p/tmlibp2ptest"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -82,22 +84,43 @@ func TestLibp2pHost_roundTrip(t *testing.T) {
 	// Parse out the host address from the provide result.
 	var ai libp2ppeer.AddrInfo
 	require.NoError(t, json.Unmarshal([]byte(res.Addrs[0].Addr), &ai))
-	c := gsbd.NewLibp2pClient(log.With("sys", "client"), client.Host().Libp2pHost())
-	buf, err := c.Retrieve(ctx, ai, res.DataID, res.DataSize)
+	c := gsbd.NewLibp2pClient(
+		log.With("sys", "client"),
+		client.Host().Libp2pHost(),
+		gccodec.NewTxDecoder(txCfg),
+	)
+	gotTxs, err := c.Retrieve(ctx, ai, res.DataID, res.DataSize)
+	require.NoError(t, err)
+	require.Len(t, gotTxs, 1)
+	RequireEqualTx(t, sendTx, gotTxs[0])
+}
+
+func RequireEqualTx(t *testing.T, want, got transaction.Tx) {
+	t.Helper()
+
+	// Using assert instead of require in this helper,
+	// so we can see multiple messages about the diff.
+	assert.Equal(t, want.Hash(), got.Hash())
+
+	// Assuming the Bytes() output is deterministic.
+	// assert.Equal(t, want.Bytes(), got.Bytes())
+	wantBytes, gotBytes := want.Bytes(), got.Bytes()
+	assert.Truef(
+		t,
+		bytes.Equal(wantBytes, gotBytes),
+		"encoded bytes differed:\nwant=%x\ngot= %x",
+		wantBytes, gotBytes,
+	)
+
+	wantMsgs, err := want.GetMessages()
+	require.NoError(t, err)
+	gotMsgs, err := got.GetMessages()
 	require.NoError(t, err)
 
-	var items []json.RawMessage
-	require.NoError(t, json.Unmarshal(buf, &items))
-	require.Len(t, items, 1)
+	require.Equal(t, wantMsgs, gotMsgs)
 
-	gc := gccodec.NewTxDecoder(txCfg)
-	got, err := gc.DecodeJSON(items[0])
-	if err != nil {
-		t.Skipf(
-			"TODO: it seems like DecodeJSON should parse a JSON-marshalled tx, but we got error %s when parsing %q",
-			err, items[0],
-		)
+	if t.Failed() {
+		// Stop the test if any assertion failed.
+		t.FailNow()
 	}
-	require.NoError(t, err)
-	require.Equal(t, sendTx, got)
 }
