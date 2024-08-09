@@ -37,9 +37,33 @@ type ConsensusStrategy struct {
 	curH uint64
 	curR uint32
 
-	curProposals map[string][]transaction.Tx
+	// Keyed by DataID.
+	// Tracks sets of transactions we've seen.
+	receivedTxs map[string]remoteTx
+
+	retrieveRequests chan<- datapool.RetrieveBlockDataRequest
 
 	pool *datapool.Pool
+}
+
+// remoteTx is an abstraction for an asynchronously received transaction.
+// This is used to store transactions that we have to retrieve from other validators,
+// in the receivedTxs field on [ConsensusStrategy].
+//
+// We do currently pack local transactions into this type too.
+// There is a possible optimization to introduce a localTx type
+// that satisfies a common interface, so we can avoid a channel read
+// on transactions that we've produced.
+// But the interface access probably isn't worth it.
+type remoteTx struct {
+	Ready chan struct{}
+
+	// Pointers to slices are quite unpleasant to use,
+	// but in this case it is a bit necessary;
+	// the data pool needs a value it can write into.
+	// If it wasn't a pointer to a slice of transactions,
+	// it would be a pointer to a struct containing such a slice.
+	Txs *[]transaction.Tx
 }
 
 func NewConsensusStrategy(
@@ -70,7 +94,8 @@ func NewConsensusStrategy(
 
 		provider: blockDataProvider,
 
-		curProposals: make(map[string][]transaction.Tx),
+		receivedTxs:      make(map[string]remoteTx),
+		retrieveRequests: retrieveRequests,
 
 		pool: datapool.New(
 			ctx,
@@ -118,7 +143,11 @@ func (c *ConsensusStrategy) EnterRound(
 	// Track the current height and round for later when we get to voting.
 	c.curH = rv.Height
 	c.curR = rv.Round
-	clear(c.curProposals)
+
+	// Any previously set received transactions are eligible for GC now.
+	// If the pool is about to write a transaction now,
+	// that is fine -- it will just be disregarded.
+	clear(c.receivedTxs)
 
 	c.pool.EnterRound(ctx, rv.Height, rv.Round)
 
@@ -170,7 +199,15 @@ func (c *ConsensusStrategy) EnterRound(
 		blockDataID = res.DataID
 	}
 
-	c.curProposals[blockDataID] = pendingTxs
+	// Since we are proposing this block,
+	// just copy it directly into the map,
+	// following the same structure as if it arrived from a remote validator.
+	rtx := remoteTx{
+		Ready: make(chan struct{}),
+		Txs:   &pendingTxs,
+	}
+	close(rtx.Ready)
+	c.receivedTxs[blockDataID] = rtx
 
 	if !gchan.SendC(
 		ctx, c.log,
@@ -249,15 +286,56 @@ PB_LOOP:
 		}
 
 		if nTxs != 0 {
-			// TODO: this is where we should be checking whether the block data is available.
-			txs, ok := c.curProposals[string(pb.Block.DataID)]
+			rtx, ok := c.receivedTxs[string(pb.Block.DataID)]
 			if !ok {
-				panic(errors.New(
-					"TODO: handle app data IDs that indicate presence of at least one transaction",
-				))
+				var pda ProposalDriverAnnotation
+				if err := json.Unmarshal(pb.Annotations.Driver, &pda); err != nil {
+					c.log.Debug(
+						"Ignoring proposed block due to unparseable proposal annotation",
+						"err", err,
+					)
+					continue
+				}
+
+				// We need the pool to retrieve it.
+				val := remoteTx{Ready: make(chan struct{}), Txs: new([]transaction.Tx)}
+				req := datapool.RetrieveBlockDataRequest{
+					Height: h, Round: r,
+					DataID:    string(pb.Block.DataID),
+					DataSize:  pda.DataSize,
+					Locations: pda.Locations,
+
+					Ready: val.Ready,
+					Txs:   val.Txs,
+				}
+				select {
+				case c.retrieveRequests <- req:
+					c.receivedTxs[string(pb.Block.DataID)] = val
+					// Okay.
+				default:
+					// Not yet sure what's the right way to handle this.
+					panic(errors.New(
+						"TODO: handle blocked send to request block data",
+					))
+				}
+
+				// We initiated the pool work, so move on.
+				continue
 			}
 
-			// Otherwise we have the transactions.
+			// There was an existing remoteTx.
+			// Is it ready?
+			select {
+			case <-rtx.Ready:
+				// Yes, keep going.
+			default:
+				// No, skip this block for now.
+				continue
+			}
+
+			// It was ready, so we have the transactions.
+			txs := *rtx.Txs
+
 			// Can they be applied?
 			// We know we have at least one transaction,
 			// and we needs its result to seed subsequent transactions starting state.
