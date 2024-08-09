@@ -69,6 +69,7 @@ type Component struct {
 	conn   *tmlibp2p.Connection
 	e      *tmengine.Engine
 	driver *gsi.Driver
+	cStrat *gsi.ConsensusStrategy
 
 	seedAddrs string
 
@@ -192,18 +193,21 @@ func (c *Component) Start(ctx context.Context) error {
 	opts = append(opts, tmengine.WithBlockFinalizationChannel(blockFinCh))
 
 	// We needed the driver before we could make the consensus strategy.
-	opts = append(opts, tmengine.WithConsensusStrategy(
-		gsi.NewConsensusStrategy(
-			c.log.With("serversys", "cons_strat"),
-			d,
-			*(c.app.GetAppManager()),
-			c.signer,
-			bufMu, txBuf,
-			gsbd.NewLibp2pProviderHost(
-				c.log.With("s_sys", "block_provider"), h.Libp2pHost(),
-			),
+	c.cStrat = gsi.NewConsensusStrategy(
+		c.rootCtx,
+		c.log.With("serversys", "cons_strat"),
+		d,
+		*(c.app.GetAppManager()),
+		c.signer,
+		bufMu, txBuf,
+		gsbd.NewLibp2pProviderHost(
+			c.log.With("s_sys", "block_provider"), h.Libp2pHost(),
 		),
-	))
+		gsbd.NewLibp2pClient(
+			c.log.With("s_sys", "block_retriever"), h.Libp2pHost(), c.txc,
+		),
+	)
+	opts = append(opts, tmengine.WithConsensusStrategy(c.cStrat))
 
 	// Depends on conn.
 	gs := tmgossip.NewChattyStrategy(ctx, c.log.With("sys", "chattygossip"), conn)
@@ -257,6 +261,9 @@ func (c *Component) Stop(_ context.Context) error {
 	}
 	if c.driver != nil {
 		c.driver.Wait()
+	}
+	if c.cStrat != nil {
+		c.cStrat.Wait()
 	}
 	if c.conn != nil {
 		c.conn.Disconnect()

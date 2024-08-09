@@ -17,7 +17,6 @@ import (
 	libp2pnetwork "github.com/libp2p/go-libp2p/core/network"
 	libp2ppeer "github.com/libp2p/go-libp2p/core/peer"
 	libp2pprotocol "github.com/libp2p/go-libp2p/core/protocol"
-	"github.com/rollchains/gordian/gcosmos/gccodec"
 )
 
 const blockDataV1Prefix = "/gordian/blockdata/v1/"
@@ -146,13 +145,13 @@ type Libp2pClient struct {
 
 	h libp2phost.Host
 
-	decoder gccodec.TxDecoder[transaction.Tx]
+	decoder transaction.Codec[transaction.Tx]
 }
 
 func NewLibp2pClient(
 	log *slog.Logger,
 	host libp2phost.Host,
-	decoder gccodec.TxDecoder[transaction.Tx],
+	decoder transaction.Codec[transaction.Tx],
 ) *Libp2pClient {
 	return &Libp2pClient{log: log, h: host, decoder: decoder}
 }

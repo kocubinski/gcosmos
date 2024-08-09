@@ -13,6 +13,7 @@ import (
 	"cosmossdk.io/server/v2/appmanager"
 	"github.com/rollchains/gordian/gcosmos/gmempool"
 	"github.com/rollchains/gordian/gcosmos/gserver/internal/gsbd"
+	"github.com/rollchains/gordian/gcosmos/gserver/internal/gsi/datapool"
 	"github.com/rollchains/gordian/gcrypto"
 	"github.com/rollchains/gordian/internal/gchan"
 	"github.com/rollchains/gordian/internal/glog"
@@ -37,9 +38,13 @@ type ConsensusStrategy struct {
 	curR uint32
 
 	curProposals map[string][]transaction.Tx
+
+	pool *datapool.Pool
 }
 
 func NewConsensusStrategy(
+	// TODO: this needs to switch to a struct for input arguments.
+	ctx context.Context,
 	log *slog.Logger,
 	d *Driver,
 	am appmanager.AppManager[transaction.Tx],
@@ -47,7 +52,13 @@ func NewConsensusStrategy(
 	bufMu *sync.Mutex,
 	txBuf *gmempool.TxBuffer,
 	blockDataProvider gsbd.Provider,
+	blockDataClient *gsbd.Libp2pClient,
 ) *ConsensusStrategy {
+	// TODO: don't hardcode nWorkers.
+	const nWorkers = 4
+
+	retrieveRequests := make(chan datapool.RetrieveBlockDataRequest, nWorkers)
+
 	return &ConsensusStrategy{
 		log:    log,
 		d:      d,
@@ -60,7 +71,22 @@ func NewConsensusStrategy(
 		provider: blockDataProvider,
 
 		curProposals: make(map[string][]transaction.Tx),
+
+		pool: datapool.New(
+			ctx,
+			log.With("c_sys", "datapool"),
+			nWorkers,
+			retrieveRequests,
+			blockDataClient,
+		),
 	}
+}
+
+func (s *ConsensusStrategy) Wait() {
+	// The pool is an implementation detail of the consensus strategy,
+	// so we don't expose it directly.
+	// The pool is the only background work created here.
+	s.pool.Wait()
 }
 
 type BlockAnnotation struct {
@@ -93,6 +119,8 @@ func (c *ConsensusStrategy) EnterRound(
 	c.curH = rv.Height
 	c.curR = rv.Round
 	clear(c.curProposals)
+
+	c.pool.EnterRound(ctx, rv.Height, rv.Round)
 
 	// Very naive round-robin-ish proposer selection.
 	proposerIdx := (int(rv.Height) + int(rv.Round)) % len(rv.Validators)
@@ -170,6 +198,13 @@ func (c *ConsensusStrategy) ConsiderProposedBlocks(
 ) (string, error) {
 PB_LOOP:
 	for _, pb := range pbs {
+		// TODO: handle a particular proposed block being excluded from a round,
+		// presumably because we got its data and we chose not to accept it.
+		const excluded = false
+		if excluded {
+			continue
+		}
+
 		if pb.Block.Height != c.curH {
 			c.log.Debug(
 				"Ignoring proposed block due to height mismatch",
@@ -214,6 +249,7 @@ PB_LOOP:
 		}
 
 		if nTxs != 0 {
+			// TODO: this is where we should be checking whether the block data is available.
 			txs, ok := c.curProposals[string(pb.Block.DataID)]
 			if !ok {
 				panic(errors.New(
