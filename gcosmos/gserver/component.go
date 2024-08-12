@@ -160,6 +160,18 @@ func (c *Component) Start(ctx context.Context) error {
 	bufMu := new(sync.Mutex)
 	txBuf := gmempool.NewTxBuffer(c.log.With("d_sys", "tx_buffer"), am)
 
+	blockDataClient := gsbd.NewLibp2pClient(
+		c.log.With("d_sys", "block_retriever"), h.Libp2pHost(), c.txc,
+	)
+
+	const nWorkers = 4 // TODO: don't hardcode this.
+	pool := gsi.NewDataPool(
+		ctx,
+		c.log.With("d_sys", "datapool"),
+		nWorkers,
+		blockDataClient,
+	)
+
 	initChainCh := make(chan tmdriver.InitChainRequest)
 	blockFinCh := make(chan tmdriver.FinalizeBlockRequest)
 	d, err := gsi.NewDriver(
@@ -178,6 +190,8 @@ func (c *Component) Start(ctx context.Context) error {
 
 			BufMu:    bufMu,
 			TxBuffer: txBuf,
+
+			DataPool: pool,
 		},
 	)
 	if err != nil {
@@ -203,9 +217,7 @@ func (c *Component) Start(ctx context.Context) error {
 		gsbd.NewLibp2pProviderHost(
 			c.log.With("s_sys", "block_provider"), h.Libp2pHost(),
 		),
-		gsbd.NewLibp2pClient(
-			c.log.With("s_sys", "block_retriever"), h.Libp2pHost(), c.txc,
-		),
+		pool,
 	)
 	opts = append(opts, tmengine.WithConsensusStrategy(c.cStrat))
 

@@ -123,3 +123,7 @@ func ParseDataID(id string) (
 	// We've parsed everything, and err is nil.
 	return
 }
+
+func IsZeroTxDataID(id string) bool {
+	return strings.HasSuffix(id, zeroHashSuffix)
+}

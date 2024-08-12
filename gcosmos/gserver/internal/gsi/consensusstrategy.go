@@ -13,8 +13,8 @@ import (
 	"cosmossdk.io/server/v2/appmanager"
 	"github.com/rollchains/gordian/gcosmos/gmempool"
 	"github.com/rollchains/gordian/gcosmos/gserver/internal/gsbd"
-	"github.com/rollchains/gordian/gcosmos/gserver/internal/gsi/datapool"
 	"github.com/rollchains/gordian/gcrypto"
+	"github.com/rollchains/gordian/gdriver/gdatapool"
 	"github.com/rollchains/gordian/internal/gchan"
 	"github.com/rollchains/gordian/internal/glog"
 	"github.com/rollchains/gordian/tm/tmconsensus"
@@ -37,33 +37,7 @@ type ConsensusStrategy struct {
 	curH uint64
 	curR uint32
 
-	// Keyed by DataID.
-	// Tracks sets of transactions we've seen.
-	receivedTxs map[string]remoteTx
-
-	retrieveRequests chan<- datapool.RetrieveBlockDataRequest
-
-	pool *datapool.Pool
-}
-
-// remoteTx is an abstraction for an asynchronously received transaction.
-// This is used to store transactions that we have to retrieve from other validators,
-// in the receivedTxs field on [ConsensusStrategy].
-//
-// We do currently pack local transactions into this type too.
-// There is a possible optimization to introduce a localTx type
-// that satisfies a common interface, so we can avoid a channel read
-// on transactions that we've produced.
-// But the interface access probably isn't worth it.
-type remoteTx struct {
-	Ready chan struct{}
-
-	// Pointers to slices are quite unpleasant to use,
-	// but in this case it is a bit necessary;
-	// the data pool needs a value it can write into.
-	// If it wasn't a pointer to a slice of transactions,
-	// it would be a pointer to a struct containing such a slice.
-	Txs *[]transaction.Tx
+	pool *gdatapool.Pool[[]transaction.Tx]
 }
 
 func NewConsensusStrategy(
@@ -76,12 +50,10 @@ func NewConsensusStrategy(
 	bufMu *sync.Mutex,
 	txBuf *gmempool.TxBuffer,
 	blockDataProvider gsbd.Provider,
-	blockDataClient *gsbd.Libp2pClient,
+	pool *gdatapool.Pool[[]transaction.Tx],
 ) *ConsensusStrategy {
 	// TODO: don't hardcode nWorkers.
 	const nWorkers = 4
-
-	retrieveRequests := make(chan datapool.RetrieveBlockDataRequest, nWorkers)
 
 	return &ConsensusStrategy{
 		log:    log,
@@ -94,16 +66,7 @@ func NewConsensusStrategy(
 
 		provider: blockDataProvider,
 
-		receivedTxs:      make(map[string]remoteTx),
-		retrieveRequests: retrieveRequests,
-
-		pool: datapool.New(
-			ctx,
-			log.With("c_sys", "datapool"),
-			nWorkers,
-			retrieveRequests,
-			blockDataClient,
-		),
+		pool: pool,
 	}
 }
 
@@ -143,11 +106,6 @@ func (c *ConsensusStrategy) EnterRound(
 	// Track the current height and round for later when we get to voting.
 	c.curH = rv.Height
 	c.curR = rv.Round
-
-	// Any previously set received transactions are eligible for GC now.
-	// If the pool is about to write a transaction now,
-	// that is fine -- it will just be disregarded.
-	clear(c.receivedTxs)
 
 	c.pool.EnterRound(ctx, rv.Height, rv.Round)
 
@@ -199,15 +157,8 @@ func (c *ConsensusStrategy) EnterRound(
 		blockDataID = res.DataID
 	}
 
-	// Since we are proposing this block,
-	// just copy it directly into the map,
-	// following the same structure as if it arrived from a remote validator.
-	rtx := remoteTx{
-		Ready: make(chan struct{}),
-		Txs:   &pendingTxs,
-	}
-	close(rtx.Ready)
-	c.receivedTxs[blockDataID] = rtx
+	// We are proposing this data, so mark it as locally available.
+	c.pool.SetAvailable(blockDataID, pda, pendingTxs)
 
 	if !gchan.SendC(
 		ctx, c.log,
@@ -286,56 +237,23 @@ PB_LOOP:
 		}
 
 		if nTxs != 0 {
-			rtx, ok := c.receivedTxs[string(pb.Block.DataID)]
-			if !ok {
-				var pda ProposalDriverAnnotation
-				if err := json.Unmarshal(pb.Annotations.Driver, &pda); err != nil {
-					c.log.Debug(
-						"Ignoring proposed block due to unparseable proposal annotation",
-						"err", err,
-					)
-					continue
-				}
+			// Unconditional call to Need first.
+			// (TODO: we should only call this when the reason includes this as a new block, right?)
+			c.pool.Need(h, r, string(pb.Block.DataID), pb.Annotations.Driver)
 
-				// We need the pool to retrieve it.
-				val := remoteTx{Ready: make(chan struct{}), Txs: new([]transaction.Tx)}
-				req := datapool.RetrieveBlockDataRequest{
-					Height: h, Round: r,
-					DataID:    string(pb.Block.DataID),
-					DataSize:  pda.DataSize,
-					Locations: pda.Locations,
-
-					Ready: val.Ready,
-					Txs:   val.Txs,
-				}
-				select {
-				case c.retrieveRequests <- req:
-					c.receivedTxs[string(pb.Block.DataID)] = val
-					// Okay.
-				default:
-					// Not yet sure what's the right way to handle this.
-					panic(errors.New(
-						"TODO: handle blocked send to request block data",
-					))
-				}
-
-				// We initiated the pool work, so move on.
+			txs, err, ready := c.pool.Have(string(pb.Block.DataID))
+			if !ready {
+				// Request is in flight.
+				// Can't decide on this block yet.
 				continue
 			}
 
-			// There was an existing remoteTx.
-			// Is it ready?
-			select {
-			case <-rtx.Ready:
-				// Yes, keep going.
-			default:
-				// No, skip this block for now.
+			// If it's ready and it's an error, just silently skip it for now.
+			if err != nil {
 				continue
 			}
 
-			// It was ready, so we have the transactions.
-			txs := *rtx.Txs
-
+			// We do have the transactions.
 			// Can they be applied?
 			// We know we have at least one transaction,
 			// and we needs its result to seed subsequent transactions starting state.

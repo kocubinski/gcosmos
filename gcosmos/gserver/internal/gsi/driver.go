@@ -2,6 +2,7 @@ package gsi
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"path/filepath"
@@ -22,7 +23,9 @@ import (
 	genutiltypes "github.com/cosmos/cosmos-sdk/x/genutil/types"
 	"github.com/rollchains/gordian/gcosmos/gccodec"
 	"github.com/rollchains/gordian/gcosmos/gmempool"
+	"github.com/rollchains/gordian/gcosmos/gserver/internal/gsbd"
 	"github.com/rollchains/gordian/gcrypto"
+	"github.com/rollchains/gordian/gdriver/gdatapool"
 	"github.com/rollchains/gordian/internal/gchan"
 	"github.com/rollchains/gordian/internal/glog"
 	"github.com/rollchains/gordian/tm/tmconsensus"
@@ -41,6 +44,8 @@ type DriverConfig struct {
 
 	BufMu    *sync.Mutex
 	TxBuffer *gmempool.TxBuffer
+
+	DataPool *gdatapool.Pool[[]transaction.Tx]
 }
 
 type Driver struct {
@@ -48,6 +53,8 @@ type Driver struct {
 
 	bufMu *sync.Mutex
 	txBuf *gmempool.TxBuffer
+
+	pool *gdatapool.Pool[[]transaction.Tx]
 
 	done chan struct{}
 }
@@ -72,6 +79,8 @@ func NewDriver(
 
 		bufMu: cfg.BufMu,
 		txBuf: cfg.TxBuffer,
+
+		pool: cfg.DataPool,
 
 		done: make(chan struct{}),
 	}
@@ -307,6 +316,24 @@ func (d *Driver) handleFinalizations(
 			d.bufMu.Unlock()
 		})
 		txs := d.txBuf.AddedTxs(nil)
+		// TODO: ^ the transaction buffer handling is all wrong.
+
+		// Guard the call to pool.Have with a zero check,
+		// because we never call Need or SetAvailable on zero.
+		// We can't push this into the pool,
+		// but we could push it into the retriever, potentially.
+		if gsbd.IsZeroTxDataID(string(fbReq.Block.DataID)) {
+			txs = nil
+		} else {
+			haveTxs, err, have := d.pool.Have(string(fbReq.Block.DataID))
+			if !have {
+				panic(errors.New("TODO: handle block data not ready during finalization"))
+			}
+			if err != nil {
+				panic(fmt.Errorf("TODO: handle error on retrieved block data during finalization: %w", err))
+			}
+			txs = haveTxs
+		}
 
 		cID, err := s.LastCommitID()
 		if err != nil {

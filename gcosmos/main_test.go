@@ -187,12 +187,6 @@ func TestTx_single(t *testing.T) {
 
 		require.GreaterOrEqual(t, maxHeight, uint(3))
 
-		type balance struct {
-			Balance struct {
-				Amount string
-			}
-		}
-
 		// Initial fixed account balance is hardcoded to 10000.
 		// Ensure we still match that.
 		resp, err := http.Get(baseURL + "/debug/accounts/" + c.FixedAddresses[0] + "/balance")
@@ -388,6 +382,7 @@ func TestTx_multiple(t *testing.T) {
 
 	deadline := time.Now().Add(time.Minute)
 	u := "http://" + httpAddrs[0] + "/debug/pending_txs"
+	pendingTxFlushed := false
 	for time.Now().Before(deadline) {
 		resp, err := http.Get(u)
 		require.NoError(t, err)
@@ -397,7 +392,32 @@ func TestTx_multiple(t *testing.T) {
 		require.NoError(t, err)
 		resp.Body.Close()
 
+		if have := string(b); have == "[]" || have == "[]\n" {
+			pendingTxFlushed = true
+			break
+		}
+
 		t.Logf("pending tx body: %s", string(b))
 		time.Sleep(time.Second)
+	}
+
+	require.True(t, pendingTxFlushed, "pending tx not flushed within a minute")
+
+	// Since the pending transaction was flushed, then every validator should report
+	// that the sender's balance has decreased.
+
+	for i := range httpAddrs {
+		resp, err = http.Get("http://" + httpAddrs[i] + "/debug/accounts/" + c.FixedAddresses[0] + "/balance")
+		require.NoError(t, err)
+		var newBalance balance
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&newBalance))
+		resp.Body.Close()
+		require.Equalf(t, "9900", newBalance.Balance.Amount, "validator at index %d reported wrong sender balance", i) // Was at 10k, subtracted 100.
+	}
+}
+
+type balance struct {
+	Balance struct {
+		Amount string
 	}
 }
