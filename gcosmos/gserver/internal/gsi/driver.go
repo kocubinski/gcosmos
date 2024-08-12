@@ -57,7 +57,6 @@ func NewDriver(
 	log *slog.Logger,
 	cfg DriverConfig,
 ) (*Driver, error) {
-	// Fine if these panic on conversion failure.
 	cc := valCtx.Value(client.ClientContextKey).(*client.Context)
 	serverCtx := valCtx.Value(server.ServerContextKey).(*server.Context)
 
@@ -77,13 +76,13 @@ func NewDriver(
 		done: make(chan struct{}),
 	}
 
-	go d.run(lifeCtx, valCtx, ag, cc.TxConfig, cfg)
+	go d.run(lifeCtx, ag, cc.TxConfig, cfg)
 
 	return d, nil
 }
 
 func (d *Driver) run(
-	lifeCtx, valCtx context.Context,
+	lifeCtx context.Context,
 	ag *genutiltypes.AppGenesis,
 	txConfig client.TxConfig,
 	cfg DriverConfig,
@@ -96,7 +95,7 @@ func (d *Driver) run(
 	// We are currently assuming we always need to handle init chain,
 	// but we should handle non-initial height.
 	if !d.handleInitialization(
-		lifeCtx, valCtx,
+		lifeCtx,
 		ag,
 		cfg.ConsensusAuthority,
 		cfg.AppManager,
@@ -111,7 +110,7 @@ func (d *Driver) run(
 }
 
 func (d *Driver) handleInitialization(
-	lifeCtx, valCtx context.Context,
+	lifeCtx context.Context,
 	ag *genutiltypes.AppGenesis,
 	consensusAuthority string,
 	appManager *appmanager.AppManager[transaction.Tx],
