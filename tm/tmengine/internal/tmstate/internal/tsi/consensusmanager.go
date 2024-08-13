@@ -90,13 +90,20 @@ func NewConsensusManager(
 		log:   log,
 		strat: strat,
 
-		// Unbuffered since the state machine synchronizes on this.
-		EnterRoundRequests: make(chan EnterRoundRequest),
-
-		ConsiderProposedBlocksRequests: make(chan ConsiderProposedBlocksRequest, 1),
-		ChooseProposedBlockRequests:    make(chan ChooseProposedBlockRequest, 1),
-
-		DecidePrecommitRequests: make(chan DecidePrecommitRequest, 1),
+		// Currently, the state machine needs to synchronize
+		// with all of the consensus strategy interactions;
+		// therefore all of these channels are unbuffered.
+		//
+		// The mirror layer can handle the state machine being blocked
+		// from receiving on the mirror-to-state-machine channels,
+		// so the system should overall be safe.
+		// However, we should be able to introduce buffering
+		// into the state machine, such that we handle mirror messages
+		// while waiting on consensus manager responses.
+		EnterRoundRequests:             make(chan EnterRoundRequest),
+		ConsiderProposedBlocksRequests: make(chan ConsiderProposedBlocksRequest),
+		ChooseProposedBlockRequests:    make(chan ChooseProposedBlockRequest),
+		DecidePrecommitRequests:        make(chan DecidePrecommitRequest),
 
 		done: make(chan struct{}),
 	}

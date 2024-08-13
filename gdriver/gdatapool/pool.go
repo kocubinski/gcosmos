@@ -37,6 +37,8 @@ type Pool[T any] struct {
 type enterRoundRequest struct {
 	H uint64
 	R uint32
+
+	Handled chan struct{}
 }
 
 func New[T any](
@@ -98,6 +100,7 @@ func (p *Pool[T]) kernel(
 			}
 			go w.Run(&p.workerWG, p.retrieveRequests)
 		}
+		close(req.Handled)
 	}
 
 	// Now we handle enter round requests until the root context is cancelled.
@@ -132,6 +135,8 @@ func (p *Pool[T]) kernel(
 			roundCancel = nextRoundCancel
 
 			rounds = nextRound
+
+			close(req.Handled)
 		}
 	}
 }
@@ -214,9 +219,11 @@ func (p *Pool[T]) SetAvailable(dataID string, metadata []byte, value T) {
 }
 
 func (p *Pool[T]) EnterRound(ctx context.Context, height uint64, round uint32) {
-	_ = gchan.SendC(
+	req := enterRoundRequest{H: height, R: round, Handled: make(chan struct{})}
+	_, _ = gchan.ReqResp(
 		ctx, p.log,
-		p.enterRoundRequests, enterRoundRequest{H: height, R: round},
+		p.enterRoundRequests, req,
+		req.Handled,
 		"sending enter round request to data pool kernel",
 	)
 }

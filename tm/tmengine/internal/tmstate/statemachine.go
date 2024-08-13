@@ -185,6 +185,12 @@ func (m *StateMachine) handleLiveEvent(
 ) (ok bool) {
 	defer trace.StartRegion(ctx, "handleLiveEvent").End()
 
+	// TODO: we can increase throughput in handling live events
+	// by refactoring the channels interfacing with the consensus manager,
+	// and accumulating buffered values to send to the consensus manager
+	// any time a send is blocked.
+	// But, that will add complexity to the handling here.
+
 	select {
 	case <-ctx.Done():
 		m.log.Info(
@@ -699,10 +705,17 @@ func (m *StateMachine) handleProposalViewUpdate(
 			// If the majority power is at consensus, we submit our prevote immediately.
 			rlc.S = tsi.StepAwaitingPrecommits
 
+			// TODO: this timer is intended to be a temporary workaround
+			// following the change to unbuffered channels for the consensus manager.
+			// We should still attempt the immediate send here,
+			// but instead of panicking or using a timeout,
+			// we should accumulate into a buffer and re-attempt in the handleLiveEvent loop.
+			t := time.NewTimer(100 * time.Millisecond)
+			defer t.Stop()
 			select {
 			case m.cm.ChooseProposedBlockRequests <- req:
 				// Okay.
-			default:
+			case <-t.C:
 				panic("TODO: handle blocked send to ChooseProposedBlockRequests")
 			}
 
@@ -728,10 +741,18 @@ func (m *StateMachine) handleProposalViewUpdate(
 			}
 			req.MarkReasonNewHashes(rlc)
 			req.Reason.MajorityVotingPowerPresent = true
+
+			// TODO: this timer is intended to be a temporary workaround
+			// following the change to unbuffered channels for the consensus manager.
+			// We should still attempt the immediate send here,
+			// but instead of panicking or using a timeout,
+			// we should accumulate into a buffer and re-attempt in the handleLiveEvent loop.
+			t := time.NewTimer(100 * time.Millisecond)
+			defer t.Stop()
 			select {
 			case m.cm.ConsiderProposedBlocksRequests <- req:
 				// Okay.
-			default:
+			case <-t.C:
 				panic("TODO: handle blocked send to ConsiderProposedBlocksRequests")
 			}
 		}
@@ -783,10 +804,18 @@ func (m *StateMachine) handleProposalViewUpdate(
 			Result: rlc.PrevoteHashCh,
 		}
 		req.MarkReasonNewHashes(rlc)
+
+		// TODO: this timer is intended to be a temporary workaround
+		// following the change to unbuffered channels for the consensus manager.
+		// We should still attempt the immediate send here,
+		// but instead of panicking or using a timeout,
+		// we should accumulate into a buffer and re-attempt in the handleLiveEvent loop.
+		t := time.NewTimer(100 * time.Millisecond)
+		defer t.Stop()
 		select {
 		case m.cm.ConsiderProposedBlocksRequests <- req:
 			// Okay.
-		default:
+		case <-t.C:
 			panic("TODO: handle blocked send to ConsiderProposedBlocksRequests")
 		}
 	}

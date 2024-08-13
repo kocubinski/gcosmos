@@ -260,8 +260,6 @@ func TestTx_single(t *testing.T) {
 }
 
 func TestTx_multiple(t *testing.T) {
-	t.Skip("not ready yet")
-
 	if testing.Short() {
 		t.Skip("skipping slow test in short mode")
 	}
@@ -404,7 +402,7 @@ func TestTx_multiple(t *testing.T) {
 	require.True(t, pendingTxFlushed, "pending tx not flushed within a minute")
 
 	// Since the pending transaction was flushed, then every validator should report
-	// that the sender's balance has decreased.
+	// that the sender's balance has decreased and the receiver's balance has increased.
 
 	for i := range httpAddrs {
 		resp, err = http.Get("http://" + httpAddrs[i] + "/debug/accounts/" + c.FixedAddresses[0] + "/balance")
@@ -413,6 +411,12 @@ func TestTx_multiple(t *testing.T) {
 		require.NoError(t, json.NewDecoder(resp.Body).Decode(&newBalance))
 		resp.Body.Close()
 		require.Equalf(t, "9900", newBalance.Balance.Amount, "validator at index %d reported wrong sender balance", i) // Was at 10k, subtracted 100.
+
+		resp, err = http.Get("http://" + httpAddrs[i] + "/debug/accounts/" + c.FixedAddresses[1] + "/balance")
+		require.NoError(t, err)
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&newBalance))
+		resp.Body.Close()
+		require.Equalf(t, "10100", newBalance.Balance.Amount, "validator at index %d reported wrong receiver balance", i) // Was at 10k, added 100.
 	}
 }
 
