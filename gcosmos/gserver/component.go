@@ -370,7 +370,7 @@ func (c *Component) Init(app serverv2.AppI[transaction.Tx], v *viper.Viper, log 
 	genesis := &tmconsensus.ExternalGenesis{
 		ChainID:           "TODO:TEMPORARY_CHAIN_ID", // todo parse this out of sdk genesis file
 		InitialHeight:     1,
-		InitialAppState:   strings.NewReader(""), // No initial app state for echo app.
+		InitialAppState:   strings.NewReader(""), // No initial app state yet.
 		GenesisValidators: nil,                   // TODO: where will the validators come from?
 	}
 

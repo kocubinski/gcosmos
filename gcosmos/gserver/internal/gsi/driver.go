@@ -145,26 +145,6 @@ func (d *Driver) handleInitialization(
 		Hash:    make([]byte, 32),
 		AppHash: make([]byte, 32),
 
-		ConsensusMessages: []transaction.Msg{
-			&consensustypes.MsgUpdateParams{
-				Authority: consensusAuthority,
-				Block: &cometapitypes.BlockParams{
-					// Just setting these to something non-zero for now.
-					MaxBytes: -1,
-					MaxGas:   -1,
-				},
-				Evidence: &cometapitypes.EvidenceParams{
-					// Completely arbitrary non-zero values.
-					MaxAgeNumBlocks: 10,
-					MaxAgeDuration:  10 * time.Minute,
-					MaxBytes:        1024,
-				},
-				Validator: &cometapitypes.ValidatorParams{
-					PubKeyTypes: []string{"ed25519"},
-				},
-			},
-		},
-
 		// Omitted vs comet server code: Time, Hash, AppHash
 	}
 
@@ -172,8 +152,28 @@ func (d *Driver) handleInitialization(
 
 	// Now, init genesis in the SDK-layer application.
 	var codec transaction.Codec[transaction.Tx] = gccodec.NewTxDecoder(txConfig)
+
+	// We need a special context for the InitGenesis call,
+	// as the consensus parameters are expected to be a value on the context there.
+	deliverCtx := context.WithValue(lifeCtx, corecontext.InitInfoKey, &consensustypes.MsgUpdateParams{
+		Authority: consensusAuthority,
+		Block: &cometapitypes.BlockParams{
+			// Just setting these to something non-zero for now.
+			MaxBytes: -1,
+			MaxGas:   -1,
+		},
+		Evidence: &cometapitypes.EvidenceParams{
+			// Completely arbitrary non-zero values.
+			MaxAgeNumBlocks: 10,
+			MaxAgeDuration:  10 * time.Minute,
+			MaxBytes:        1024,
+		},
+		Validator: &cometapitypes.ValidatorParams{
+			PubKeyTypes: []string{"ed25519"},
+		},
+	})
 	blockResp, genesisState, err := appManager.InitGenesis(
-		lifeCtx, blockReq, appState, codec,
+		deliverCtx, blockReq, appState, codec,
 	)
 	if err != nil {
 		d.log.Warn("Failed to run appManager.InitGenesis", "appState", fmt.Sprintf("%q", appState), "err", err)
