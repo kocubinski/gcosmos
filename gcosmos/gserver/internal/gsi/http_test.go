@@ -8,7 +8,10 @@ import (
 	"testing"
 
 	"github.com/rollchains/gordian/gcosmos/gserver/internal/gsi"
+	"github.com/rollchains/gordian/gcrypto"
 	"github.com/rollchains/gordian/internal/gtest"
+	"github.com/rollchains/gordian/tm/tmconsensus"
+	"github.com/rollchains/gordian/tm/tmconsensus/tmconsensustest"
 	"github.com/rollchains/gordian/tm/tmstore/tmmemstore"
 	"github.com/stretchr/testify/require"
 )
@@ -31,8 +34,6 @@ func TestHTTPServer_Blocks_Watermark(t *testing.T) {
 		Libp2pHost:  nil,
 		Libp2pconn:  nil,
 	})
-	// require.NoError(t, err)
-
 	defer h.Wait()
 	defer cancel()
 
@@ -89,4 +90,77 @@ func TestHTTPServer_Blocks_Watermark(t *testing.T) {
 
 		require.Equal(t, exp, m)
 	})
+}
+
+func TestHTTPServer_Validators(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	ln, err := (new(net.ListenConfig)).Listen(ctx, "tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	addr := "http://" + ln.Addr().String() + "/validators"
+
+	ms := tmmemstore.NewMirrorStore()
+	fs := tmmemstore.NewFinalizationStore()
+	reg := new(gcrypto.Registry)
+	gcrypto.RegisterEd25519(reg)
+
+	h := gsi.NewHTTPServer(ctx, gtest.NewLogger(t), gsi.HTTPServerConfig{
+		Listener: ln,
+
+		FinalizationStore: fs,
+		MirrorStore:       ms,
+
+		CryptoRegistry: reg,
+	})
+	defer h.Wait()
+	defer cancel()
+
+	// Voting at 3/0, Committing at 2/0.
+	require.NoError(t, ms.SetNetworkHeightRound(ctx, 3, 0, 2, 0))
+
+	vals := tmconsensustest.DeterministicValidatorsEd25519(3).Vals()
+
+	// Save the finalization at the committing height.
+	// Besides the height, the only other thing we care about for this endpoint
+	// is the validator slice.
+	require.NoError(t, fs.SaveFinalization(
+		ctx,
+		2, 0,
+		"block_hash",
+		vals,
+		"app_state_hash",
+	))
+
+	resp, err := http.Get(addr)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	var output struct {
+		FinalizationHeight uint64
+		Validators         []struct {
+			PubKey []byte
+			Power  uint64
+		}
+	}
+
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&output))
+
+	// Finalization height matches.
+	require.Equal(t, uint64(2), output.FinalizationHeight)
+
+	// Validators match too.
+	outVals := make([]tmconsensus.Validator, len(output.Validators))
+	for i, v := range output.Validators {
+		k, err := reg.Unmarshal(v.PubKey)
+		require.NoErrorf(t, err, "failure marshaling output validator at index %d", i)
+		outVals[i] = tmconsensus.Validator{
+			Power:  v.Power,
+			PubKey: k,
+		}
+	}
+
+	require.True(t, tmconsensus.ValidatorSlicesEqual(vals, outVals))
 }

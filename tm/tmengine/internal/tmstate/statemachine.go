@@ -1239,7 +1239,7 @@ func (m *StateMachine) handleFinalization(
 		ctx,
 		rlc.H, rlc.R,
 		string(resp.BlockHash),
-		rlc.CurVals,
+		rlc.CurVals, // TODO: shouldn't this be rlc.FinalizedValidators?
 		string(resp.AppStateHash),
 	); err != nil {
 		glog.HRE(m.log, rlc.H, rlc.R, err).Error(

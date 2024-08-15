@@ -74,6 +74,7 @@ type Component struct {
 
 	httpLn     net.Listener
 	ms         tmstore.MirrorStore
+	fs         tmstore.FinalizationStore
 	httpServer *gsi.HTTPServer
 }
 
@@ -250,10 +251,15 @@ func (c *Component) Start(ctx context.Context) error {
 
 	if c.httpLn != nil {
 		c.httpServer = gsi.NewHTTPServer(ctx, c.log.With("sys", "http"), gsi.HTTPServerConfig{
-			Listener:    c.httpLn,
-			MirrorStore: c.ms,
-			Libp2pHost:  c.h,
-			Libp2pconn:  c.conn,
+			Listener: c.httpLn,
+
+			MirrorStore:       c.ms,
+			FinalizationStore: c.fs,
+
+			CryptoRegistry: reg,
+
+			Libp2pHost: c.h,
+			Libp2pconn: c.conn,
 
 			AppManager: am,
 			TxCodec:    c.txc,
@@ -366,6 +372,7 @@ func (c *Component) Init(app serverv2.AppI[transaction.Tx], v *viper.Viper, log 
 	vs := tmmemstore.NewValidatorStore(tmconsensustest.SimpleHashScheme{})
 
 	c.ms = ms
+	c.fs = fs
 
 	genesis := &tmconsensus.ExternalGenesis{
 		ChainID:           "TODO:TEMPORARY_CHAIN_ID", // todo parse this out of sdk genesis file
