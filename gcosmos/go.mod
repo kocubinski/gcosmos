@@ -1,6 +1,6 @@
 module github.com/rollchains/gordian/gcosmos
 
-go 1.22.3
+go 1.23
 
 require (
 	github.com/cosmos/gogoproto v1.4.12
