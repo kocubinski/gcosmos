@@ -144,7 +144,7 @@ func TestRootCmd_startWithGordian_multipleValidators(t *testing.T) {
 	}
 }
 
-func TestTx_single(t *testing.T) {
+func TestTx_single_basicSend(t *testing.T) {
 	t.Parallel()
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -155,7 +155,8 @@ func TestTx_single(t *testing.T) {
 		NVals:         1,
 		StakeStrategy: ConstantStakeStrategy(1_000_000_000),
 
-		NFixedAccounts: 2,
+		NFixedAccounts:             2,
+		FixedAccountInitialBalance: 10_000,
 	})
 
 	httpAddr := c.Start(t, ctx, 1).HTTP[0]
@@ -187,8 +188,7 @@ func TestTx_single(t *testing.T) {
 
 		require.GreaterOrEqual(t, maxHeight, uint(3))
 
-		// Initial fixed account balance is hardcoded to 10000.
-		// Ensure we still match that.
+		// Ensure we still match the fixed account initial balance.
 		resp, err := http.Get(baseURL + "/debug/accounts/" + c.FixedAddresses[0] + "/balance")
 		require.NoError(t, err)
 		require.Equal(t, http.StatusOK, resp.StatusCode)
@@ -259,7 +259,140 @@ func TestTx_single(t *testing.T) {
 	}
 }
 
-func TestTx_multiple(t *testing.T) {
+func TestTx_single_delegate(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	const fixedAccountInitialBalance = 75_000_000
+	c := ConfigureChain(t, ctx, ChainConfig{
+		ID:            t.Name(),
+		NVals:         1,
+		StakeStrategy: ConstantStakeStrategy(1_000_000_000),
+
+		NFixedAccounts: 1,
+
+		FixedAccountInitialBalance: fixedAccountInitialBalance,
+	})
+
+	httpAddr := c.Start(t, ctx, 1).HTTP[0]
+
+	if !runCometInsteadOfGordian {
+		baseURL := "http://" + httpAddr
+
+		// Make sure we are beyond the initial height.
+		deadline := time.Now().Add(10 * time.Second)
+		var maxHeight uint
+		for time.Now().Before(deadline) {
+			resp, err := http.Get(baseURL + "/blocks/watermark")
+			require.NoError(t, err)
+			require.Equal(t, http.StatusOK, resp.StatusCode)
+
+			var m map[string]uint
+			require.NoError(t, json.NewDecoder(resp.Body).Decode(&m))
+			resp.Body.Close()
+
+			maxHeight = m["VotingHeight"]
+			if maxHeight < 3 {
+				time.Sleep(100 * time.Millisecond)
+				continue
+			}
+
+			// We are past initial height, so break out of the loop.
+			break
+		}
+
+		require.GreaterOrEqual(t, maxHeight, uint(3))
+
+		// Get the validator set.
+		resp, err := http.Get(baseURL + "/validators")
+		require.NoError(t, err)
+		require.Equal(t, http.StatusOK, resp.StatusCode)
+
+		var output struct {
+			FinalizationHeight uint64
+			Validators         []struct {
+				// Don't care about the pubkey now,
+				// since there is only one validator.
+				Power uint64
+			}
+		}
+
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&output))
+		require.Len(t, output.Validators, 1)
+
+		// We need the starting power, because it should increase once we delegate.
+		startingPow := output.Validators[0].Power
+
+		delegateAmount := fmt.Sprintf("%dstake", fixedAccountInitialBalance)
+
+		// First generate the transaction.
+		res := c.RootCmds[0].Run(
+			// val0 is the name of the first validator key,
+			// which should be available on the first root command.
+			"tx", "staking", "delegate", "val0", delegateAmount, "--from", c.FixedAddresses[0],
+			"--generate-only",
+		)
+		res.NoError(t)
+
+		dir := t.TempDir()
+		msgPath := filepath.Join(dir, "delegate.msg")
+		require.NoError(t, os.WriteFile(msgPath, res.Stdout.Bytes(), 0o600))
+
+		// TODO: get the real account number, don't just make it up.
+		const accountNumber = 100
+
+		// Sign the transaction offline so that we can send it.
+		res = c.RootCmds[0].Run(
+			"tx", "sign", msgPath,
+			"--offline",
+			fmt.Sprintf("--account-number=%d", accountNumber),
+			"--from", c.FixedAddresses[0],
+			"--sequence=30", // Seems like this should be rejected, but it's accepted for some reason?!
+		)
+
+		res.NoError(t)
+		t.Logf("SIGN OUTPUT: %s", res.Stdout.String())
+		t.Logf("SIGN ERROR : %s", res.Stderr.String())
+
+		resp, err = http.Post(baseURL+"/debug/submit_tx", "application/json", &res.Stdout)
+		require.NoError(t, err)
+
+		// Just log out what it responds, for now.
+		// We can't do much with the response until we actually start handling the transaction.
+		require.Equal(t, http.StatusOK, resp.StatusCode)
+		b, err := io.ReadAll(resp.Body)
+		require.NoError(t, err)
+		t.Logf("response body: %s", b)
+
+		// TODO: make some height assertions here instead of just sleeping.
+		time.Sleep(8 * time.Second)
+
+		// First account should have a balance of zero,
+		// now that everything has been delegated.
+		resp, err = http.Get(baseURL + "/debug/accounts/" + c.FixedAddresses[0] + "/balance")
+		require.NoError(t, err)
+		var newBalance balance
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&newBalance))
+		resp.Body.Close()
+		require.Equal(t, "0", newBalance.Balance.Amount) // Entire balance was delegated.
+
+		resp, err = http.Get(baseURL + "/validators")
+		require.NoError(t, err)
+		require.Equal(t, http.StatusOK, resp.StatusCode)
+		clear(output.Validators)
+
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&output))
+		require.Len(t, output.Validators, 1)
+
+		endingPow := output.Validators[0].Power
+		require.Greater(t, endingPow, startingPow)
+		t.Logf("After delegation, power increased from %d to %d", startingPow, endingPow)
+	}
+}
+
+func TestTx_multiple_simpleSend(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping slow test in short mode")
 	}
@@ -294,7 +427,8 @@ func TestTx_multiple(t *testing.T) {
 			return minAmount + "stake"
 		},
 
-		NFixedAccounts: 2,
+		NFixedAccounts:             2,
+		FixedAccountInitialBalance: 10_000,
 	})
 
 	httpAddrs := c.Start(t, ctx, interestingVals).HTTP

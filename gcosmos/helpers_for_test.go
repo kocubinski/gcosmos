@@ -40,6 +40,8 @@ type ChainConfig struct {
 	// How many "fixed accounts" to create.
 	// The fixed accounts are created with mnemonics from the FixedMnemonics array.
 	NFixedAccounts int
+
+	FixedAccountInitialBalance uint64
 }
 
 type StakeStrategy func(idx int) string
@@ -144,7 +146,7 @@ func ConfigureChain(t *testing.T, ctx context.Context, cfg ChainConfig) Chain {
 		// This only needs to happen on the first validator.
 		rootCmds[0].Run(
 			"genesis", "add-genesis-account",
-			keyName, "10000stake",
+			keyName, fmt.Sprintf("%dstake", cfg.FixedAccountInitialBalance),
 		).NoError(t)
 	}
 

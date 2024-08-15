@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"path/filepath"
+	"slices"
 	"time"
 
 	coreappmgr "cosmossdk.io/core/app"
@@ -349,12 +350,13 @@ func (d *Driver) handleFinalizations(
 		// The app manager requires that comet info is set on its context
 		// when dealing with a delivered block.
 		ctx = context.WithValue(ctx, corecontext.CometInfoKey, corecomet.Info{
-			// TODO: surely some of these fields will need to be populated.
+			// Somewhat surprisingly, just the presence of the key
+			// without any values populated, is enough to progress past the panic.
 		})
 
 		// The discarded response value appears to include events
 		// which we are not yet using.
-		_, newState, err := appManager.DeliverBlock(ctx, blockReq)
+		blockResp, newState, err := appManager.DeliverBlock(ctx, blockReq)
 		if err != nil {
 			d.log.Warn(
 				"Failed to deliver block",
@@ -362,6 +364,53 @@ func (d *Driver) handleFinalizations(
 				"err", err,
 			)
 			return
+		}
+
+		// By default, we just use the block's declared next validators block.
+		nextVals := fbReq.Block.NextValidators
+		if len(blockResp.ValidatorUpdates) > 0 {
+			// Unclear if this is strictly necessary,
+			// but just be defensive here anyway.
+			// Since validators are just plain structs with a power and a pubkey,
+			// cloning this slice means updates to this slice
+			// do not affect the original.
+			nextVals = slices.Clone(nextVals)
+
+			// Make a map of pubkeys that have a power change.
+			// TODO: this doesn't respect key type, and it should.
+			var valsToUpdate = make(map[string]uint64)
+			for _, vu := range blockResp.ValidatorUpdates {
+				// TODO: vu.Power is an int64, and we are casting it to uint64 here.
+				// There needs to be a safety check on conversion.
+				valsToUpdate[string(vu.PubKey)] = uint64(vu.Power)
+			}
+
+			// Now iterate over all the validators, applying the new powers.
+			for i := range nextVals {
+				// Is the current validator in the update map?
+				newPow, ok := valsToUpdate[string(nextVals[i].PubKey.PubKeyBytes())]
+				if !ok {
+					continue
+				}
+
+				// Yes, so reassign its power.
+				nextVals[i].Power = newPow
+
+				// Delete this entry.
+				delete(valsToUpdate, string(nextVals[i].PubKey.PubKeyBytes()))
+
+				// Stop iterating if this was the last entry.
+				if len(valsToUpdate) == 0 {
+					break
+				}
+			}
+
+			if len(valsToUpdate) > 0 {
+				panic(fmt.Errorf(
+					"after applying validator updates, had %d update(s) left over",
+					len(valsToUpdate),
+				))
+			}
 		}
 
 		// Rebase the transactions on the new state.
@@ -392,9 +441,7 @@ func (d *Driver) handleFinalizations(
 			Round:     fbReq.Round,
 			BlockHash: fbReq.Block.Hash,
 
-			// TODO: this should take into account the response we discarded from DeliverBlock
-			// and apply it to the current validators.
-			Validators: fbReq.Block.NextValidators,
+			Validators: nextVals,
 
 			AppStateHash: appHash,
 		}
