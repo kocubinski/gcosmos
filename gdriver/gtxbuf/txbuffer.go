@@ -53,16 +53,22 @@ type rebaseResponse[T any] struct {
 //
 // The addTxFunc must return a new copy of the given state,
 // representing the updated state as a result of applying the transaction.
-// An error returned by addTxFunc is assumed to indicate
-// that the transaction is invalid to apply against the given state.
+// During a call to AddTx, errors are returned directly to the caller.
+// During rebase, an error returned by addTxFunc is assumed to be fatal,
+// unless it is wrapped in [TxInvalidError].
 //
-// The deleteTxsFunc must modify the have slice pointer,
-// to exclude any transactions that are also present in the reject slice.
+// The txDeleterFunc argument is used to produce a function
+// passed to [slices.Delete],
+// so that returned function must report true for transactions
+// that must be removed from the buffer.
+// In most cases, that will involve creating a map of reject values,
+// and returning a function closing over the map,
+// reporting presence of the given transaction in that map.
 func New[S, T any](
 	ctx context.Context,
 	log *slog.Logger,
 	addTxFunc func(ctx context.Context, state S, tx T) (S, error),
-	deleteTxsFunc func(ctx context.Context, have *[]T, reject []T),
+	txDeleterFunc func(ctx context.Context, reject []T) func(tx T) bool,
 ) *Buffer[S, T] {
 	b := &Buffer[S, T]{
 		log: log,
@@ -76,7 +82,7 @@ func New[S, T any](
 		done: make(chan struct{}),
 	}
 
-	go b.kernel(ctx, addTxFunc, deleteTxsFunc)
+	go b.kernel(ctx, addTxFunc, txDeleterFunc)
 
 	return b
 }
@@ -84,7 +90,7 @@ func New[S, T any](
 func (b *Buffer[S, T]) kernel(
 	ctx context.Context,
 	addTxFunc func(context.Context, S, T) (S, error),
-	deleteTxsFunc func(context.Context, *[]T, []T),
+	txDeleterFunc func(context.Context, []T) func(T) bool,
 ) {
 	defer close(b.done)
 
@@ -111,7 +117,7 @@ func (b *Buffer[S, T]) kernel(
 	w := workingState[S, T]{
 		BaseState: baseState,
 		addTx:     addTxFunc,
-		deleteTxs: deleteTxsFunc,
+		txDeleter: txDeleterFunc,
 	}
 
 	// Now the actual main loop.
@@ -223,10 +229,11 @@ func (b *Buffer[S, T]) handleRebase(ctx context.Context, w *workingState[S, T], 
 }
 
 // Rebase changes b's root state to newBase,
-// then calls the deleteTxsFunc to remove pending transactions
+// then calls the txDeleterFunc to remove pending transactions
 // that are present in the applied slice.
-// It is important that the deleteTxsFunc uses [TxInvalidError] to wrap errors
-// for transactions that are no longer valid with the new state.
+// It is important that the addTxFunc uses [TxInvalidError] to wrap errors
+// for transactions that are no longer valid with the new state;
+// errors not wrapped in [TxInvalidError] are assumed to be fatal.
 func (b *Buffer[S, T]) Rebase(
 	ctx context.Context, newBase S, applied []T,
 ) (invalidated []T, err error) {

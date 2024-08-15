@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"slices"
 	"testing"
 
 	"github.com/rollchains/gordian/gdriver/gtxbuf"
@@ -18,7 +17,7 @@ func TestBuffer_Buffered(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	buf := gtxbuf.New(ctx, gtest.NewLogger(t), AddCounterTx, DeleteCounterTx)
+	buf := gtxbuf.New(ctx, gtest.NewLogger(t), AddCounterTx, CounterDeleter)
 	defer buf.Wait()
 	defer cancel()
 
@@ -48,7 +47,7 @@ func TestBuffer_Initialize_twicePanics(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	buf := gtxbuf.New(ctx, gtest.NewLogger(t), AddCounterTx, DeleteCounterTx)
+	buf := gtxbuf.New(ctx, gtest.NewLogger(t), AddCounterTx, CounterDeleter)
 	defer buf.Wait()
 	defer cancel()
 
@@ -68,7 +67,7 @@ func TestBuffer_Rebase(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	buf := gtxbuf.New(ctx, gtest.NewLogger(t), AddCounterTx, DeleteCounterTx)
+	buf := gtxbuf.New(ctx, gtest.NewLogger(t), AddCounterTx, CounterDeleter)
 	defer buf.Wait()
 	defer cancel()
 
@@ -117,28 +116,17 @@ func AddCounterTx(_ context.Context, s *CounterState, add int) (*CounterState, e
 	}, nil
 }
 
-func DeleteCounterTx(_ context.Context, have *[]int, reject []int) {
+// CounterDeleter returns a delete function to exclude counter numbers that are in the reject slice.
+func CounterDeleter(_ context.Context, reject []int) func(int) bool {
 	rejectValues := make(map[int]struct{}, len(reject))
 	for _, r := range reject {
 		rejectValues[r] = struct{}{}
 	}
 
-	// Track how many elements were actually deleted.
-	// DeleteFunc zeros out the trimmed elements.
-	// Because it operates on a plain slice value,
-	// it can't actually resize the slice.
-	trim := 0
-	slices.DeleteFunc(*have, func(n int) bool {
+	return func(n int) bool {
 		_, ok := rejectValues[n]
-		if ok {
-			trim++
-		}
 		return ok
-	})
-
-	// Now overwrite have, to exclude the zeroed out elements
-	// that were a result of slices.DeleteFunc.
-	*have = (*have)[:len(*have)-trim]
+	}
 }
 
 var ErrAddZero = errors.New("illegal transaction: add 0")

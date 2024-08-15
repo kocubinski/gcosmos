@@ -3,6 +3,7 @@ package gtxbuf
 import (
 	"context"
 	"errors"
+	"slices"
 )
 
 type workingState[S, T any] struct {
@@ -14,7 +15,7 @@ type workingState[S, T any] struct {
 	Txs []T
 
 	addTx     func(context.Context, S, T) (S, error)
-	deleteTxs func(ctx context.Context, have *[]T, reject []T)
+	txDeleter func(ctx context.Context, reject []T) func(T) bool
 }
 
 func (w *workingState[S, T]) CheckAddTx(
@@ -59,8 +60,8 @@ func (w *workingState[S, T]) Rebase(
 	}
 
 	if len(applied) > 0 {
-		// Avoid calling back into user code if there is nothing to delete.
-		w.deleteTxs(ctx, &w.Txs, applied)
+		// Only call back into user code if there may be something to delete.
+		w.Txs = slices.DeleteFunc(w.Txs, w.txDeleter(ctx, applied))
 	}
 
 	var invalidated []T
@@ -88,7 +89,7 @@ func (w *workingState[S, T]) Rebase(
 	// All transactions were applied or invalidated.
 	// Prune the invalidated transactions, if any exist.
 	if len(invalidated) > 0 {
-		w.deleteTxs(ctx, &w.Txs, invalidated)
+		w.Txs = slices.DeleteFunc(w.Txs, w.txDeleter(ctx, invalidated))
 	}
 
 	return rebaseResponse[T]{Invalidated: invalidated}
