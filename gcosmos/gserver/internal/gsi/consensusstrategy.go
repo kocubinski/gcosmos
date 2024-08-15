@@ -6,12 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"sync"
 	"time"
 
 	"cosmossdk.io/core/transaction"
 	"cosmossdk.io/server/v2/appmanager"
-	"github.com/rollchains/gordian/gcosmos/gmempool"
 	"github.com/rollchains/gordian/gcosmos/gserver/internal/gsbd"
 	"github.com/rollchains/gordian/gcrypto"
 	"github.com/rollchains/gordian/gdriver/gdatapool"
@@ -27,8 +25,7 @@ type ConsensusStrategy struct {
 
 	am appmanager.AppManager[transaction.Tx]
 
-	bufMu *sync.Mutex
-	txBuf *gmempool.TxBuffer
+	txBuf *SDKTxBuf
 
 	signer gcrypto.Signer
 
@@ -47,8 +44,7 @@ func NewConsensusStrategy(
 	d *Driver,
 	am appmanager.AppManager[transaction.Tx],
 	signer gcrypto.Signer,
-	bufMu *sync.Mutex,
-	txBuf *gmempool.TxBuffer,
+	txBuf *SDKTxBuf,
 	blockDataProvider gsbd.Provider,
 	pool *gdatapool.Pool[[]transaction.Tx],
 ) *ConsensusStrategy {
@@ -61,7 +57,6 @@ func NewConsensusStrategy(
 		am:     am,
 		signer: signer,
 
-		bufMu: bufMu,
 		txBuf: txBuf,
 
 		provider: blockDataProvider,
@@ -129,12 +124,7 @@ func (c *ConsensusStrategy) EnterRound(
 		return fmt.Errorf("failed to create block annotation: %w", err)
 	}
 
-	var pendingTxs []transaction.Tx
-	func() {
-		c.bufMu.Lock()
-		defer c.bufMu.Unlock()
-		pendingTxs = c.txBuf.AddedTxs(nil)
-	}()
+	pendingTxs := c.txBuf.Buffered(ctx, nil)
 
 	var blockDataID string
 	var pda []byte

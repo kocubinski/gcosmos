@@ -10,7 +10,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 
 	"cosmossdk.io/core/transaction"
 	cosmoslog "cosmossdk.io/log"
@@ -23,10 +22,10 @@ import (
 	dht "github.com/libp2p/go-libp2p-kad-dht"
 	libp2phost "github.com/libp2p/go-libp2p/core/host"
 	libp2ppeer "github.com/libp2p/go-libp2p/core/peer"
-	"github.com/rollchains/gordian/gcosmos/gmempool"
 	"github.com/rollchains/gordian/gcosmos/gserver/internal/gsbd"
 	"github.com/rollchains/gordian/gcosmos/gserver/internal/gsi"
 	"github.com/rollchains/gordian/gcrypto"
+	"github.com/rollchains/gordian/gdriver/gtxbuf"
 	"github.com/rollchains/gordian/gwatchdog"
 	"github.com/rollchains/gordian/tm/tmcodec/tmjson"
 	"github.com/rollchains/gordian/tm/tmconsensus"
@@ -157,8 +156,11 @@ func (c *Component) Start(ctx context.Context) error {
 
 	am := *(c.app.GetAppManager())
 
-	bufMu := new(sync.Mutex)
-	txBuf := gmempool.NewTxBuffer(c.log.With("d_sys", "tx_buffer"), am)
+	txm := gsi.TxManager{AppManager: am}
+	txBuf := gtxbuf.New(
+		ctx, c.log.With("d_sys", "tx_buffer"),
+		txm.AddTx, txm.TxDeleterFunc,
+	)
 
 	blockDataClient := gsbd.NewLibp2pClient(
 		c.log.With("d_sys", "block_retriever"), h.Libp2pHost(), c.txc,
@@ -188,7 +190,6 @@ func (c *Component) Start(ctx context.Context) error {
 			InitChainRequests:     initChainCh,
 			FinalizeBlockRequests: blockFinCh,
 
-			BufMu:    bufMu,
 			TxBuffer: txBuf,
 
 			DataPool: pool,
@@ -213,7 +214,7 @@ func (c *Component) Start(ctx context.Context) error {
 		d,
 		*(c.app.GetAppManager()),
 		c.signer,
-		bufMu, txBuf,
+		txBuf,
 		gsbd.NewLibp2pProviderHost(
 			c.log.With("s_sys", "block_provider"), h.Libp2pHost(),
 		),
@@ -258,7 +259,6 @@ func (c *Component) Start(ctx context.Context) error {
 			TxCodec:    c.txc,
 			Codec:      c.codec,
 
-			BufMu:    bufMu,
 			TxBuffer: txBuf,
 		})
 	}

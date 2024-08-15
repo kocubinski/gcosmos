@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"path/filepath"
-	"sync"
 	"time"
 
 	coreappmgr "cosmossdk.io/core/app"
@@ -22,7 +21,6 @@ import (
 	"github.com/cosmos/cosmos-sdk/server"
 	genutiltypes "github.com/cosmos/cosmos-sdk/x/genutil/types"
 	"github.com/rollchains/gordian/gcosmos/gccodec"
-	"github.com/rollchains/gordian/gcosmos/gmempool"
 	"github.com/rollchains/gordian/gcosmos/gserver/internal/gsbd"
 	"github.com/rollchains/gordian/gcrypto"
 	"github.com/rollchains/gordian/gdriver/gdatapool"
@@ -42,8 +40,7 @@ type DriverConfig struct {
 	InitChainRequests     <-chan tmdriver.InitChainRequest
 	FinalizeBlockRequests <-chan tmdriver.FinalizeBlockRequest
 
-	BufMu    *sync.Mutex
-	TxBuffer *gmempool.TxBuffer
+	TxBuffer *SDKTxBuf
 
 	DataPool *gdatapool.Pool[[]transaction.Tx]
 }
@@ -51,8 +48,7 @@ type DriverConfig struct {
 type Driver struct {
 	log *slog.Logger
 
-	bufMu *sync.Mutex
-	txBuf *gmempool.TxBuffer
+	txBuf *SDKTxBuf
 
 	pool *gdatapool.Pool[[]transaction.Tx]
 
@@ -77,7 +73,6 @@ func NewDriver(
 	d := &Driver{
 		log: log,
 
-		bufMu: cfg.BufMu,
 		txBuf: cfg.TxBuffer,
 
 		pool: cfg.DataPool,
@@ -181,18 +176,7 @@ func (d *Driver) handleInitialization(
 	}
 
 	// Set the initial state on the transaction buffer.
-	// (Maybe this should happen later during init chain?)
-	func() {
-		d.bufMu.Lock()
-		defer d.bufMu.Unlock()
-		d.txBuf.ResetState(genesisState)
-	}()
-
-	for i, res := range blockResp.TxResults {
-		if res.Error != nil {
-			d.log.Info("Error in blockResp", "i", i, "err", res.Error)
-		}
-	}
+	d.txBuf.Initialize(lifeCtx, genesisState)
 
 	// SetInitialVersion followed by WorkingHash,
 	// and passing that hash as the initial app state hash,
@@ -310,31 +294,6 @@ func (d *Driver) handleFinalizations(
 			continue
 		}
 
-		var unlockOnce sync.Once
-		d.bufMu.Lock()
-		defer unlockOnce.Do(func() {
-			d.bufMu.Unlock()
-		})
-		txs := d.txBuf.AddedTxs(nil)
-		// TODO: ^ the transaction buffer handling is all wrong.
-
-		// Guard the call to pool.Have with a zero check,
-		// because we never call Need or SetAvailable on zero.
-		// We can't push this into the pool,
-		// but we could push it into the retriever, potentially.
-		if gsbd.IsZeroTxDataID(string(fbReq.Block.DataID)) {
-			txs = nil
-		} else {
-			haveTxs, err, have := d.pool.Have(string(fbReq.Block.DataID))
-			if !have {
-				panic(errors.New("TODO: handle block data not ready during finalization"))
-			}
-			if err != nil {
-				panic(fmt.Errorf("TODO: handle error on retrieved block data during finalization: %w", err))
-			}
-			txs = haveTxs
-		}
-
 		cID, err := s.LastCommitID()
 		if err != nil {
 			d.log.Warn(
@@ -359,6 +318,21 @@ func (d *Driver) handleFinalizations(
 				"err", err,
 			)
 			return
+		}
+
+		var txs []transaction.Tx
+
+		// Guard the call to pool.Have with a zero check,
+		// because we never call Need or SetAvailable on zero.
+		if !gsbd.IsZeroTxDataID(string(fbReq.Block.DataID)) {
+			haveTxs, err, have := d.pool.Have(string(fbReq.Block.DataID))
+			if !have {
+				panic(errors.New("TODO: handle block data not ready during finalization"))
+			}
+			if err != nil {
+				panic(fmt.Errorf("TODO: handle error on retrieved block data during finalization: %w", err))
+			}
+			txs = haveTxs
 		}
 
 		blockReq := &coreappmgr.BlockRequest[transaction.Tx]{
@@ -390,12 +364,14 @@ func (d *Driver) handleFinalizations(
 			return
 		}
 
-		// If we successfully delivered the block,
-		// then update the buffer with the new state.
-		d.txBuf.ResetState(newState)
-		unlockOnce.Do(func() {
-			d.bufMu.Unlock()
-		})
+		// Rebase the transactions on the new state.
+		// For now, we just discard the invalidated transactions.
+		// We could log them but it isn't clear what exactly should be logged.
+		// Maybe the transaction hash would suffice?
+		if _, err := d.txBuf.Rebase(ctx, newState, txs); err != nil {
+			d.log.Warn("Failed to rebase transaction buffer", "err", err)
+			return
+		}
 
 		stateChanges, err := newState.GetStateChanges()
 		if err != nil {

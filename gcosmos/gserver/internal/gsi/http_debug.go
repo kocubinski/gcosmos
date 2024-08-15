@@ -6,14 +6,12 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-	"sync"
 
 	"cosmossdk.io/core/transaction"
 	"cosmossdk.io/server/v2/appmanager"
 	banktypes "cosmossdk.io/x/bank/types"
 	"github.com/cosmos/cosmos-sdk/codec"
 	"github.com/gorilla/mux"
-	"github.com/rollchains/gordian/gcosmos/gmempool"
 )
 
 type debugHandler struct {
@@ -24,8 +22,7 @@ type debugHandler struct {
 
 	am appmanager.AppManager[transaction.Tx]
 
-	bufMu *sync.Mutex
-	txBuf *gmempool.TxBuffer
+	txBuf *SDKTxBuf
 }
 
 func setDebugRoutes(log *slog.Logger, cfg HTTPServerConfig, r *mux.Router) {
@@ -35,7 +32,6 @@ func setDebugRoutes(log *slog.Logger, cfg HTTPServerConfig, r *mux.Router) {
 		codec:   cfg.Codec,
 		am:      cfg.AppManager,
 
-		bufMu: cfg.BufMu,
 		txBuf: cfg.TxBuffer,
 	}
 
@@ -86,12 +82,10 @@ func (h debugHandler) HandleSubmitTx(w http.ResponseWriter, req *http.Request) {
 	}
 
 	// If it passed basic validation, then we can attempt to add it to the buffer.
-	func() {
-		h.bufMu.Lock()
-		defer h.bufMu.Unlock()
-		err = h.txBuf.AddTx(ctx, tx)
-	}()
-	if err != nil {
+	if err := h.txBuf.AddTx(ctx, tx); err != nil {
+		// We could potentially check if it is a TxInvalidError here
+		// and adjust the status code,
+		// but since this is a debug endpoint, we'll ignore the type.
 		http.Error(w, "failed to add transaction to buffer: "+err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -147,18 +141,11 @@ func (h debugHandler) HandleSimulateTx(w http.ResponseWriter, req *http.Request)
 func (h debugHandler) HandlePendingTxs(w http.ResponseWriter, req *http.Request) {
 	defer req.Body.Close()
 
-	var txs []transaction.Tx
-	func() {
-		h.bufMu.Lock()
-		defer h.bufMu.Unlock()
-
-		txs = h.txBuf.AddedTxs(nil)
-	}()
+	txs := h.txBuf.Buffered(req.Context(), nil)
 
 	encodedTxs := make([]json.RawMessage, len(txs))
 	for i, tx := range txs {
 		b, err := json.Marshal(tx)
-		// b, err := h.txCodec.M(tx)
 		if err != nil {
 			http.Error(w, "failed to encode transaction: "+err.Error(), http.StatusInternalServerError)
 			return
