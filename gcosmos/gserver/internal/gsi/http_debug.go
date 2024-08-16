@@ -77,7 +77,7 @@ func (h debugHandler) HandleSubmitTx(w http.ResponseWriter, req *http.Request) {
 
 	if res.Error != nil {
 		// This is fine from the server's perspective, no need to log.
-		http.Error(w, "transaction validation failed: "+err.Error(), http.StatusBadRequest)
+		http.Error(w, "transaction validation failed: "+res.Error.Error(), http.StatusBadRequest)
 		return
 	}
 

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"path/filepath"
 	"slices"
 	"time"
@@ -406,10 +407,31 @@ func (d *Driver) handleFinalizations(
 			}
 
 			if len(valsToUpdate) > 0 {
-				panic(fmt.Errorf(
-					"after applying validator updates, had %d update(s) left over",
-					len(valsToUpdate),
-				))
+				// We have new validators!
+				// They just go at the end for now,
+				// which is probably not what we want long term.
+				//
+				// At least sort them by pubkey first so if multiple validators are added,
+				// we ensure all participating validators agree on the order of the new ones.
+				for _, pk := range slices.Sorted(maps.Keys(valsToUpdate)) {
+					// Another dangerous int64->uint64 conversion.
+					pow := uint64(valsToUpdate[pk])
+
+					// Another poor assumption that we always use ed25519.
+					pubKey, err := gcrypto.NewEd25519PubKey([]byte(pk))
+					if err != nil {
+						d.log.Warn(
+							"Skipping new validator with invalid public key",
+							"pub_key_bytes", glog.Hex(pk),
+							"power", pow,
+						)
+						continue
+					}
+
+					nextVals = append(nextVals, tmconsensus.Validator{
+						PubKey: pubKey, Power: pow,
+					})
+				}
 			}
 		}
 

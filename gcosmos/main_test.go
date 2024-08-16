@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -360,7 +361,6 @@ func TestTx_single_delegate(t *testing.T) {
 		require.NoError(t, err)
 
 		// Just log out what it responds, for now.
-		// We can't do much with the response until we actually start handling the transaction.
 		require.Equal(t, http.StatusOK, resp.StatusCode)
 		b, err := io.ReadAll(resp.Body)
 		require.NoError(t, err)
@@ -389,6 +389,201 @@ func TestTx_single_delegate(t *testing.T) {
 		endingPow := output.Validators[0].Power
 		require.Greater(t, endingPow, startingPow)
 		t.Logf("After delegation, power increased from %d to %d", startingPow, endingPow)
+	}
+}
+
+func TestTx_single_addNewValidator(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	const fixedAccountInitialBalance = 2_000_000_000
+	c := ConfigureChain(t, ctx, ChainConfig{
+		ID:    t.Name(),
+		NVals: 1,
+		// Arbitrarily larger stake for first validator,
+		// so we can continue consensus without the second validator really contributing
+		// while remaining offline.
+		StakeStrategy: ConstantStakeStrategy(12 * fixedAccountInitialBalance),
+
+		NFixedAccounts: 1,
+
+		FixedAccountInitialBalance: fixedAccountInitialBalance,
+	})
+
+	httpAddr := c.Start(t, ctx, 1).HTTP[0]
+
+	if !runCometInsteadOfGordian {
+		baseURL := "http://" + httpAddr
+
+		// Make sure we are beyond the initial height.
+		deadline := time.Now().Add(10 * time.Second)
+		var maxHeight uint
+		for time.Now().Before(deadline) {
+			resp, err := http.Get(baseURL + "/blocks/watermark")
+			require.NoError(t, err)
+			require.Equal(t, http.StatusOK, resp.StatusCode)
+
+			var m map[string]uint
+			require.NoError(t, json.NewDecoder(resp.Body).Decode(&m))
+			resp.Body.Close()
+
+			maxHeight = m["VotingHeight"]
+			if maxHeight < 3 {
+				time.Sleep(100 * time.Millisecond)
+				continue
+			}
+
+			// We are past initial height, so break out of the loop.
+			break
+		}
+
+		require.GreaterOrEqual(t, maxHeight, uint(3))
+
+		// Now the fixed address wants to become a validator.
+		// Use its mnemonic to create a new environment.
+		newValRootCmd := NewRootCmd(t, gtest.NewLogger(t).With("owner", "newVal"))
+		newValRootCmd.RunWithInput(
+			strings.NewReader(FixedMnemonics[0]),
+			"init", "newVal", "--recover",
+		).NoError(t)
+
+		// And we need to add the actual key,
+		// which also involves storing the mnemonic on disk.
+		scratchDir := t.TempDir()
+		mPath := filepath.Join(scratchDir, "fixed_mnemonic.txt")
+		require.NoError(t, os.WriteFile(mPath, []byte(FixedMnemonics[0]), 0o600))
+		res := newValRootCmd.Run(
+			"keys", "add", "newVal",
+			"--recover", "--source", mPath,
+		)
+		res.NoError(t)
+
+		// First we have to generate the JSON for creating a validator.
+		// We'll have to use a map to serialize this,
+		// as the struct type in x/staking is not exported.
+
+		createJson := map[string]any{
+			"amount":  fmt.Sprintf("%dstake", fixedAccountInitialBalance/2),
+			"moniker": "newVal",
+
+			"min-self-delegation": "1000", // Unsure how this will play out in undelegating.
+
+			// Values here copied from output of create-validator --help.
+			// Shouldn't really matter for this test.
+			"commission-rate":            "0.1",
+			"commission-max-rate":        "0.2",
+			"commission-max-change-rate": "0.01",
+		}
+
+		// And we have to add the pubkey field,
+		// which we have to retrieve from keys show.
+		res = newValRootCmd.Run("gordian", "val-pub-key")
+		res.NoError(t)
+
+		var pubKeyObj map[string]string
+		require.NoError(t, json.Unmarshal([]byte(res.Stdout.Bytes()), &pubKeyObj))
+
+		createJson["pubkey"] = pubKeyObj
+
+		jCreate, err := json.Marshal(createJson)
+		require.NoError(t, err)
+
+		// staking create-validator reads the JSON from disk.
+		createPath := filepath.Join(scratchDir, "create.json")
+		require.NoError(t, os.WriteFile(createPath, jCreate, 0o600))
+
+		res = newValRootCmd.Run(
+			"tx", "staking",
+			"create-validator", createPath,
+			"--from", "newVal",
+			"--generate-only",
+		)
+		res.NoError(t)
+
+		stakePath := filepath.Join(scratchDir, "stake.msg")
+		require.NoError(t, os.WriteFile(stakePath, res.Stdout.Bytes(), 0o600))
+
+		// TODO: get the real account number, don't just make it up.
+		const accountNumber = 100
+
+		// Sign the transaction offline so that we can send it.
+		res = newValRootCmd.Run(
+			"tx", "sign", stakePath,
+			"--offline",
+			fmt.Sprintf("--account-number=%d", accountNumber),
+			"--from", "newVal",
+			"--sequence=30", // Seems like this should be rejected, but it's accepted for some reason?!
+		)
+		res.NoError(t)
+
+		resp, err := http.Post(baseURL+"/debug/submit_tx", "application/json", &res.Stdout)
+		require.NoError(t, err)
+
+		require.Equal(t, http.StatusOK, resp.StatusCode)
+		b, err := io.ReadAll(resp.Body)
+		require.NoError(t, err)
+		t.Logf("Response body from submitting tx: %s", b)
+		resp.Body.Close()
+
+		// Wait for create-validator transaction to flush.
+		deadline = time.Now().Add(time.Minute)
+		pendingTxFlushed := false
+		for time.Now().Before(deadline) {
+			resp, err := http.Get(baseURL + "/debug/pending_txs")
+			require.NoError(t, err)
+			if resp.StatusCode == http.StatusInternalServerError {
+				// There is an issue with printing pending transactions containing a create validator message.
+
+				// Avoid printing body when it's still erroring.
+				time.Sleep(2 * time.Second)
+				continue
+			}
+
+			b, err := io.ReadAll(resp.Body)
+			require.NoError(t, err)
+			resp.Body.Close()
+
+			if have := string(b); have == "[]" || have == "[]\n" {
+				pendingTxFlushed = true
+				break
+			}
+
+			t.Logf("pending tx body: %s", string(b))
+			time.Sleep(time.Second)
+		}
+
+		require.True(t, pendingTxFlushed, "pending tx not flushed within a minute")
+
+		// Now, we should soon see two validators.
+		deadline = time.Now().Add(time.Minute)
+		sawTwoVals := false
+		for time.Now().Before(deadline) {
+			resp, err := http.Get(baseURL + "/validators")
+			require.NoError(t, err)
+			require.Equal(t, http.StatusOK, resp.StatusCode)
+
+			var valOutput struct {
+				Validators []struct {
+					// Don't care about any validator fields.
+					// Just need two entries.
+				}
+			}
+
+			require.NoError(t, json.NewDecoder(resp.Body).Decode(&valOutput))
+			resp.Body.Close()
+			if len(valOutput.Validators) == 1 {
+				time.Sleep(time.Second)
+				continue
+			}
+
+			require.Len(t, valOutput.Validators, 2)
+			sawTwoVals = true
+			break
+		}
+
+		require.True(t, sawTwoVals, "did not see two validators listed within a minute of submitting create-validator tx")
 	}
 }
 
