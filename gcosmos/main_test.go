@@ -392,7 +392,7 @@ func TestTx_single_delegate(t *testing.T) {
 	}
 }
 
-func TestTx_single_addNewValidator(t *testing.T) {
+func TestTx_single_addAndRemoveNewValidator(t *testing.T) {
 	t.Parallel()
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -464,8 +464,9 @@ func TestTx_single_addNewValidator(t *testing.T) {
 		// We'll have to use a map to serialize this,
 		// as the struct type in x/staking is not exported.
 
+		delegateAmount := fmt.Sprintf("%dstake", fixedAccountInitialBalance/2)
 		createJson := map[string]any{
-			"amount":  fmt.Sprintf("%dstake", fixedAccountInitialBalance/2),
+			"amount":  delegateAmount,
 			"moniker": "newVal",
 
 			"min-self-delegation": "1000", // Unsure how this will play out in undelegating.
@@ -584,6 +585,116 @@ func TestTx_single_addNewValidator(t *testing.T) {
 		}
 
 		require.True(t, sawTwoVals, "did not see two validators listed within a minute of submitting create-validator tx")
+
+		t.Run("undelegating from the new validator", func(t *testing.T) {
+			// If we just restake everything away from the new validator --
+			// which we should be allowed to do immediately --
+			// then the new validator should be below the threshold,
+			// and should be removed from the list.
+
+			res := newValRootCmd.Run(
+				"keys", "show", "newVal",
+				"--bech", "val",
+				"--address",
+			)
+			res.NoError(t)
+			newValOperAddr := strings.TrimSpace(res.Stdout.String())
+
+			res = c.RootCmds[0].Run(
+				"keys", "show", "val0",
+				"--bech", "val",
+				"--address",
+			)
+			res.NoError(t)
+			origValOperAddr := strings.TrimSpace(res.Stdout.String())
+
+			res = newValRootCmd.Run(
+				"tx", "staking", "redelegate",
+				newValOperAddr, origValOperAddr, // From new, to original.
+				delegateAmount, // The same amount we fully delegated to the new validator.
+				"--from", "newVal",
+				"--generate-only",
+			)
+			res.NoError(t)
+			t.Logf("redelegate stdout: %s", res.Stdout.String())
+			t.Logf("redelegate stderr: %s", res.Stderr.String())
+
+			// Now write the redelegate message to disk and sign it.
+			redelegatePath := filepath.Join(scratchDir, "redelegate.msg")
+			require.NoError(t, os.WriteFile(redelegatePath, res.Stdout.Bytes(), 0o600))
+			res = newValRootCmd.Run(
+				"tx", "sign", redelegatePath,
+				"--offline",
+				fmt.Sprintf("--account-number=%d", accountNumber),
+				"--from", "newVal",
+				"--sequence=31", // Go one past the previous wrong value.
+			)
+			res.NoError(t)
+
+			// Submit the transaction.
+			resp, err := http.Post(baseURL+"/debug/submit_tx", "application/json", &res.Stdout)
+			require.NoError(t, err)
+
+			require.Equal(t, http.StatusOK, resp.StatusCode)
+			b, err := io.ReadAll(resp.Body)
+			require.NoError(t, err)
+			t.Logf("Response body from submitting tx: %s", b)
+			resp.Body.Close()
+
+			// Wait for create-validator transaction to flush.
+			deadline = time.Now().Add(time.Minute)
+			pendingTxFlushed := false
+			for time.Now().Before(deadline) {
+				resp, err := http.Get(baseURL + "/debug/pending_txs")
+				require.NoError(t, err)
+
+				// We don't have the serializing issue with the redelegate message,
+				// like we did with create-validator.
+				require.Equal(t, http.StatusOK, resp.StatusCode)
+
+				b, err := io.ReadAll(resp.Body)
+				require.NoError(t, err)
+				resp.Body.Close()
+
+				if have := string(b); have == "[]" || have == "[]\n" {
+					pendingTxFlushed = true
+					break
+				}
+
+				t.Logf("pending tx body: %s", string(b))
+				time.Sleep(time.Second)
+			}
+
+			require.True(t, pendingTxFlushed, "pending tx not flushed within a minute")
+
+			// Now, we should soon see just the one validator again.
+			deadline = time.Now().Add(time.Minute)
+			sawOneVal := false
+			for time.Now().Before(deadline) {
+				resp, err := http.Get(baseURL + "/validators")
+				require.NoError(t, err)
+				require.Equal(t, http.StatusOK, resp.StatusCode)
+
+				var valOutput struct {
+					Validators []struct {
+						// Don't care about any validator fields.
+						// Just need two entries.
+					}
+				}
+
+				require.NoError(t, json.NewDecoder(resp.Body).Decode(&valOutput))
+				resp.Body.Close()
+				if len(valOutput.Validators) != 1 {
+					time.Sleep(time.Second)
+					continue
+				}
+
+				sawOneVal = true
+				break
+			}
+
+			require.True(t, sawOneVal, "should have been back down to one validator")
+		})
 	}
 }
 

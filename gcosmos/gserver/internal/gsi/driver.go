@@ -380,10 +380,18 @@ func (d *Driver) handleFinalizations(
 			// Make a map of pubkeys that have a power change.
 			// TODO: this doesn't respect key type, and it should.
 			var valsToUpdate = make(map[string]uint64)
+			hasDelete := false
 			for _, vu := range blockResp.ValidatorUpdates {
 				// TODO: vu.Power is an int64, and we are casting it to uint64 here.
 				// There needs to be a safety check on conversion.
 				valsToUpdate[string(vu.PubKey)] = uint64(vu.Power)
+
+				if vu.Power == 0 {
+					// Track whether we need to delete any.
+					// We can avoid an extra iteration or two over the new validators
+					// if we know nobody's power has dropped to zero.
+					hasDelete = true
+				}
 			}
 
 			// Now iterate over all the validators, applying the new powers.
@@ -404,6 +412,15 @@ func (d *Driver) handleFinalizations(
 				if len(valsToUpdate) == 0 {
 					break
 				}
+			}
+
+			// If there were any zero powers, delete them first.
+			// That might help avoid growing the slice if we delete some validators
+			// before appending new ones.
+			if hasDelete {
+				nextVals = slices.DeleteFunc(nextVals, func(v tmconsensus.Validator) bool {
+					return v.Power == 0
+				})
 			}
 
 			if len(valsToUpdate) > 0 {
