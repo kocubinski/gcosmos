@@ -1,7 +1,7 @@
-From 69661d6775058abe98fb9ad5badba2253bed99a2 Mon Sep 17 00:00:00 2001
+From d97852f9b7bcb2f14dcab2fa6074edecb3443bb0 Mon Sep 17 00:00:00 2001
 From: Mark Rushakoff <mark@strange.love>
 Date: Wed, 17 Jul 2024 10:49:18 -0400
-Subject: [PATCH 4/6] fix: respect command context in server start
+Subject: [PATCH 4/7] fix: respect command context in server start
 
 ---
  server/v2/commands.go | 10 +++++++---
@@ -25,9 +25,9 @@ index 50a073cd9c..bd2e73ff11 100644
 +				case <-ctx.Done():
 +					cancelFn()
 +				}
-
+ 
  				if err := server.Stop(ctx); err != nil {
  					cmd.PrintErrln("failed to stop servers:", err)
---
+-- 
 2.44.0
 

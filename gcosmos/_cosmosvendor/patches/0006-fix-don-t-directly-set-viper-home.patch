@@ -1,7 +1,7 @@
-From 1a7fb18810c8fb9bf5ed9370c6067581d9dcff76 Mon Sep 17 00:00:00 2001
-From: Mark Rushakoff <mark@strange.love>
+From aea491e62b6961549710e7453615254d584eac94 Mon Sep 17 00:00:00 2001
+From: Mark Rushakoff <mark.rushakoff@gmail.com>
 Date: Fri, 16 Aug 2024 10:01:38 -0400
-Subject: [PATCH 6/6] fix: don't directly set viper home
+Subject: [PATCH 6/7] fix: don't directly set viper home
 
 Setting these prevents the --home flag from being respected. The
 inability to set --home in test prevents multiple simapp instances from
@@ -28,9 +28,9 @@ index 5765572d68..8616828832 100644
  	// overwrite the FlagInvCheckPeriod
  	viper.Set(server.FlagInvCheckPeriod, 1)
 -	viper.Set(serverv2.FlagHome, simapp.DefaultNodeHome)
-
+ 
  	var simApp *simapp.SimApp[T]
  	if height != -1 {
---
+-- 
 2.44.0
 

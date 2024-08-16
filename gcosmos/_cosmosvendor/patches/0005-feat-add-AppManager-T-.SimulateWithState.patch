@@ -1,7 +1,7 @@
-From 3791bb922de2c338b31ee3116c0ac273f93a79c6 Mon Sep 17 00:00:00 2001
+From 300f8904ed32f3d3d5bd55d1260f033f33338928 Mon Sep 17 00:00:00 2001
 From: Mark Rushakoff <mark@strange.love>
 Date: Mon, 29 Jul 2024 11:57:21 -0400
-Subject: [PATCH 5/6] feat: add (AppManager[T]).SimulateWithState
+Subject: [PATCH 5/7] feat: add (AppManager[T]).SimulateWithState
 
 I think we can use simulation to determine whether an incoming
 transaction is acceptable, but if we had any prior transactions, they
@@ -28,6 +28,6 @@ index 284b1dcb09..2a472830d3 100644
 +) (appmanager.TxResult, corestore.WriterMap) {
 +	return a.stf.Simulate(ctx, state, a.config.SimulationGasLimit, tx)
 +}
---
+-- 
 2.44.0
 

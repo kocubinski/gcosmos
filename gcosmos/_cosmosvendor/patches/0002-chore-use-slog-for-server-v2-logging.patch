@@ -1,7 +1,7 @@
-From dead969791754d8bccbeb03224d4bab745db568d Mon Sep 17 00:00:00 2001
+From c5569e828d83a1eeaac1c44749f2762c06f9388a Mon Sep 17 00:00:00 2001
 From: Mark Rushakoff <mark@strange.love>
 Date: Tue, 9 Jul 2024 14:12:55 -0400
-Subject: [PATCH 2/6] chore: use slog for server v2 logging
+Subject: [PATCH 2/7] chore: use slog for server v2 logging
 
 This just plugs in easier with gcosmos tests, for now at least.
 ---
@@ -25,7 +25,7 @@ index a0b2b05ae9..50a073cd9c 100644
 @@ -169,10 +170,10 @@ func configHandle[T transaction.Tx](s *Server[T], cmd *cobra.Command) error {
  		return err
  	}
-
+ 
 -	log, err := NewLogger(v, cmd.OutOrStdout())
 -	if err != nil {
 -		return err
@@ -34,7 +34,7 @@ index a0b2b05ae9..50a073cd9c 100644
 +	log := NewSlogLogger(
 +		slog.New(slog.NewTextHandler(os.Stderr, nil)),
 +	)
-
+ 
  	return SetCmdServerContext(cmd, v, log)
  }
 diff --git a/server/v2/slog.go b/server/v2/slog.go
@@ -84,6 +84,6 @@ index 0000000000..997dd02909
 +func (l SlogLogger) Impl() any {
 +	return l.log
 +}
---
+-- 
 2.44.0
 
