@@ -18,3 +18,4 @@
 # and the pattern in the directory if the directory was previously ignored.
 !/patches
 !/patches/*.patch
+!/patches/.gitattributes

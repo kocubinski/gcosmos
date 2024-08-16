@@ -1,7 +1,7 @@
-From 7861a111b1ebe43e4af1aaf8ed85acf7fa086834 Mon Sep 17 00:00:00 2001
+From 3791bb922de2c338b31ee3116c0ac273f93a79c6 Mon Sep 17 00:00:00 2001
 From: Mark Rushakoff <mark@strange.love>
 Date: Mon, 29 Jul 2024 11:57:21 -0400
-Subject: [PATCH 6/6] feat: add (AppManager[T]).SimulateWithState
+Subject: [PATCH 5/6] feat: add (AppManager[T]).SimulateWithState
 
 I think we can use simulation to determine whether an incoming
 transaction is acceptable, but if we had any prior transactions, they
@@ -12,10 +12,10 @@ SimulateWithState method already, so we add it here.
  1 file changed, 9 insertions(+)
 
 diff --git a/server/v2/appmanager/appmanager.go b/server/v2/appmanager/appmanager.go
-index cef0fc57cc..e1df20d91f 100644
+index 284b1dcb09..2a472830d3 100644
 --- a/server/v2/appmanager/appmanager.go
 +++ b/server/v2/appmanager/appmanager.go
-@@ -171,3 +171,12 @@ func (a AppManager[T]) QueryWithState(
+@@ -186,3 +186,12 @@ func (a AppManager[T]) QueryWithState(
  ) (transaction.Msg, error) {
  	return a.stf.Query(ctx, state, a.config.QueryGasLimit, request)
  }
@@ -28,6 +28,6 @@ index cef0fc57cc..e1df20d91f 100644
 +) (appmanager.TxResult, corestore.WriterMap) {
 +	return a.stf.Simulate(ctx, state, a.config.SimulationGasLimit, tx)
 +}
--- 
+--
 2.44.0
 
