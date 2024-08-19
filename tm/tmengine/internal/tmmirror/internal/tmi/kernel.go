@@ -11,6 +11,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/rollchains/gordian/gassert"
 	"github.com/rollchains/gordian/gcrypto"
 	"github.com/rollchains/gordian/gwatchdog"
 	"github.com/rollchains/gordian/internal/glog"
@@ -53,6 +54,8 @@ type Kernel struct {
 	addPrevoteRequests   <-chan AddPrevoteRequest
 	addPrecommitRequests <-chan AddPrecommitRequest
 
+	assertEnv gassert.Env
+
 	done chan struct{}
 }
 
@@ -94,6 +97,8 @@ type KernelConfig struct {
 	MetricsCollector *tmemetrics.Collector
 
 	Watchdog *gwatchdog.Watchdog
+
+	AssertEnv gassert.Env
 }
 
 func NewKernel(ctx context.Context, log *slog.Logger, cfg KernelConfig) (*Kernel, error) {

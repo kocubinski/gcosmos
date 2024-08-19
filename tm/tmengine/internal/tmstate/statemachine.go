@@ -9,6 +9,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/rollchains/gordian/gassert"
 	"github.com/rollchains/gordian/gcrypto"
 	"github.com/rollchains/gordian/gwatchdog"
 	"github.com/rollchains/gordian/internal/gchan"
@@ -48,6 +49,8 @@ type StateMachine struct {
 	finalizeBlockRequestCh chan<- tmdriver.FinalizeBlockRequest
 	blockDataArrivalCh     <-chan tmelink.BlockDataArrival
 
+	assertEnv gassert.Env
+
 	kernelDone chan struct{}
 }
 
@@ -76,6 +79,8 @@ type StateMachineConfig struct {
 	MetricsCollector *tmemetrics.Collector
 
 	Watchdog *gwatchdog.Watchdog
+
+	AssertEnv gassert.Env
 }
 
 func NewStateMachine(ctx context.Context, log *slog.Logger, cfg StateMachineConfig) (*StateMachine, error) {
@@ -99,6 +104,8 @@ func NewStateMachine(ctx context.Context, log *slog.Logger, cfg StateMachineConf
 		mc: cfg.MetricsCollector,
 
 		wd: cfg.Watchdog,
+
+		assertEnv: cfg.AssertEnv,
 
 		viewInCh:               cfg.RoundViewInCh,
 		roundEntranceOutCh:     cfg.RoundEntranceOutCh,

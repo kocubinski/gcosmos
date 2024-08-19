@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"runtime/trace"
 
+	"github.com/rollchains/gordian/gassert"
 	"github.com/rollchains/gordian/gcrypto"
 	"github.com/rollchains/gordian/gwatchdog"
 	"github.com/rollchains/gordian/internal/gchan"
@@ -38,6 +39,8 @@ type Mirror struct {
 	addPBRequests        chan<- tmconsensus.ProposedBlock
 	addPrevoteRequests   chan<- tmi.AddPrevoteRequest
 	addPrecommitRequests chan<- tmi.AddPrecommitRequest
+
+	assertEnv gassert.Env
 }
 
 // MirrorConfig holds the configuration required to start a [Mirror].
@@ -65,6 +68,8 @@ type MirrorConfig struct {
 	MetricsCollector *tmemetrics.Collector
 
 	Watchdog *gwatchdog.Watchdog
+
+	AssertEnv gassert.Env
 }
 
 // toKernelConfig copies the fields from c that are duplicated in the kernel config.
@@ -92,6 +97,8 @@ func (c MirrorConfig) toKernelConfig() tmi.KernelConfig {
 		MetricsCollector: c.MetricsCollector,
 
 		Watchdog: c.Watchdog,
+
+		AssertEnv: c.AssertEnv,
 	}
 }
 

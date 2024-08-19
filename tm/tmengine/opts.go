@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/rollchains/gordian/gassert"
 	"github.com/rollchains/gordian/gcrypto"
 	"github.com/rollchains/gordian/gwatchdog"
 	"github.com/rollchains/gordian/tm/tmconsensus"
@@ -213,6 +214,17 @@ func WithMetricsChannel(ch chan<- Metrics) Opt {
 			return errors.New("WithMetricsChannel: ch must be unbuffered")
 		}
 		e.metricsCh = ch
+		return nil
+	}
+}
+
+// WithAssertEnv sets the assert environment on the engine ands its subcomponents.
+// It is safe to exclude this option in builds that do not have the "debug" build tag.
+// However, in debug builds, omitting this option will cause a runtime panic.
+func WithAssertEnv(assertEnv gassert.Env) Opt {
+	return func(e *Engine, smc *tmstate.StateMachineConfig) error {
+		e.mCfg.AssertEnv = assertEnv
+		smc.AssertEnv = assertEnv
 		return nil
 	}
 }
