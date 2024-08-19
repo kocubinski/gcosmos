@@ -2942,3 +2942,100 @@ func TestMirror_metrics(t *testing.T) {
 	require.Equal(t, uint64(1), ms.MirrorCommittingHeight)
 	require.Zero(t, ms.MirrorCommittingRound)
 }
+
+func TestMirror_stateMachineCatchup_lateInitialization(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// We are validator 0 in this set of 4.
+	// So, if our state machine takes a long time to initialize,
+	// and the rest of the network moves ahead a few blocks,
+	// then the first messages we send to the state machine should be replayed blocks.
+	mfx := tmmirrortest.NewFixture(ctx, t, 4)
+
+	m := mfx.NewMirror()
+	defer m.Wait()
+	defer cancel()
+
+	keyHash, _ := mfx.Fx.ValidatorHashes()
+
+	// Have validator 1 propose, and vals 1-3 precommit for, several blocks in a row.
+	const receivedBlocks = 6
+	var pbs []tmconsensus.ProposedBlock
+	for i := uint64(1); i < receivedBlocks; i++ {
+		pb := mfx.Fx.NextProposedBlock([]byte(fmt.Sprintf("app_data_%d", i)), 1)
+		mfx.Fx.SignProposal(ctx, &pb, 1)
+		require.Equal(t, tmconsensus.HandleProposedBlockAccepted, m.HandleProposedBlock(ctx, pb))
+
+		// Build the precommit proof.
+		pbHash := string(pb.Block.Hash)
+		voteMap := map[string][]int{
+			pbHash: {1, 2, 3},
+		}
+		precommitProof := tmconsensus.PrecommitSparseProof{
+			Height:     i,
+			Round:      0,
+			PubKeyHash: keyHash,
+			Proofs:     mfx.Fx.SparsePrecommitProofMap(ctx, i, 0, voteMap),
+		}
+		require.Equal(t, tmconsensus.HandleVoteProofsAccepted, m.HandlePrecommitProofs(ctx, precommitProof))
+
+		precommitProofsMap := mfx.Fx.PrecommitProofMap(ctx, i, 0, voteMap)
+		mfx.Fx.CommitBlock(pb.Block, []byte(fmt.Sprintf("app_state_height_%d", i)), 0, precommitProofsMap)
+		pbs = append(pbs, pb)
+	}
+
+	// Now the state machine finishes initializing.
+	// It gets a sequence of committed blocks first.
+	for i := uint64(1); i <= receivedBlocks-2; i++ {
+		actionCh := make(chan tmeil.StateMachineRoundAction, 3)
+		re := tmeil.StateMachineRoundEntrance{
+			H:        i,
+			R:        0,
+			PubKey:   mfx.Fx.Vals()[0].PubKey,
+			Actions:  actionCh,
+			Response: make(chan tmeil.RoundEntranceResponse, 1),
+		}
+		gtest.SendSoon(t, mfx.StateMachineRoundEntranceIn, re)
+
+		rer := gtest.ReceiveSoon(t, re.Response)
+		require.True(t, rer.IsCB()) // It's a committed block, not a round update.
+	}
+
+	// Now at the committing height, it gets a VRV,
+	// because we could receive further commit information for the block.
+	actionCh := make(chan tmeil.StateMachineRoundAction, 3)
+	re := tmeil.StateMachineRoundEntrance{
+		H:        receivedBlocks - 1,
+		R:        0,
+		PubKey:   mfx.Fx.Vals()[0].PubKey,
+		Actions:  actionCh,
+		Response: make(chan tmeil.RoundEntranceResponse, 1),
+	}
+	gtest.SendSoon(t, mfx.StateMachineRoundEntranceIn, re)
+
+	rer := gtest.ReceiveSoon(t, re.Response)
+	require.False(t, rer.IsCB())
+	require.True(t, rer.IsVRV())
+
+	committingHash := string(pbs[receivedBlocks-2].Block.Hash) // -2 due to off by one on indexing.
+	require.Equal(t, uint(3), rer.VRV.RoundView.PrecommitProofs[committingHash].SignatureBitSet().Count())
+
+	// The state machine would probably submit its own vote at this point, but let's say it just goes ahead to the next round.
+	actionCh = make(chan tmeil.StateMachineRoundAction, 3)
+	re = tmeil.StateMachineRoundEntrance{
+		H:        receivedBlocks,
+		R:        0,
+		PubKey:   mfx.Fx.Vals()[0].PubKey,
+		Actions:  actionCh,
+		Response: make(chan tmeil.RoundEntranceResponse, 1),
+	}
+	gtest.SendSoon(t, mfx.StateMachineRoundEntranceIn, re)
+
+	// The round entrance is accepted, and the response is still a VRV, not a committed block.
+	rer = gtest.ReceiveSoon(t, re.Response)
+	require.False(t, rer.IsCB())
+	require.True(t, rer.IsVRV())
+}
