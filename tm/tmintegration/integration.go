@@ -145,7 +145,10 @@ func RunIntegrationTest(t *testing.T, nf NewFactoryFunc) {
 				tmengine.WithBlockFinalizationChannel(blockFinCh),
 				tmengine.WithInitChainChannel(initChainCh),
 
-				tmengine.WithSigner(v.Signer),
+				tmengine.WithSigner(tmconsensus.PassthroughSigner{
+					Signer:          v.Signer,
+					SignatureScheme: sigScheme,
+				}),
 
 				tmengine.WithWatchdog(wd),
 			)
@@ -300,7 +303,10 @@ func RunIntegrationTest(t *testing.T, nf NewFactoryFunc) {
 				tmengine.WithBlockFinalizationChannel(blockFinCh),
 				tmengine.WithInitChainChannel(initChainCh),
 
-				tmengine.WithSigner(v.Signer),
+				tmengine.WithSigner(tmconsensus.PassthroughSigner{
+					Signer:          v.Signer,
+					SignatureScheme: sigScheme,
+				}),
 
 				tmengine.WithWatchdog(wd),
 			)

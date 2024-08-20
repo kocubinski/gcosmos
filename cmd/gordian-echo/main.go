@@ -619,7 +619,10 @@ func runStateMachineV3(
 		tmengine.WithBlockFinalizationChannel(blockFinCh),
 		tmengine.WithInitChainChannel(initChainCh),
 
-		tmengine.WithSigner(signer),
+		tmengine.WithSigner(tmconsensus.PassthroughSigner{
+			Signer:          signer,
+			SignatureScheme: tmconsensustest.SimpleSignatureScheme{},
+		}),
 
 		tmengine.WithWatchdog(wd),
 	)

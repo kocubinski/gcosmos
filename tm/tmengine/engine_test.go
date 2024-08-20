@@ -945,7 +945,10 @@ func TestEngine_configuration(t *testing.T) {
 		for _, opt := range requiredWithSignerOptions {
 			opts = append(opts, opt)
 		}
-		opts = append(opts, tmengine.WithSigner(tmconsensustest.DeterministicValidatorsEd25519(1)[0].Signer))
+		opts = append(opts, tmengine.WithSigner(tmconsensus.PassthroughSigner{
+			Signer:          tmconsensustest.DeterministicValidatorsEd25519(1)[0].Signer,
+			SignatureScheme: fx.SignatureScheme,
+		}))
 
 		e, err := tmengine.New(ctx, gtest.NewLogger(t), opts...)
 		require.NoError(t, err)
@@ -1020,7 +1023,10 @@ func TestEngine_configuration(t *testing.T) {
 				}
 				opts = append(opts, opt)
 			}
-			opts = append(opts, tmengine.WithSigner(tmconsensustest.DeterministicValidatorsEd25519(1)[0].Signer))
+			opts = append(opts, tmengine.WithSigner(tmconsensus.PassthroughSigner{
+				Signer:          tmconsensustest.DeterministicValidatorsEd25519(1)[0].Signer,
+				SignatureScheme: fx.SignatureScheme,
+			}))
 
 			e, err := tmengine.New(ctx, gtest.NewLogger(t), opts...)
 

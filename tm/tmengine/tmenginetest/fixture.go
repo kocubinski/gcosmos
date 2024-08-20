@@ -139,7 +139,10 @@ func (f *Fixture) SigningOptionMap() OptionMap {
 	m := f.BaseOptionMap()
 
 	m["WithActionStore"] = tmengine.WithActionStore(f.ActionStore)
-	m["WithSigner"] = tmengine.WithSigner(f.Fx.PrivVals[0].Signer)
+	m["WithSigner"] = tmengine.WithSigner(tmconsensus.PassthroughSigner{
+		Signer:          f.Fx.PrivVals[0].Signer,
+		SignatureScheme: f.Fx.SignatureScheme,
+	})
 
 	return m
 }

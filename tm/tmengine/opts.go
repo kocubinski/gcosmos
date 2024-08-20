@@ -98,7 +98,6 @@ func WithSignatureScheme(s tmconsensus.SignatureScheme) Opt {
 	return func(e *Engine, smc *tmstate.StateMachineConfig) error {
 		e.sigScheme = s
 		e.mCfg.SignatureScheme = s
-		smc.SignatureScheme = s
 		return nil
 	}
 }
@@ -127,7 +126,7 @@ func WithCommonMessageSignatureProofScheme(s gcrypto.CommonMessageSignatureProof
 // WithSigner sets the engine's signer.
 // If omitted or set to nil, the engine will never actively participate in consensus;
 // it will only operate as an observer.
-func WithSigner(s gcrypto.Signer) Opt {
+func WithSigner(s tmconsensus.Signer) Opt {
 	return func(_ *Engine, smc *tmstate.StateMachineConfig) error {
 		smc.Signer = s
 		return nil

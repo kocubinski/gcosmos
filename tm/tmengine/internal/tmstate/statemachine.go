@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/rollchains/gordian/gassert"
-	"github.com/rollchains/gordian/gcrypto"
 	"github.com/rollchains/gordian/gwatchdog"
 	"github.com/rollchains/gordian/internal/gchan"
 	"github.com/rollchains/gordian/internal/glog"
@@ -26,8 +25,7 @@ import (
 type StateMachine struct {
 	log *slog.Logger
 
-	signer    gcrypto.Signer
-	sigScheme tmconsensus.SignatureScheme
+	signer tmconsensus.Signer
 
 	hashScheme tmconsensus.HashScheme
 
@@ -55,8 +53,7 @@ type StateMachine struct {
 }
 
 type StateMachineConfig struct {
-	Signer          gcrypto.Signer
-	SignatureScheme tmconsensus.SignatureScheme
+	Signer tmconsensus.Signer
 
 	HashScheme tmconsensus.HashScheme
 
@@ -87,8 +84,7 @@ func NewStateMachine(ctx context.Context, log *slog.Logger, cfg StateMachineConf
 	m := &StateMachine{
 		log: log,
 
-		signer:    cfg.Signer,
-		sigScheme: cfg.SignatureScheme,
+		signer: cfg.Signer,
 
 		hashScheme: cfg.HashScheme,
 
@@ -932,19 +928,10 @@ func (m *StateMachine) recordPrevote(
 			Height: h, Round: r,
 			BlockHash: targetHash,
 		}
-		signContent, err := tmconsensus.PrevoteSignBytes(vt, m.sigScheme)
+		signContent, sig, err := m.signer.Prevote(ctx, vt)
 		if err != nil {
 			glog.HRE(m.log, h, r, err).Error(
-				"Failed to generate prevote sign bytes",
-				"target_hash", glog.Hex(targetHash),
-			)
-			return false
-		}
-
-		sig, err := m.signer.Sign(ctx, signContent)
-		if err != nil {
-			glog.HRE(m.log, h, r, err).Error(
-				"Failed to sign prevote content",
+				"Failed to sign prevote",
 				"target_hash", glog.Hex(targetHash),
 			)
 			return false
@@ -1036,16 +1023,7 @@ func (m *StateMachine) recordPrecommit(
 		Height: h, Round: r,
 		BlockHash: targetHash,
 	}
-	signContent, err := tmconsensus.PrecommitSignBytes(vt, m.sigScheme)
-	if err != nil {
-		glog.HRE(m.log, h, r, err).Error(
-			"Failed to generate precommit sign bytes",
-			"target_hash", glog.Hex(targetHash),
-		)
-		return false
-	}
-
-	sig, err := m.signer.Sign(ctx, signContent)
+	signContent, sig, err := m.signer.Precommit(ctx, vt)
 	if err != nil {
 		glog.HRE(m.log, h, r, err).Error(
 			"Failed to sign precommit content",
@@ -1156,17 +1134,10 @@ func (m *StateMachine) recordProposedBlock(
 	}
 	pb.Block.Hash = hash
 
-	signContent, err := tmconsensus.ProposalSignBytes(pb.Block, r, pb.Annotations, m.sigScheme)
-	if err != nil {
-		glog.HRE(m.log, h, r, err).Error("Failed to produce signing content for proposed block")
-		return false
-	}
-	sig, err := m.signer.Sign(ctx, signContent)
-	if err != nil {
+	if err := m.signer.SignProposedBlock(ctx, &pb); err != nil {
 		glog.HRE(m.log, h, r, err).Error("Failed to sign proposed block")
 		return false
 	}
-	pb.Signature = sig
 
 	if err := m.aStore.SaveProposedBlock(ctx, pb); err != nil {
 		glog.HRE(m.log, h, r, err).Error("Failed to save proposed block to action store")

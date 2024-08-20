@@ -77,9 +77,10 @@ func NewFixture(ctx context.Context, t *testing.T, nVals int) *Fixture {
 		Cfg: tmstate.StateMachineConfig{
 			// Default to the first signer.
 			// Caller can set to nil or a different signer if desired.
-			Signer: fx.PrivVals[0].Signer,
-
-			SignatureScheme: fx.SignatureScheme,
+			Signer: tmconsensus.PassthroughSigner{
+				Signer:          fx.PrivVals[0].Signer,
+				SignatureScheme: fx.SignatureScheme,
+			},
 
 			HashScheme: fx.HashScheme,
 

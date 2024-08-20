@@ -117,7 +117,7 @@ func StartGordianCommand() *cobra.Command {
 			)
 
 			// TODO: how to set up signer?
-			var signer gcrypto.Signer
+			var signer tmconsensus.Signer
 
 			return runStateMachine(ctx, log, h, signer, initChainCh)
 		},
@@ -129,7 +129,7 @@ func runStateMachine(
 	ctx context.Context,
 	log *slog.Logger,
 	h *tmlibp2p.Host,
-	signer gcrypto.Signer,
+	signer tmconsensus.Signer,
 	initChainCh chan<- tmdriver.InitChainRequest,
 ) error {
 	const chainID = "gcosmos"

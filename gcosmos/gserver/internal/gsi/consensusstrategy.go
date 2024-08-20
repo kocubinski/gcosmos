@@ -11,7 +11,6 @@ import (
 	"cosmossdk.io/core/transaction"
 	"cosmossdk.io/server/v2/appmanager"
 	"github.com/rollchains/gordian/gcosmos/gserver/internal/gsbd"
-	"github.com/rollchains/gordian/gcrypto"
 	"github.com/rollchains/gordian/gdriver/gdatapool"
 	"github.com/rollchains/gordian/internal/gchan"
 	"github.com/rollchains/gordian/internal/glog"
@@ -27,7 +26,7 @@ type ConsensusStrategy struct {
 
 	txBuf *SDKTxBuf
 
-	signer gcrypto.Signer
+	signer tmconsensus.Signer
 
 	provider gsbd.Provider
 
@@ -43,7 +42,7 @@ func NewConsensusStrategy(
 	log *slog.Logger,
 	d *Driver,
 	am appmanager.AppManager[transaction.Tx],
-	signer gcrypto.Signer,
+	signer tmconsensus.Signer,
 	txBuf *SDKTxBuf,
 	blockDataProvider gsbd.Provider,
 	pool *gdatapool.Pool[[]transaction.Tx],

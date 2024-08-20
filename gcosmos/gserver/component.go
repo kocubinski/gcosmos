@@ -55,7 +55,7 @@ type Component struct {
 	txc   transaction.Codec[transaction.Tx]
 	codec codec.Codec
 
-	signer gcrypto.Signer
+	signer tmconsensus.Signer
 
 	// Partially set up during Init,
 	// then used during Start.
@@ -356,7 +356,10 @@ func (c *Component) Init(app serverv2.AppI[transaction.Tx], v *viper.Viper, log 
 	}
 
 	// TODO: we should allow a way to explicitly NOT provide a signer.
-	c.signer = gcrypto.NewEd25519Signer(ed25519.PrivateKey(privKey.Bytes()))
+	c.signer = tmconsensus.PassthroughSigner{
+		Signer:          gcrypto.NewEd25519Signer(ed25519.PrivateKey(privKey.Bytes())),
+		SignatureScheme: tmconsensustest.SimpleSignatureScheme{},
+	}
 
 	var as *tmmemstore.ActionStore
 	if c.signer != nil {
