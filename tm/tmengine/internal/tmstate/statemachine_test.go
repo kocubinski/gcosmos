@@ -303,6 +303,7 @@ func TestStateMachine_initialization(t *testing.T) {
 
 		require.Equal(t, 1, cap(req.Resp))
 
+		// The driver sends a response.
 		resp := tmdriver.FinalizeBlockResponse{
 			Height: 1, Round: 0,
 			BlockHash: pb1.Block.Hash,
@@ -313,7 +314,23 @@ func TestStateMachine_initialization(t *testing.T) {
 		}
 		gtest.SendSoon(t, req.Resp, resp)
 
-		t.Skip("TODO: assert entry in finalization store, updated round action set sent to mirror")
+		// Next, the state machine should send a new round entrance to the mirror.
+
+		re = gtest.ReceiveSoon(t, sfx.RoundEntranceOutCh)
+		require.Equal(t, uint64(2), re.H)
+		require.Zero(t, re.R)
+
+		// By the time the round entrance was made,
+		// the state machine saved a new finalization.
+
+		r, hash, vals, appHash, err := sfx.Cfg.FinalizationStore.LoadFinalizationByHeight(ctx, 1)
+		require.NoError(t, err)
+		require.Zero(t, r)
+		require.Equal(t, string(pb1.Block.Hash), hash)
+		require.True(t, tmconsensus.ValidatorSlicesEqual(vals, sfx.Fx.Vals()))
+		require.Equal(t, "app_state_1", appHash)
+
+		// TODO: assert behavior on another replayed block after we've finalized the initial block.
 	})
 }
 

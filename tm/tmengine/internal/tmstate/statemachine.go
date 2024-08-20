@@ -162,7 +162,7 @@ func (m *StateMachine) kernel(ctx context.Context) {
 
 	for {
 		if rlc.IsReplaying() {
-			if !m.handleReplayEvent(ctx, wSig, &rlc) {
+			if !m.handleCatchupEvent(ctx, wSig, &rlc) {
 				return
 			}
 		} else {
@@ -173,12 +173,39 @@ func (m *StateMachine) kernel(ctx context.Context) {
 	}
 }
 
-func (m *StateMachine) handleReplayEvent(
+func (m *StateMachine) handleCatchupEvent(
 	ctx context.Context,
 	wSig <-chan gwatchdog.Signal,
 	rlc *tsi.RoundLifecycle,
 ) (ok bool) {
-	return false
+	defer trace.StartRegion(ctx, "handleCatchupEvent").End()
+
+	// Handle the minimal set of events that can happen during catchup.
+	// While at this height, we are in replay at least until we enter the next round.
+
+	for {
+		select {
+		case <-ctx.Done():
+			m.log.Info(
+				"Quitting due to context cancellation in kernel main loop (catchup)",
+				"cause", context.Cause(ctx),
+				"height", rlc.H, "round", rlc.R, "step", rlc.S,
+			)
+			return false
+
+		case resp := <-rlc.FinalizeRespCh:
+			// During a replay, we are blocked waiting for a finalization.
+
+			// The RLC step is kind of meaningless during replay,
+			// but handleFinalization expects the step to be awaiting finalization
+			// in order to advance to the next height,
+			// so we just fake it here.
+			rlc.S = tsi.StepAwaitingFinalization
+			if !m.handleFinalization(ctx, rlc, resp) {
+				return false
+			}
+		}
+	}
 }
 
 func (m *StateMachine) handleLiveEvent(
@@ -197,7 +224,7 @@ func (m *StateMachine) handleLiveEvent(
 	select {
 	case <-ctx.Done():
 		m.log.Info(
-			"Quitting due to context cancellation in kernel main loop",
+			"Quitting due to context cancellation in kernel main loop (live events)",
 			"cause", context.Cause(ctx),
 			"height", rlc.H, "round", rlc.R, "step", rlc.S,
 			"vote_summary", rlc.PrevVRV.VoteSummary,
@@ -277,7 +304,9 @@ func (m *StateMachine) initializeRLC(ctx context.Context) (rlc tsi.RoundLifecycl
 	}
 
 	if !su.IsVRV() {
-		return rlc, false
+		// We are replaying, so we don't need special begin round handling.
+		// sendInitialActionSet already made a finalization request.
+		return rlc, true
 	}
 
 	ok = m.beginRoundLive(ctx, &rlc, su.VRV)
@@ -1211,7 +1240,7 @@ func (m *StateMachine) handleFinalization(
 
 	if resp.Height != rlc.H || resp.Round != rlc.R {
 		panic(fmt.Errorf(
-			"BUG: app sent height/round %d/%d differing from current (%d/%d)",
+			"BUG: driver sent height/round %d/%d differing from current (%d/%d)",
 			resp.Height, resp.Round, rlc.H, rlc.R,
 		))
 	}
@@ -1220,7 +1249,7 @@ func (m *StateMachine) handleFinalization(
 		ctx,
 		rlc.H, rlc.R,
 		string(resp.BlockHash),
-		rlc.CurVals, // TODO: shouldn't this be rlc.FinalizedValidators?
+		rlc.FinalizedValidators,
 		string(resp.AppStateHash),
 	); err != nil {
 		glog.HRE(m.log, rlc.H, rlc.R, err).Error(
