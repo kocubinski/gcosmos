@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/rollchains/gordian/gassert/gasserttest"
 	"github.com/rollchains/gordian/gwatchdog"
 	"github.com/rollchains/gordian/internal/gtest"
 	"github.com/rollchains/gordian/tm/tmconsensus"
@@ -151,6 +152,8 @@ func RunIntegrationTest(t *testing.T, nf NewFactoryFunc) {
 				}),
 
 				tmengine.WithWatchdog(wd),
+
+				tmengine.WithAssertEnv(gasserttest.DefaultEnv()),
 			)
 			require.NoError(t, err)
 			t.Cleanup(e.Wait)
@@ -309,6 +312,8 @@ func RunIntegrationTest(t *testing.T, nf NewFactoryFunc) {
 				}),
 
 				tmengine.WithWatchdog(wd),
+
+				tmengine.WithAssertEnv(gasserttest.DefaultEnv()),
 			)
 			require.NoError(t, err)
 			t.Cleanup(e.Wait)

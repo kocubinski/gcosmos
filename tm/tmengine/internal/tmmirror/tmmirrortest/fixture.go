@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"testing"
 
+	"github.com/rollchains/gordian/gassert/gasserttest"
 	"github.com/rollchains/gordian/gcrypto"
 	"github.com/rollchains/gordian/gwatchdog"
 	"github.com/rollchains/gordian/internal/gtest"
@@ -89,6 +90,8 @@ func NewFixture(ctx context.Context, t *testing.T, nVals int) *Fixture {
 			StateMachineRoundEntranceIn: smIn,
 
 			Watchdog: wd,
+
+			AssertEnv: gasserttest.DefaultEnv(),
 		},
 
 		WatchdogCtx: wCtx,

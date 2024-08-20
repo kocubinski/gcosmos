@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"testing"
 
+	"github.com/rollchains/gordian/gassert/gasserttest"
 	"github.com/rollchains/gordian/gwatchdog"
 	"github.com/rollchains/gordian/internal/gtest"
 	"github.com/rollchains/gordian/tm/tmconsensus"
@@ -132,6 +133,8 @@ func (f *Fixture) BaseOptionMap() OptionMap {
 		"WithInternalRoundTimer": tmengine.WithInternalRoundTimer(f.RoundTimer),
 
 		"WithWatchdog": tmengine.WithWatchdog(f.Watchdog),
+
+		"WithAssertEnv": tmengine.WithAssertEnv(gasserttest.DefaultEnv()),
 	}
 }
 

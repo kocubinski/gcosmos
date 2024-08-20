@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"testing"
 
+	"github.com/rollchains/gordian/gassert/gasserttest"
 	"github.com/rollchains/gordian/gwatchdog"
 	"github.com/rollchains/gordian/internal/gtest"
 	"github.com/rollchains/gordian/tm/tmconsensus"
@@ -99,6 +100,8 @@ func NewFixture(ctx context.Context, t *testing.T, nVals int) *Fixture {
 			BlockDataArrivalCh:     blockDataArrivalCh,
 
 			Watchdog: wd,
+
+			AssertEnv: gasserttest.DefaultEnv(),
 		},
 
 		WatchdogCtx: wCtx,
