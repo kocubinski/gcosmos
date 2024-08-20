@@ -3,6 +3,7 @@ package tsi
 import (
 	"context"
 
+	"github.com/rollchains/gordian/gassert"
 	"github.com/rollchains/gordian/tm/tmconsensus"
 	"github.com/rollchains/gordian/tm/tmdriver"
 	"github.com/rollchains/gordian/tm/tmengine/internal/tmeil"
@@ -55,10 +56,14 @@ type RoundLifecycle struct {
 	FinalizeRespCh chan tmdriver.FinalizeBlockResponse
 
 	// Values reported by the application for the finalization of the current round.
+	// These must be set before calling CycleFinalization.
 	FinalizedValidators   []tmconsensus.Validator
 	FinalizedAppStateHash string
+	FinalizedBlockHash    string
 
 	CommitWaitElapsed bool
+
+	AssertEnv gassert.Env
 }
 
 func (rlc *RoundLifecycle) Reset(ctx context.Context, h uint64, r uint32) {
@@ -100,12 +105,14 @@ func (rlc RoundLifecycle) IsReplaying() bool {
 // CycleFinalization moves the current round's finalization
 // into the previous finalization fields.
 func (rlc *RoundLifecycle) CycleFinalization() {
-	// Cycle the validators.
+	rlc.invariantCycleFinalization()
+
 	rlc.PrevFinNextVals, rlc.CurVals, rlc.FinalizedValidators =
 		rlc.FinalizedValidators, rlc.PrevFinNextVals, nil
 
-	rlc.PrevFinAppStateHash = rlc.FinalizedAppStateHash
-	rlc.FinalizedAppStateHash = ""
+	rlc.PrevFinAppStateHash, rlc.FinalizedAppStateHash =
+		rlc.FinalizedAppStateHash, ""
 
-	rlc.PrevBlockHash = rlc.PrevVRV.VoteSummary.MostVotedPrecommitHash
+	rlc.PrevBlockHash, rlc.FinalizedBlockHash =
+		rlc.FinalizedBlockHash, ""
 }

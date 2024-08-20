@@ -3456,8 +3456,9 @@ func TestStateMachine_metrics(t *testing.T) {
 	finReq := gtest.ReceiveSoon(t, sfx.FinalizeBlockRequests)
 	finReq.Resp <- tmdriver.FinalizeBlockResponse{
 		Height: 1, Round: 0,
-		BlockHash:  pb1.Block.Hash,
-		Validators: pb1.Block.Validators,
+		BlockHash:    pb1.Block.Hash,
+		Validators:   pb1.Block.Validators,
+		AppStateHash: []byte("app_state"),
 	}
 	require.NoError(t, sfx.RoundTimer.ElapseCommitWaitTimer(1, 0))
 

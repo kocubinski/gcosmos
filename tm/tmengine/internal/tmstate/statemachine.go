@@ -426,6 +426,8 @@ func (m *StateMachine) sendInitialActionSet(ctx context.Context) (
 	// but it is a little helpful in tests in case a StateMachineRoundEntrance is mistakenly reused.
 	close(initRE.Response)
 
+	rlc.AssertEnv = m.assertEnv
+
 	// Initialize this to a default size;
 	// it needs to be a non-nil map regardless of the initial update.
 	rlc.PrevConsideredHashes = map[string]struct{}{}
@@ -1203,6 +1205,7 @@ func (m *StateMachine) handleFinalization(
 	clear(rlc.FinalizedValidators)
 	rlc.FinalizedValidators = append(rlc.FinalizedValidators, resp.Validators...)
 	rlc.FinalizedAppStateHash = string(resp.AppStateHash)
+	rlc.FinalizedBlockHash = string(resp.BlockHash)
 
 	rlc.FinalizeRespCh = nil
 
