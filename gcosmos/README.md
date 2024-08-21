@@ -38,14 +38,42 @@ but sometimes a local patch makes more sense.
 Begin running the updated siampp commands from the `gcosmos` directory.
 
 ```bash
-go run . init moniker
-echo -n "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon art" > $HOME/.simappv2/mnemonic.txt
+rm -rf ~/.simappv2/
+go build -o gcosmos .
 
-go run . keys add val --recover --source $HOME/.simappv2/mnemonic.txt
+./gcosmos init moniker
 
-go run . genesis add-genesis-account val 1000000stake --keyring-backend=test
-go run . genesis gentx val 1000000stake --keyring-backend=test --chain-id=gcosmos
-go run . genesis collect-gentxs
+# example-mnemonic address: cosmos1r5v5srda7xfth3hn2s26txvrcrntldjumt8mhl
+echo -n "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon art" > example-mnemonic.txt
 
-go run . start
+./gcosmos keys add val --recover --source example-mnemonic.txt
+./gcosmos genesis add-genesis-account val 10000000stake --keyring-backend=test
+./gcosmos genesis gentx val 1000000stake --keyring-backend=test --chain-id=gcosmos
+./gcosmos genesis collect-gentxs
+
+# rm -rf ~/.simappv2/data/application.db/
+./gcosmos start --g-http-addr 127.0.0.1:26657 --g-grpc-addr 127.0.0.1:9092
+```
+
+# Interact
+```bash
+# GOBIN="$PWD" go install github.com/fullstorydev/grpcurl/cmd/grpcurl@v1
+
+./grpcurl -plaintext localhost:9092 list
+./grpcurl -plaintext localhost:9092 server.GordianGRPC/GetBlocksWatermark
+./grpcurl -plaintext localhost:9092 server.GordianGRPC/GetValidators
+
+./grpcurl -plaintext -d '{"address":"cosmos1r5v5srda7xfth3hn2s26txvrcrntldjumt8mhl","denom":"stake"}' localhost:9092 server.GordianGRPC/QueryAccountBalance
+```
+
+# Transaction Testing
+```bash
+./gcosmos tx bank send val cosmos10r39fueph9fq7a6lgswu4zdsg8t3gxlqvvvyvn 1stake --chain-id=TODO:TEMPORARY_CHAIN_ID --generate-only > example-tx.json
+
+# TODO: get account number
+./gcosmos tx sign ./example-tx.json --offline --from=val --sequence=1 --account-number=1 --chain-id=TODO:TEMPORARY_CHAIN_ID --keyring-backend=test > example-tx-signed.json
+
+./grpcurl -plaintext -emit-defaults -d '{"tx":"'$(cat example-tx-signed.json | base64 | tr -d '\n')'"}' localhost:9092 server.GordianGRPC/SimulateTransaction
+
+./grpcurl -plaintext -emit-defaults -d '{"tx":"'$(cat example-tx-signed.json | base64 | tr -d '\n')'"}' localhost:9092 server.GordianGRPC/SubmitTransaction
 ```
