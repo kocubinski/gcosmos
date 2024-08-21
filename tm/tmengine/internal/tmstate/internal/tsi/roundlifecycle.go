@@ -98,6 +98,16 @@ func (rlc *RoundLifecycle) Reset(ctx context.Context, h uint64, r uint32) {
 	clear(rlc.PrevConsideredHashes)
 }
 
+// MarkCatchingUp marks the rlc as catching up,
+// which sets the action-related channels to nil (for earlier GC)
+// and marks the commit wait as having elapsed.
+func (rlc *RoundLifecycle) MarkCatchingUp() {
+	rlc.ProposalCh = nil
+	rlc.PrevoteHashCh = nil
+	rlc.PrecommitHashCh = nil
+	rlc.CommitWaitElapsed = true
+}
+
 func (rlc RoundLifecycle) IsReplaying() bool {
 	return rlc.PrevVRV == nil
 }

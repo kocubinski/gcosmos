@@ -330,7 +330,24 @@ func TestStateMachine_initialization(t *testing.T) {
 		require.True(t, tmconsensus.ValidatorSlicesEqual(vals, sfx.Fx.Vals()))
 		require.Equal(t, "app_state_1", appHash)
 
-		// TODO: assert behavior on another replayed block after we've finalized the initial block.
+		// Now if the mirror responds with another committed block,
+		// we finalize that one too.
+		vt = tmconsensus.VoteTarget{Height: 2, Round: 0, BlockHash: string(pb2.Block.Hash)}
+		sfx.Fx.CommitBlock(pb1.Block, []byte("app_state_2"), 0, map[string]gcrypto.CommonMessageSignatureProof{
+			string(pb2.Block.Hash): sfx.Fx.PrecommitSignatureProof(ctx, vt, nil, []int{1, 2, 3}), // The other 3/4 validators.
+		})
+
+		pb3 := sfx.Fx.NextProposedBlock([]byte("app_data_3"), 1)
+		re.Response <- tmeil.RoundEntranceResponse{
+			CB: tmconsensus.CommittedBlock{
+				Block: pb2.Block,
+				Proof: pb3.Block.PrevCommitProof,
+			},
+		}
+
+		req = gtest.ReceiveSoon(t, sfx.FinalizeBlockRequests)
+		require.Equal(t, pb2.Block, req.Block)
+		require.Zero(t, req.Round)
 	})
 }
 

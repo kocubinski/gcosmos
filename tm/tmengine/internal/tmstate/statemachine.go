@@ -1466,16 +1466,18 @@ func (m *StateMachine) advanceHeight(ctx context.Context, rlc *tsi.RoundLifecycl
 		Response: make(chan tmeil.RoundEntranceResponse, 1),
 	}
 
+	// We are assuming we are up to date,
+	// but we might find out otherwise when we receive the round entrance response.
 	if m.signer != nil {
 		re.PubKey = m.signer.PubKey()
 		re.Actions = make(chan tmeil.StateMachineRoundAction, 3)
 	}
 
-	update, ok := gchan.ReqResp(
+	rer, ok := gchan.ReqResp(
 		ctx, m.log,
 		m.roundEntranceOutCh, re,
 		re.Response,
-		"seeding initial state from mirror",
+		"receiving round entrance response while advancing height",
 	)
 	if !ok {
 		return false
@@ -1484,13 +1486,13 @@ func (m *StateMachine) advanceHeight(ctx context.Context, rlc *tsi.RoundLifecycl
 	// This is similar to the handling in sendInitialActionSet,
 	// but it differs because at this point it is impossible for us to be on the initial height;
 	// and the rlc has some state we are reusing through the earlier call to rlc.CycleFinalization.
-	if update.IsVRV() {
+	if rer.IsVRV() {
 		rlc.OutgoingActionsCh = re.Actions // Should this be part of the Reset method instead?
 
 		// We have to synchronously enter the round,
 		// but we still enter through the consensus manager for this.
 		req := tsi.EnterRoundRequest{
-			RV:     update.VRV.RoundView,
+			RV:     rer.VRV.RoundView,
 			Result: make(chan error), // Unbuffered since both sides sync on this.
 
 			ProposalOut: rlc.ProposalCh,
@@ -1512,13 +1514,28 @@ func (m *StateMachine) advanceHeight(ctx context.Context, rlc *tsi.RoundLifecycl
 			))
 		}
 
-		if !m.beginRoundLive(ctx, rlc, update.VRV) {
+		if !m.beginRoundLive(ctx, rlc, rer.VRV) {
 			return false
 		}
 	} else {
-		// This case could happen if we took more than an entire block to finalize,
-		// due to an app bug or whatever reason.
-		panic("TODO: handle replayed block upon finalization")
+		// The state machine is still catching up with the mirror.
+		rlc.MarkCatchingUp()
+
+		// In replay, we just directly make a finalize block request.
+		finReq := tmdriver.FinalizeBlockRequest{
+			Block: rer.CB.Block,
+			Round: rer.CB.Proof.Round,
+
+			Resp: rlc.FinalizeRespCh,
+		}
+
+		if !gchan.SendC(
+			ctx, m.log,
+			m.finalizeBlockRequestCh, finReq,
+			"sending finalize block response for replayed block",
+		) {
+			return false
+		}
 	}
 
 	return true
@@ -1544,7 +1561,7 @@ func (m *StateMachine) advanceRound(ctx context.Context, rlc *tsi.RoundLifecycle
 		ctx, m.log,
 		m.roundEntranceOutCh, re,
 		re.Response,
-		"seeding initial round state from mirror",
+		"receiving round entrance response while advancing round",
 	)
 	if !ok {
 		return false
