@@ -276,7 +276,7 @@ func (d *Driver) handleFinalizations(
 			resp := tmdriver.FinalizeBlockResponse{
 				Height:    fbReq.Block.Height,
 				Round:     fbReq.Round,
-				BlockHash: nil, // TODO
+				BlockHash: fbReq.Block.Hash,
 
 				// At genesis, we don't have a block response
 				// from which to extract the next validators.

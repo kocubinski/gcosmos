@@ -352,6 +352,13 @@ func (c *Component) Init(app serverv2.AppI[transaction.Tx], v *viper.Viper, log 
 		c.log = l
 	}
 
+	// It's somewhat likely that a user could misconfigure the assertion rules in a debug build,
+	// so check those before doing any other heavy lifting.
+	assertOpt, err := getAssertEngineOpt(v)
+	if err != nil {
+		return fmt.Errorf("failed to build assertion environment: %w", err)
+	}
+
 	// Maybe set up the HTTP server.
 	if httpAddr := v.GetString(httpAddrFlag); httpAddr != "" {
 		ln, err := net.Listen("tcp", httpAddr)
@@ -448,6 +455,10 @@ func (c *Component) Init(app serverv2.AppI[transaction.Tx], v *viper.Viper, log 
 		// NOTE: there are remaining required options that we shouldn't initialize here,
 		// but instead they will be added during the Start call.
 	}
+	if assertOpt != nil {
+		// Will always be nil in non-debug builds.
+		c.opts = append(c.opts, assertOpt)
+	}
 
 	return nil
 }
@@ -468,6 +479,9 @@ func (c *Component) StartCmdFlags() *pflag.FlagSet {
 	flags.String(httpAddrFileFlag, "", "Write the actual Gordian HTTP listen address to the given file (useful for tests when configured to listen on :0)")
 
 	flags.String(seedAddrsFlag, "", "Newline-separated multiaddrs to connect to; if omitted, relies on incoming connections to discover peers")
+
+	// Adds --g-assert-rules in debug builds, no-op otherwise.
+	addAssertRuleFlag(flags)
 
 	return flags
 }
