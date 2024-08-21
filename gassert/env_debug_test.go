@@ -64,6 +64,13 @@ func TestEnvironment_parsing(t *testing.T) {
 				require.True(t, e.Enabled("foo.quux"))
 			},
 		},
+		{
+			name: "emptyInput",
+			in:   nil,
+			test: func(t *testing.T, e *gassert.Environment) {
+				require.False(t, e.Enabled("foo.bar"))
+			},
+		},
 	} {
 		t.Run("EnvironmentFromString:"+tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -100,12 +107,6 @@ func TestEnvironment_parse_errors(t *testing.T) {
 		require.Error(t, err)
 		require.Nil(t, e)
 	}
-
-	// And just empty input would be valid for Parse,
-	// but invalid for ParseString, so we do that separately.
-
-	_, err := gassert.EnvironmentFromString("")
-	require.Error(t, err)
 }
 
 func TestEnvironment_Parse_allowances(t *testing.T) {

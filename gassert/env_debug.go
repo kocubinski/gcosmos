@@ -27,6 +27,7 @@ type Env = *Environment
 // if called at all.
 type Environment struct {
 	// Prefix matches strings ending in the wildcard.
+	// (The wildcard is not stored as part of the sub-slice.)
 	prefixes [][]string
 
 	// Exclusions from prefix matches.
@@ -49,6 +50,13 @@ type Environment struct {
 // EnvironmentFromString parses a comma-separated string containing enable rules.
 func EnvironmentFromString(in string) (*Environment, error) {
 	var e Environment
+	if in == "" {
+		// Splitting the empty string will produce a slice containing one empty string,
+		// which will cause an empty rule error.
+		// So return early here as a special case.
+		return &e, nil
+	}
+
 	for _, r := range strings.Split(in, ",") {
 		if err := e.parseSingleRule(r); err != nil {
 			return nil, err
