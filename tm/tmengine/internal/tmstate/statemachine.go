@@ -1465,6 +1465,30 @@ func (m *StateMachine) advanceHeight(ctx context.Context, rlc *tsi.RoundLifecycl
 
 		Response: make(chan tmeil.RoundEntranceResponse, 1),
 	}
+	return m.advance(ctx, rlc, re)
+}
+
+func (m *StateMachine) advanceRound(ctx context.Context, rlc *tsi.RoundLifecycle) (ok bool) {
+	// TODO: do we need to do anything with the finalizations?
+	rlc.Reset(ctx, rlc.H, rlc.R+1)
+
+	re := tmeil.StateMachineRoundEntrance{
+		H: rlc.H,
+		R: rlc.R,
+
+		Response: make(chan tmeil.RoundEntranceResponse, 1),
+	}
+
+	return m.advance(ctx, rlc, re)
+}
+
+// advance handles advancing to a new height or round,
+// depending on the content in re.
+// This is the common code between advanceHeight and advanceRound.
+func (m *StateMachine) advance(
+	ctx context.Context, rlc *tsi.RoundLifecycle, re tmeil.StateMachineRoundEntrance,
+) (ok bool) {
+	// TODO: assert re.H > 0 and Response is not nil, buffered at 1.
 
 	// We are assuming we are up to date,
 	// but we might find out otherwise when we receive the round entrance response.
@@ -1536,77 +1560,6 @@ func (m *StateMachine) advanceHeight(ctx context.Context, rlc *tsi.RoundLifecycl
 		) {
 			return false
 		}
-	}
-
-	return true
-}
-
-func (m *StateMachine) advanceRound(ctx context.Context, rlc *tsi.RoundLifecycle) (ok bool) {
-	// TODO: do we need to do anything with the finalizations?
-	rlc.Reset(ctx, rlc.H, rlc.R+1)
-
-	re := tmeil.StateMachineRoundEntrance{
-		H: rlc.H,
-		R: rlc.R,
-
-		Response: make(chan tmeil.RoundEntranceResponse, 1),
-	}
-
-	if m.signer != nil {
-		re.PubKey = m.signer.PubKey()
-		re.Actions = make(chan tmeil.StateMachineRoundAction, 3)
-	}
-
-	update, ok := gchan.ReqResp(
-		ctx, m.log,
-		m.roundEntranceOutCh, re,
-		re.Response,
-		"receiving round entrance response while advancing round",
-	)
-	if !ok {
-		return false
-	}
-	// Closing the outgoing Response channel is not strictly necessary,
-	// but it is a little helpful in tests in case a StateMachineRoundEntrance is mistakenly reused.
-	close(re.Response)
-
-	if update.IsVRV() {
-		// TODO: this is probably missing some setup to handle initial height.
-
-		rlc.OutgoingActionsCh = re.Actions // Should this be part of the Reset method instead?
-
-		// We have to synchronously enter the round,
-		// but we still enter through the consensus manager for this.
-		req := tsi.EnterRoundRequest{
-			RV:     update.VRV.RoundView,
-			Result: make(chan error), // Unbuffered since both sides sync on this.
-
-			ProposalOut: rlc.ProposalCh,
-		}
-
-		err, ok := gchan.ReqResp(
-			ctx, m.log,
-			m.cm.EnterRoundRequests, req,
-			req.Result,
-			"entering round on consensus strategy while advancing height",
-		)
-		if !ok {
-			// Context cancelled, we cannot continue.
-			return false
-		}
-		if err != nil {
-			panic(fmt.Errorf(
-				"FATAL: error when calling ConsensusStrategy.EnterRound while advancing height: %v", err,
-			))
-		}
-
-		if !m.beginRoundLive(ctx, rlc, update.VRV) {
-			return false
-		}
-	} else {
-		// This case could happen if we took more than an entire block to finalize,
-		// due to an app bug or whatever reason.
-		panic("TODO: handle replayed block upon advancing round")
 	}
 
 	return true

@@ -262,8 +262,10 @@ func TestStateMachine_initialization(t *testing.T) {
 		erc = gtest.ReceiveSoon(t, enterCh)
 		require.Equal(t, emptyVRV11.RoundView, erc.RV)
 	})
+}
 
-	t.Run("committed block response from mirror", func(t *testing.T) {
+func TestStateMachine_catchup(t *testing.T) {
+	t.Run("initial response and following block are catchup", func(t *testing.T) {
 		t.Parallel()
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -347,6 +349,76 @@ func TestStateMachine_initialization(t *testing.T) {
 
 		req = gtest.ReceiveSoon(t, sfx.FinalizeBlockRequests)
 		require.Equal(t, pb2.Block, req.Block)
+		require.Zero(t, req.Round)
+	})
+
+	t.Run("normal start, then catchup on advanced round", func(t *testing.T) {
+		t.Parallel()
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		sfx := tmstatetest.NewFixture(ctx, t, 4)
+
+		sm := sfx.NewStateMachine()
+		defer sm.Wait()
+		defer cancel()
+
+		re10 := gtest.ReceiveSoon(t, sfx.RoundEntranceOutCh)
+
+		// First VRV received is a precommit for nil.
+		vrv := sfx.EmptyVRV(1, 0)
+		vrv = sfx.Fx.UpdateVRVPrevotes(ctx, vrv, map[string][]int{
+			"": []int{1, 2, 3},
+		})
+		vrv = sfx.Fx.UpdateVRVPrecommits(ctx, vrv, map[string][]int{
+			"": []int{1, 2, 3},
+		})
+
+		cStrat := sfx.CStrat
+		_ = cStrat.ExpectEnterRound(1, 0, nil)
+		_ = cStrat.ExpectEnterRound(1, 1, nil)
+
+		re10.Response <- tmeil.RoundEntranceResponse{VRV: vrv}
+
+		re11 := gtest.ReceiveSoon(t, sfx.RoundEntranceOutCh)
+		require.Equal(t, uint64(1), re11.H)
+		require.Equal(t, uint32(1), re11.R)
+
+		// Now say the proposed block for height 1 arrives to the mirror and is committed.
+		pb1 := sfx.Fx.NextProposedBlock([]byte("app_data_1"), 1)
+		pb1.Round = 1
+		sfx.Fx.SignProposal(ctx, &pb1, 1)
+		sfx.Fx.CommitBlock(pb1.Block, []byte("app_state_1"), 0, map[string]gcrypto.CommonMessageSignatureProof{
+			string(pb1.Block.Hash): sfx.Fx.PrecommitSignatureProof(ctx, tmconsensus.VoteTarget{
+				Height:    1,
+				Round:     1,
+				BlockHash: string(pb1.Block.Hash),
+			}, nil, []int{1, 2, 3}),
+		})
+
+		pb2 := sfx.Fx.NextProposedBlock([]byte("app_data_2"), 1)
+		sfx.Fx.SignProposal(ctx, &pb2, 1)
+		sfx.Fx.CommitBlock(pb2.Block, []byte("app_state_2"), 0, map[string]gcrypto.CommonMessageSignatureProof{
+			string(pb2.Block.Hash): sfx.Fx.PrecommitSignatureProof(ctx, tmconsensus.VoteTarget{
+				Height:    2,
+				Round:     0,
+				BlockHash: string(pb1.Block.Hash),
+			}, nil, []int{1, 2, 3}),
+		})
+
+		// Now, we respond to the 1/1 entrance with the committed block for 1.
+		re11.Response <- tmeil.RoundEntranceResponse{
+			CB: tmconsensus.CommittedBlock{
+				Block: pb1.Block,
+				Proof: pb2.Block.PrevCommitProof,
+			},
+		}
+
+		// This causes a new finalize block request for 1/1.
+		req := gtest.ReceiveSoon(t, sfx.FinalizeBlockRequests)
+
+		require.Equal(t, pb1.Block, req.Block)
 		require.Zero(t, req.Round)
 	})
 }
