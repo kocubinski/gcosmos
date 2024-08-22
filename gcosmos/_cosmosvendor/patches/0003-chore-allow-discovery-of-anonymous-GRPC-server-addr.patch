@@ -1,4 +1,4 @@
-From 6d480ee48574ae850eaec52339babd2e16584ab6 Mon Sep 17 00:00:00 2001
+From 69f78af27d9e47c899c005cb1074cfd0da661a8d Mon Sep 17 00:00:00 2001
 From: Mark Rushakoff <mark@strange.love>
 Date: Wed, 17 Jul 2024 09:51:38 -0400
 Subject: [PATCH 3/7] chore: allow discovery of anonymous GRPC server addr
@@ -13,22 +13,23 @@ And fix the server start command to actually expose that flag.
  1 file changed, 19 insertions(+)
 
 diff --git a/server/v2/api/grpc/server.go b/server/v2/api/grpc/server.go
-index 006a970e09..5c0cfd0a00 100644
+index b66be16da6..522d5cf1f1 100644
 --- a/server/v2/api/grpc/server.go
 +++ b/server/v2/api/grpc/server.go
-@@ -6,9 +6,11 @@ import (
- 	"fmt"
+@@ -7,10 +7,12 @@ import (
  	"io"
+ 	"maps"
  	"net"
 +	"os"
+ 	"slices"
  	"strconv"
  
  	"github.com/cosmos/gogoproto/proto"
 +
  	"github.com/spf13/pflag"
  	"github.com/spf13/viper"
- 	"golang.org/x/exp/maps"
-@@ -35,6 +37,8 @@ type Server[T transaction.Tx] struct {
+ 	"google.golang.org/grpc"
+@@ -36,6 +38,8 @@ type Server[T transaction.Tx] struct {
  	cfgOptions []CfgOption
  
  	grpcSrv *grpc.Server
@@ -37,7 +38,7 @@ index 006a970e09..5c0cfd0a00 100644
  }
  
  // New creates a new grpc server.
-@@ -70,6 +74,7 @@ func (s *Server[T]) Init(appI serverv2.AppI[T], v *viper.Viper, logger log.Logge
+@@ -71,6 +75,7 @@ func (s *Server[T]) Init(appI serverv2.AppI[T], v *viper.Viper, logger log.Logge
  	s.grpcSrv = grpcSrv
  	s.config = cfg
  	s.logger = logger.With(log.ModuleKey, s.Name())
@@ -45,7 +46,7 @@ index 006a970e09..5c0cfd0a00 100644
  
  	return nil
  }
-@@ -77,6 +82,7 @@ func (s *Server[T]) Init(appI serverv2.AppI[T], v *viper.Viper, logger log.Logge
+@@ -78,6 +83,7 @@ func (s *Server[T]) Init(appI serverv2.AppI[T], v *viper.Viper, logger log.Logge
  func (s *Server[T]) StartCmdFlags() *pflag.FlagSet {
  	flags := pflag.NewFlagSet(s.Name(), pflag.ExitOnError)
  	flags.String(FlagAddress, "localhost:9090", "Listen address")
@@ -53,7 +54,7 @@ index 006a970e09..5c0cfd0a00 100644
  	return flags
  }
  
-@@ -161,6 +167,12 @@ func (s *Server[T]) Config() any {
+@@ -162,6 +168,12 @@ func (s *Server[T]) Config() any {
  	return s.config
  }
  
@@ -66,7 +67,7 @@ index 006a970e09..5c0cfd0a00 100644
  func (s *Server[T]) Start(ctx context.Context) error {
  	if !s.config.Enable {
  		return nil
-@@ -171,6 +183,13 @@ func (s *Server[T]) Start(ctx context.Context) error {
+@@ -172,6 +184,13 @@ func (s *Server[T]) Start(ctx context.Context) error {
  		return fmt.Errorf("failed to listen on address %s: %w", s.config.Address, err)
  	}
  

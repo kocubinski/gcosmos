@@ -1,4 +1,4 @@
-From e3985242d7de680555d98b8e5b25858d84a54f0a Mon Sep 17 00:00:00 2001
+From 3a0593bee709b00a5a82fb43bd572a109df0ccbd Mon Sep 17 00:00:00 2001
 From: Mark Rushakoff <mark@strange.love>
 Date: Fri, 16 Aug 2024 15:39:48 -0400
 Subject: [PATCH 7/7] fix: default client context's output to cmd.OutOrStdout
@@ -24,7 +24,7 @@ index 7ea1f49e09..a4a1b94e2e 100644
 +
  	return readTxCommandFlags(ctx, cmd.Flags())
  }
-
---
+ 
+-- 
 2.44.0
 
