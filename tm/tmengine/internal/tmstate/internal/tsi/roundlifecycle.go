@@ -9,6 +9,8 @@ import (
 	"github.com/rollchains/gordian/tm/tmengine/internal/tmeil"
 )
 
+//go:generate go run github.com/rollchains/gordian/gassert/cmd/generate-nodebug roundlifecycle_debug.go
+
 // RoundLifecycle holds the values that need to exist only through a single round in the state machine.
 type RoundLifecycle struct {
 	Ctx    context.Context
