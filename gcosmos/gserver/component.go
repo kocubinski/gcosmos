@@ -40,6 +40,8 @@ import (
 	"github.com/spf13/viper"
 )
 
+//go:generate go run github.com/rollchains/gordian/gassert/cmd/generate-nodebug component_debug.go
+
 // The various interfaces we expect a Component to satisfy.
 var (
 	_ serverv2.ServerComponent[transaction.Tx] = (*Component)(nil)

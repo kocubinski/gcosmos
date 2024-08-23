@@ -159,9 +159,19 @@ package %s`, srcName, f.Name.Name)
 		if err := printer.Fprint(w, fset, fd); err != nil {
 			return err
 		}
-		// We fully removed the function body, so now put empty braces in place.
-		if _, err := io.WriteString(w, " {}"); err != nil {
-			return err
+		// We fully removed the function body.
+		// Whether we leave the body empty or put a naked return,
+		// depends on whether the function has any return values.
+		if fd.Type.Results == nil {
+			if _, err := io.WriteString(w, " {}"); err != nil {
+				return err
+			}
+		} else {
+			// There are results, but we can already be sure they are named,
+			// so a naked return suffices here.
+			if _, err := io.WriteString(w, " {\n\treturn\n}"); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -184,6 +194,25 @@ func stripFunction(fd *ast.FuncDecl) {
 			fd.Recv.List[i] = &ast.Field{
 				Names: field.Names,
 				Type:  field.Type,
+			}
+		}
+	}
+
+	// We don't modify the params at all.
+	// If they are named, we keep the names for readability,
+	// and if not, we don't care.
+
+	if fd.Type.Results != nil {
+		for _, field := range fd.Type.Results.List {
+			// Zero-length names means the return value is unnamed.
+			// That is the only time we want to replace the name with an underscore,
+			// in order to use a naked return.
+			// Otherwise we keep the existing names.
+			if len(field.Names) == 0 {
+				field.Names = []*ast.Ident{
+					// We aren't marking the position, but it seems to work fine.
+					&ast.Ident{Name: "_"},
+				}
 			}
 		}
 	}
