@@ -13,14 +13,14 @@ import (
 // SubmitTransaction implements GordianGRPCServer.
 func (g *GordianGRPC) SubmitTransaction(ctx context.Context, req *SubmitTransactionRequest) (*TxResultResponse, error) {
 	b := req.Tx
-	tx, err := g.cfg.TxCodec.DecodeJSON(b)
+	tx, err := g.txc.DecodeJSON(b)
 	if err != nil {
 		return &TxResultResponse{
 			Error: fmt.Sprintf("failed to decode transaction json: %v", err),
 		}, nil
 	}
 
-	res, err := g.cfg.AppManager.ValidateTx(ctx, tx)
+	res, err := g.am.ValidateTx(ctx, tx)
 	if err != nil {
 		// ValidateTx should only return an error at this level,
 		// if it failed to get state from the store.
@@ -36,7 +36,7 @@ func (g *GordianGRPC) SubmitTransaction(ctx context.Context, req *SubmitTransact
 	}
 
 	// If it passed basic validation, then we can attempt to add it to the buffer.
-	if err := g.cfg.TxBuf.AddTx(ctx, tx); err != nil {
+	if err := g.txBuf.AddTx(ctx, tx); err != nil {
 		// We could potentially check if it is a TxInvalidError here
 		// and adjust the status code,
 		// but since this is a debug endpoint, we'll ignore the type.
@@ -49,14 +49,14 @@ func (g *GordianGRPC) SubmitTransaction(ctx context.Context, req *SubmitTransact
 // SimulateTransaction implements GordianGRPCServer.
 func (g *GordianGRPC) SimulateTransaction(ctx context.Context, req *SubmitSimulationTransactionRequest) (*TxResultResponse, error) {
 	b := req.Tx
-	tx, err := g.cfg.TxCodec.DecodeJSON(b)
+	tx, err := g.txc.DecodeJSON(b)
 	if err != nil {
 		return &TxResultResponse{
 			Error: fmt.Sprintf("failed to decode transaction json: %v", err),
 		}, nil
 	}
 
-	res, _, err := g.cfg.AppManager.Simulate(ctx, tx)
+	res, _, err := g.am.Simulate(ctx, tx)
 	if err != nil {
 		// Simulate should only return an error at this level,
 		// if it failed to get state from the store.
@@ -76,7 +76,7 @@ func (g *GordianGRPC) SimulateTransaction(ctx context.Context, req *SubmitSimula
 
 // PendingTransactions implements GordianGRPCServer.
 func (g *GordianGRPC) PendingTransactions(ctx context.Context, req *PendingTransactionsRequest) (*PendingTransactionsResponse, error) {
-	txs := g.cfg.TxBuf.Buffered(ctx, nil)
+	txs := g.txBuf.Buffered(ctx, nil)
 
 	encodedTxs := make([][]byte, len(txs))
 	for i, tx := range txs {
@@ -94,9 +94,6 @@ func (g *GordianGRPC) PendingTransactions(ctx context.Context, req *PendingTrans
 
 // QueryAccountBalance implements GordianGRPCServer.
 func (g *GordianGRPC) QueryAccountBalance(ctx context.Context, req *QueryAccountBalanceRequest) (*QueryAccountBalanceResponse, error) {
-	cdc := g.cfg.Codec
-	am := g.cfg.AppManager
-
 	if req.Address == "" {
 		return nil, fmt.Errorf("address field is required")
 	}
@@ -106,7 +103,7 @@ func (g *GordianGRPC) QueryAccountBalance(ctx context.Context, req *QueryAccount
 		denom = req.Denom
 	}
 
-	msg, err := am.Query(ctx, 0, &banktypes.QueryBalanceRequest{
+	msg, err := g.am.Query(ctx, 0, &banktypes.QueryBalanceRequest{
 		Address: req.Address,
 		Denom:   denom,
 	})
@@ -114,13 +111,13 @@ func (g *GordianGRPC) QueryAccountBalance(ctx context.Context, req *QueryAccount
 		return nil, fmt.Errorf("failed to query account balance: %w", err)
 	}
 
-	b, err := cdc.MarshalJSON(msg)
+	b, err := g.cdc.MarshalJSON(msg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to encode response: %w", err)
 	}
 
 	var val QueryAccountBalanceResponse
-	if err = cdc.UnmarshalJSON(b, &val); err != nil {
+	if err = g.cdc.UnmarshalJSON(b, &val); err != nil {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 
@@ -149,7 +146,6 @@ func getGordianResponseFromSDKResult(res appmanager.TxResult) *TxResultResponse 
 func convertEvent(e []event.Event) []*Event {
 	events := make([]*Event, len(e))
 	for i, ev := range e {
-
 		attr := make([]*Attribute, len(ev.Attributes))
 		for j, a := range ev.Attributes {
 			attr[j] = &Attribute{

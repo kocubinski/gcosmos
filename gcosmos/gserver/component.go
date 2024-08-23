@@ -259,16 +259,16 @@ func (c *Component) Start(ctx context.Context) error {
 		c.grpcServer = ggrpc.NewGordianGRPCServer(ctx, c.log.With("sys", "grpc"), ggrpc.GRPCServerConfig{
 			Listener: c.grpcLn,
 
-			FinalizationStore: c.fs,
 			MirrorStore:       c.ms,
+			FinalizationStore: c.fs,
 
 			CryptoRegistry: reg,
 
-			// debug:
-			TxCodec:    c.txc,
 			AppManager: am,
-			TxBuf:      txBuf,
+			TxCodec:    c.txc,
 			Codec:      c.codec,
+
+			TxBuffer: txBuf,
 		})
 	}
 
