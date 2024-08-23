@@ -105,6 +105,128 @@ func (c *Component) Name() string {
 	return "gordian"
 }
 
+// Init is called early in the SDK server component lifecycle, before Start.
+func (c *Component) Init(app serverv2.AppI[transaction.Tx], v *viper.Viper, log cosmoslog.Logger) error {
+	if c.log == nil {
+		l, ok := log.Impl().(*slog.Logger)
+		if !ok {
+			return errors.New("(*gserver.Component).Init: log must be set during gserver.NewServerModule, or Init log must be implemented by *slog.Logger")
+		}
+		c.log = l
+	}
+
+	// It's somewhat likely that a user could misconfigure the assertion rules in a debug build,
+	// so check those before doing any other heavy lifting.
+	assertOpt, err := getAssertEngineOpt(v)
+	if err != nil {
+		return fmt.Errorf("failed to build assertion environment: %w", err)
+	}
+
+	// Maybe set up the HTTP server.
+	if httpAddr := v.GetString(httpAddrFlag); httpAddr != "" {
+		ln, err := net.Listen("tcp", httpAddr)
+		if err != nil {
+			return fmt.Errorf("failed to listen for HTTP on %q: %w", httpAddr, err)
+		}
+
+		if f := v.GetString(httpAddrFileFlag); f != "" {
+			// TODO: we should probably track this file and delete it on shutdown.
+			addr := ln.Addr().String() + "\n"
+			if err := os.WriteFile(f, []byte(addr), 0600); err != nil {
+				return fmt.Errorf("failed to write HTTP address to file %q: %w", f, err)
+			}
+		}
+
+		c.httpLn = ln
+	}
+
+	// Maybe set up the GRPC server.
+	if grpcAddrFlag := v.GetString(grpcAddrFlag); grpcAddrFlag != "" {
+		ln, err := net.Listen("tcp", grpcAddrFlag)
+		if err != nil {
+			return fmt.Errorf("failed to listen for gRPC on %q: %w", grpcAddrFlag, err)
+		}
+
+		c.grpcLn = ln
+	}
+
+	c.seedAddrs = v.GetString(seedAddrsFlag)
+	if c.seedAddrs == "" {
+		c.log.Warn("No seed addresses provided; relying on incoming connections to discover peers")
+	}
+
+	c.app = app
+
+	// Load the comet config, in order to read the privval key from disk.
+	// We don't really care about the state file,
+	// but we need to to call LoadFilePV,
+	// to get to the FilePVKey,
+	// which gives us the PrivKey.
+	cometConfig := client.GetConfigFromViper(v)
+	fpv := privval.LoadFilePV(cometConfig.PrivValidatorKeyFile(), cometConfig.PrivValidatorStateFile())
+	privKey := fpv.Key.PrivKey
+	if privKey.Type() != "ed25519" {
+		panic(fmt.Errorf(
+			"gcosmos only understands ed25519 signing keys; got %q",
+			privKey.Type(),
+		))
+	}
+
+	// TODO: we should allow a way to explicitly NOT provide a signer.
+	c.signer = tmconsensus.PassthroughSigner{
+		Signer:          gcrypto.NewEd25519Signer(ed25519.PrivateKey(privKey.Bytes())),
+		SignatureScheme: tmconsensustest.SimpleSignatureScheme{},
+	}
+
+	var as *tmmemstore.ActionStore
+	if c.signer != nil {
+		as = tmmemstore.NewActionStore()
+	}
+
+	bs := tmmemstore.NewBlockStore()
+	fs := tmmemstore.NewFinalizationStore()
+	ms := tmmemstore.NewMirrorStore()
+	rs := tmmemstore.NewRoundStore()
+	vs := tmmemstore.NewValidatorStore(tmconsensustest.SimpleHashScheme{})
+
+	c.ms = ms
+	c.fs = fs
+
+	genesis := &tmconsensus.ExternalGenesis{
+		ChainID:           "TODO:TEMPORARY_CHAIN_ID", // todo parse this out of sdk genesis file
+		InitialHeight:     1,
+		InitialAppState:   strings.NewReader(""), // No initial app state yet.
+		GenesisValidators: nil,                   // TODO: where will the validators come from?
+	}
+
+	c.opts = []tmengine.Opt{
+		tmengine.WithSigner(c.signer),
+
+		tmengine.WithActionStore(as),
+		tmengine.WithBlockStore(bs),
+		tmengine.WithFinalizationStore(fs),
+		tmengine.WithMirrorStore(ms),
+		tmengine.WithRoundStore(rs),
+		tmengine.WithValidatorStore(vs),
+
+		tmengine.WithHashScheme(tmconsensustest.SimpleHashScheme{}),
+		tmengine.WithSignatureScheme(tmconsensustest.SimpleSignatureScheme{}),
+		tmengine.WithCommonMessageSignatureProofScheme(gcrypto.SimpleCommonMessageSignatureProofScheme),
+
+		tmengine.WithGenesis(genesis),
+
+		// NOTE: there are remaining required options that we shouldn't initialize here,
+		// but instead they will be added during the Start call.
+	}
+	if assertOpt != nil {
+		// Will always be nil in non-debug builds.
+		c.opts = append(c.opts, assertOpt)
+	}
+
+	return nil
+}
+
+// Start is called when the SDK is starting server components.
 func (c *Component) Start(ctx context.Context) error {
 	h, err := tmlibp2p.NewHost(
 		c.rootCtx,
@@ -295,6 +417,7 @@ func (c *Component) Start(ctx context.Context) error {
 	return nil
 }
 
+// Stop is called when the SDK is shutting down the server components.
 func (c *Component) Stop(_ context.Context) error {
 	c.cancel(errors.New("stopped via SDK server module"))
 	if c.e != nil {
@@ -342,126 +465,6 @@ func (c *Component) Stop(_ context.Context) error {
 			c.grpcServer.Wait()
 		}
 	}
-	return nil
-}
-
-func (c *Component) Init(app serverv2.AppI[transaction.Tx], v *viper.Viper, log cosmoslog.Logger) error {
-	if c.log == nil {
-		l, ok := log.Impl().(*slog.Logger)
-		if !ok {
-			return errors.New("(*gserver.Component).Init: log must be set during gserver.NewServerModule, or Init log must be implemented by *slog.Logger")
-		}
-		c.log = l
-	}
-
-	// It's somewhat likely that a user could misconfigure the assertion rules in a debug build,
-	// so check those before doing any other heavy lifting.
-	assertOpt, err := getAssertEngineOpt(v)
-	if err != nil {
-		return fmt.Errorf("failed to build assertion environment: %w", err)
-	}
-
-	// Maybe set up the HTTP server.
-	if httpAddr := v.GetString(httpAddrFlag); httpAddr != "" {
-		ln, err := net.Listen("tcp", httpAddr)
-		if err != nil {
-			return fmt.Errorf("failed to listen for HTTP on %q: %w", httpAddr, err)
-		}
-
-		if f := v.GetString(httpAddrFileFlag); f != "" {
-			// TODO: we should probably track this file and delete it on shutdown.
-			addr := ln.Addr().String() + "\n"
-			if err := os.WriteFile(f, []byte(addr), 0600); err != nil {
-				return fmt.Errorf("failed to write HTTP address to file %q: %w", f, err)
-			}
-		}
-
-		c.httpLn = ln
-	}
-
-	// Maybe set up the GRPC server.
-	if grpcAddrFlag := v.GetString(grpcAddrFlag); grpcAddrFlag != "" {
-		ln, err := net.Listen("tcp", grpcAddrFlag)
-		if err != nil {
-			return fmt.Errorf("failed to listen for gRPC on %q: %w", grpcAddrFlag, err)
-		}
-
-		c.grpcLn = ln
-	}
-
-	c.seedAddrs = v.GetString(seedAddrsFlag)
-	if c.seedAddrs == "" {
-		c.log.Warn("No seed addresses provided; relying on incoming connections to discover peers")
-	}
-
-	c.app = app
-
-	// Load the comet config, in order to read the privval key from disk.
-	// We don't really care about the state file,
-	// but we need to to call LoadFilePV,
-	// to get to the FilePVKey,
-	// which gives us the PrivKey.
-	cometConfig := client.GetConfigFromViper(v)
-	fpv := privval.LoadFilePV(cometConfig.PrivValidatorKeyFile(), cometConfig.PrivValidatorStateFile())
-	privKey := fpv.Key.PrivKey
-	if privKey.Type() != "ed25519" {
-		panic(fmt.Errorf(
-			"gcosmos only understands ed25519 signing keys; got %q",
-			privKey.Type(),
-		))
-	}
-
-	// TODO: we should allow a way to explicitly NOT provide a signer.
-	c.signer = tmconsensus.PassthroughSigner{
-		Signer:          gcrypto.NewEd25519Signer(ed25519.PrivateKey(privKey.Bytes())),
-		SignatureScheme: tmconsensustest.SimpleSignatureScheme{},
-	}
-
-	var as *tmmemstore.ActionStore
-	if c.signer != nil {
-		as = tmmemstore.NewActionStore()
-	}
-
-	bs := tmmemstore.NewBlockStore()
-	fs := tmmemstore.NewFinalizationStore()
-	ms := tmmemstore.NewMirrorStore()
-	rs := tmmemstore.NewRoundStore()
-	vs := tmmemstore.NewValidatorStore(tmconsensustest.SimpleHashScheme{})
-
-	c.ms = ms
-	c.fs = fs
-
-	genesis := &tmconsensus.ExternalGenesis{
-		ChainID:           "TODO:TEMPORARY_CHAIN_ID", // todo parse this out of sdk genesis file
-		InitialHeight:     1,
-		InitialAppState:   strings.NewReader(""), // No initial app state yet.
-		GenesisValidators: nil,                   // TODO: where will the validators come from?
-	}
-
-	c.opts = []tmengine.Opt{
-		tmengine.WithSigner(c.signer),
-
-		tmengine.WithActionStore(as),
-		tmengine.WithBlockStore(bs),
-		tmengine.WithFinalizationStore(fs),
-		tmengine.WithMirrorStore(ms),
-		tmengine.WithRoundStore(rs),
-		tmengine.WithValidatorStore(vs),
-
-		tmengine.WithHashScheme(tmconsensustest.SimpleHashScheme{}),
-		tmengine.WithSignatureScheme(tmconsensustest.SimpleSignatureScheme{}),
-		tmengine.WithCommonMessageSignatureProofScheme(gcrypto.SimpleCommonMessageSignatureProofScheme),
-
-		tmengine.WithGenesis(genesis),
-
-		// NOTE: there are remaining required options that we shouldn't initialize here,
-		// but instead they will be added during the Start call.
-	}
-	if assertOpt != nil {
-		// Will always be nil in non-debug builds.
-		c.opts = append(c.opts, assertOpt)
-	}
-
 	return nil
 }
 
