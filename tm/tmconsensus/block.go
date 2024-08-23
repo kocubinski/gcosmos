@@ -30,10 +30,10 @@ type Block struct {
 
 	// ID of the data for this block.
 	// The user-defined consensus strategy provides this ID,
-	// and the application is responsible for retrieving the raw data belonging to the ID.
+	// and the driver is responsible for retrieving the raw data belonging to the ID.
 	//
 	// The ID is typically, but not necessarily,
-	// a cryptographic hash of the application data for the block
+	// a cryptographic hash of the application data for the block.
 	DataID []byte
 
 	// The hash of the app state as a result of executing the previous block.
@@ -57,9 +57,13 @@ type Block struct {
 
 // CommitProof is the commit proof for a block.
 type CommitProof struct {
-	Round uint32 // Necessary to derive signature content.
+	// Necessary to verify signature content.
+	Round uint32
 
-	PubKeyHash string // Required to validate sparse signatures.
+	// The hash of the ordered collection of public keys
+	// of the validators at the height where the commit proof occurred.
+	// Derived through a [HashScheme] method.
+	PubKeyHash string
 
 	// Keyed by block hash, or an empty string for nil block.
 	Proofs map[string][]gcrypto.SparseSignature
@@ -72,6 +76,8 @@ type CommittedBlock struct {
 }
 
 // ProposedBlock is the data sent by a proposer at the beginning of a round.
+// This is the logical representation within the engine,
+// not necessarily an exact representation of the data sent across the network.
 type ProposedBlock struct {
 	// The block to consider committing.
 	Block Block
@@ -106,7 +112,8 @@ type ProposedBlock struct {
 	Signature []byte
 }
 
-// BlockFinalization is the set of data resulting from finalizing (read: evaluating) a block.
+// BlockFinalization is the set of data resulting from finalizing
+// (read: evaluating and executing) a block.
 type BlockFinalization struct {
 	// The block hash, for an unambiguous reference to which block is in consideration.
 	BlockHash []byte
@@ -119,6 +126,7 @@ type BlockFinalization struct {
 	Round uint32
 
 	// The hash of the app state after finalizing the block.
+	// The engine uses this as the [Block.PrevAppStateHash] field when proposing a new block.
 	AppStateHash []byte
 
 	// The next validators after evaluating the block.
