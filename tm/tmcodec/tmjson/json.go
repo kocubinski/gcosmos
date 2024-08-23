@@ -72,8 +72,11 @@ type jsonBlock struct {
 
 	PrevCommitProof jsonCommitProof
 
-	Validators     []jsonValidator
-	NextValidators []jsonValidator
+	ValidatorSet, NextValidatorSet struct {
+		Validators    []jsonValidator
+		PubKeyHash    []byte
+		VotePowerHash []byte
+	}
 
 	DataID           []byte
 	PrevAppStateHash []byte
@@ -84,8 +87,8 @@ type jsonBlock struct {
 func (jb jsonBlock) ToBlock(
 	reg *gcrypto.Registry,
 ) (tmconsensus.Block, error) {
-	validators := make([]tmconsensus.Validator, len(jb.Validators))
-	for i, jv := range jb.Validators {
+	validators := make([]tmconsensus.Validator, len(jb.ValidatorSet.Validators))
+	for i, jv := range jb.ValidatorSet.Validators {
 		var err error
 		validators[i], err = jv.ToValidator(reg)
 		if err != nil {
@@ -96,8 +99,8 @@ func (jb jsonBlock) ToBlock(
 		}
 	}
 
-	nextValidators := make([]tmconsensus.Validator, len(jb.NextValidators))
-	for i, jv := range jb.NextValidators {
+	nextValidators := make([]tmconsensus.Validator, len(jb.NextValidatorSet.Validators))
+	for i, jv := range jb.NextValidatorSet.Validators {
 		var err error
 		nextValidators[i], err = jv.ToValidator(reg)
 		if err != nil {
@@ -132,8 +135,16 @@ func (jb jsonBlock) ToBlock(
 
 		PrevCommitProof: proof,
 
-		Validators:     validators,
-		NextValidators: nextValidators,
+		ValidatorSet: tmconsensus.ValidatorSet{
+			Validators:    validators,
+			PubKeyHash:    jb.ValidatorSet.PubKeyHash,
+			VotePowerHash: jb.ValidatorSet.VotePowerHash,
+		},
+		NextValidatorSet: tmconsensus.ValidatorSet{
+			Validators:    nextValidators,
+			PubKeyHash:    jb.NextValidatorSet.PubKeyHash,
+			VotePowerHash: jb.NextValidatorSet.VotePowerHash,
+		},
 
 		DataID:           jb.DataID,
 		PrevAppStateHash: jb.PrevAppStateHash,
@@ -146,17 +157,17 @@ func (jb jsonBlock) ToBlock(
 }
 
 func toJSONBlock(b tmconsensus.Block, reg *gcrypto.Registry) jsonBlock {
-	jValidators := make([]jsonValidator, len(b.Validators))
-	for i, v := range b.Validators {
+	jValidators := make([]jsonValidator, len(b.ValidatorSet.Validators))
+	for i, v := range b.ValidatorSet.Validators {
 		jValidators[i] = toJSONValidator(v, reg)
 	}
 
-	jNextValidators := make([]jsonValidator, len(b.NextValidators))
-	for i, v := range b.NextValidators {
+	jNextValidators := make([]jsonValidator, len(b.NextValidatorSet.Validators))
+	for i, v := range b.NextValidatorSet.Validators {
 		jNextValidators[i] = toJSONValidator(v, reg)
 	}
 
-	return jsonBlock{
+	jb := jsonBlock{
 		Hash:          b.Hash,
 		PrevBlockHash: b.PrevBlockHash,
 
@@ -164,15 +175,22 @@ func toJSONBlock(b tmconsensus.Block, reg *gcrypto.Registry) jsonBlock {
 
 		PrevCommitProof: toJSONCommitProof(b.PrevCommitProof),
 
-		Validators:     jValidators,
-		NextValidators: jNextValidators,
-
 		DataID:           b.DataID,
 		PrevAppStateHash: b.PrevAppStateHash,
 
 		UserAnnotation:   b.Annotations.User,
 		DriverAnnotation: b.Annotations.Driver,
 	}
+
+	jb.ValidatorSet.Validators = jValidators
+	jb.ValidatorSet.PubKeyHash = b.ValidatorSet.PubKeyHash
+	jb.ValidatorSet.VotePowerHash = b.ValidatorSet.VotePowerHash
+
+	jb.NextValidatorSet.Validators = jValidators
+	jb.NextValidatorSet.PubKeyHash = b.NextValidatorSet.PubKeyHash
+	jb.NextValidatorSet.VotePowerHash = b.NextValidatorSet.VotePowerHash
+
+	return jb
 }
 
 // jsonProposedBlock is a converted [tmconsensus.Validator]

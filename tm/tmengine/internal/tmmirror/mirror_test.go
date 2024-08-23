@@ -202,10 +202,11 @@ func TestMirror_Initialization(t *testing.T) {
 			require.Equal(t, uint32(1), v.PrecommitVersion)
 
 			// Validator details match.
-			require.True(t, tmconsensus.ValidatorSlicesEqual(mfx.Cfg.InitialValidators, v.Validators))
+			require.True(t, tmconsensus.ValidatorSlicesEqual(mfx.Cfg.InitialValidators, v.ValidatorSet.Validators))
+
 			keyHash, powHash := mfx.Fx.ValidatorHashes()
-			require.Equal(t, keyHash, v.ValidatorPubKeyHash)
-			require.Equal(t, powHash, v.ValidatorVotePowerHash)
+			require.Equal(t, keyHash, string(v.ValidatorSet.PubKeyHash))
+			require.Equal(t, powHash, string(v.ValidatorSet.VotePowerHash))
 
 			// Proposed blocks are empty, and nil proofs are ready.
 			require.Empty(t, v.ProposedBlocks)
@@ -214,7 +215,7 @@ func TestMirror_Initialization(t *testing.T) {
 
 			s := v.VoteSummary
 			var expAvailPow uint64
-			for _, val := range v.Validators {
+			for _, val := range v.ValidatorSet.Validators {
 				expAvailPow += val.Power
 			}
 			require.Equal(t, expAvailPow, s.AvailablePower)
@@ -232,10 +233,11 @@ func TestMirror_Initialization(t *testing.T) {
 			require.Equal(t, uint32(1), v.PrecommitVersion)
 
 			// Validator details match.
-			require.True(t, tmconsensus.ValidatorSlicesEqual(mfx.Cfg.InitialValidators, v.Validators))
+			require.True(t, tmconsensus.ValidatorSlicesEqual(mfx.Cfg.InitialValidators, v.ValidatorSet.Validators))
+
 			keyHash, powHash := mfx.Fx.ValidatorHashes()
-			require.Equal(t, keyHash, v.ValidatorPubKeyHash)
-			require.Equal(t, powHash, v.ValidatorVotePowerHash)
+			require.Equal(t, keyHash, string(v.ValidatorSet.PubKeyHash))
+			require.Equal(t, powHash, string(v.ValidatorSet.VotePowerHash))
 
 			// Proposed blocks are empty, and nil proofs are ready.
 			require.Empty(t, v.ProposedBlocks)
@@ -244,7 +246,7 @@ func TestMirror_Initialization(t *testing.T) {
 
 			s := v.VoteSummary
 			var expAvailPow uint64
-			for _, val := range v.Validators {
+			for _, val := range v.ValidatorSet.Validators {
 				expAvailPow += val.Power
 			}
 			require.Equal(t, expAvailPow, s.AvailablePower)
@@ -272,11 +274,11 @@ func TestMirror_Outputs(t *testing.T) {
 
 		require.Nil(t, gso.Committing)
 
-		require.Equal(t, keyHash, gso.Voting.ValidatorPubKeyHash)
-		require.Equal(t, powHash, gso.Voting.ValidatorVotePowerHash)
+		require.Equal(t, keyHash, string(gso.Voting.ValidatorSet.PubKeyHash))
+		require.Equal(t, powHash, string(gso.Voting.ValidatorSet.VotePowerHash))
 
-		require.Equal(t, keyHash, gso.NextRound.ValidatorPubKeyHash)
-		require.Equal(t, powHash, gso.NextRound.ValidatorVotePowerHash)
+		require.Equal(t, keyHash, string(gso.NextRound.ValidatorSet.PubKeyHash))
+		require.Equal(t, powHash, string(gso.NextRound.ValidatorSet.VotePowerHash))
 	})
 
 	t.Run("starting past initial height", func(t *testing.T) {
@@ -297,14 +299,14 @@ func TestMirror_Outputs(t *testing.T) {
 
 		gso := gtest.ReceiveSoon(t, mfx.GossipStrategyOut)
 
-		require.Equal(t, keyHash, gso.Committing.ValidatorPubKeyHash)
-		require.Equal(t, powHash, gso.Committing.ValidatorVotePowerHash)
+		require.Equal(t, keyHash, string(gso.Committing.ValidatorSet.PubKeyHash))
+		require.Equal(t, powHash, string(gso.Committing.ValidatorSet.VotePowerHash))
 
-		require.Equal(t, keyHash, gso.Voting.ValidatorPubKeyHash)
-		require.Equal(t, powHash, gso.Voting.ValidatorVotePowerHash)
+		require.Equal(t, keyHash, string(gso.Voting.ValidatorSet.PubKeyHash))
+		require.Equal(t, powHash, string(gso.Voting.ValidatorSet.VotePowerHash))
 
-		require.Equal(t, keyHash, gso.NextRound.ValidatorPubKeyHash)
-		require.Equal(t, powHash, gso.NextRound.ValidatorVotePowerHash)
+		require.Equal(t, keyHash, string(gso.NextRound.ValidatorSet.PubKeyHash))
+		require.Equal(t, powHash, string(gso.NextRound.ValidatorSet.VotePowerHash))
 	})
 
 	t.Run("after a live commit", func(t *testing.T) {
@@ -340,14 +342,14 @@ func TestMirror_Outputs(t *testing.T) {
 
 		gso := gtest.ReceiveSoon(t, mfx.GossipStrategyOut)
 
-		require.Equal(t, keyHash, gso.Committing.ValidatorPubKeyHash)
-		require.Equal(t, powHash, gso.Committing.ValidatorVotePowerHash)
+		require.Equal(t, keyHash, string(gso.Committing.ValidatorSet.PubKeyHash))
+		require.Equal(t, powHash, string(gso.Committing.ValidatorSet.VotePowerHash))
 
-		require.Equal(t, keyHash, gso.Voting.ValidatorPubKeyHash)
-		require.Equal(t, powHash, gso.Voting.ValidatorVotePowerHash)
+		require.Equal(t, keyHash, string(gso.Voting.ValidatorSet.PubKeyHash))
+		require.Equal(t, powHash, string(gso.Voting.ValidatorSet.VotePowerHash))
 
-		require.Equal(t, keyHash, gso.NextRound.ValidatorPubKeyHash)
-		require.Equal(t, powHash, gso.NextRound.ValidatorVotePowerHash)
+		require.Equal(t, keyHash, string(gso.NextRound.ValidatorSet.PubKeyHash))
+		require.Equal(t, powHash, string(gso.NextRound.ValidatorSet.VotePowerHash))
 	})
 }
 
@@ -372,8 +374,6 @@ func TestMirror_HandleProposedBlock(t *testing.T) {
 		mfx.Fx.SignProposal(ctx, &pb1, 0)
 
 		require.Equal(t, tmconsensus.HandleProposedBlockAccepted, m.HandleProposedBlock(ctx, pb1))
-
-		keyHash, powHash := mfx.Fx.ValidatorHashes()
 
 		// The proposed block is added in the background while HandleProposedBlock returns,
 		// so synchronize on the voting view update before inspecting the store.
@@ -401,14 +401,12 @@ func TestMirror_HandleProposedBlock(t *testing.T) {
 
 		vs := tmconsensus.NewVoteSummary()
 		vs.SetAvailablePower(mfx.Fx.Vals())
+
 		require.Equal(t, tmconsensus.VersionedRoundView{
 			RoundView: tmconsensus.RoundView{
-				Height:     1,
-				Round:      0,
-				Validators: mfx.Fx.Vals(),
-
-				ValidatorPubKeyHash:    keyHash,
-				ValidatorVotePowerHash: powHash,
+				Height:       1,
+				Round:        0,
+				ValidatorSet: mfx.Fx.ValSet(),
 
 				ProposedBlocks: []tmconsensus.ProposedBlock{pb1},
 
@@ -680,7 +678,7 @@ func TestMirror_HandlePrevoteProofs(t *testing.T) {
 
 		require.Equal(t, tmconsensus.HandleProposedBlockAccepted, m.HandleProposedBlock(ctx, pb1))
 
-		keyHash, powHash := mfx.Fx.ValidatorHashes()
+		keyHash, _ := mfx.Fx.ValidatorHashes()
 
 		// One active and one nil prevote.
 		voteMap := map[string][]int{
@@ -704,14 +702,12 @@ func TestMirror_HandlePrevoteProofs(t *testing.T) {
 		vs := tmconsensus.NewVoteSummary()
 		vs.SetAvailablePower(mfx.Fx.Vals())
 		vs.SetPrevotePowers(mfx.Fx.Vals(), fullPrevoteProofMap)
+
 		require.Equal(t, tmconsensus.VersionedRoundView{
 			RoundView: tmconsensus.RoundView{
-				Height:     1,
-				Round:      0,
-				Validators: mfx.Fx.Vals(),
-
-				ValidatorPubKeyHash:    keyHash,
-				ValidatorVotePowerHash: powHash,
+				Height:       1,
+				Round:        0,
+				ValidatorSet: mfx.Fx.ValSet(),
 
 				ProposedBlocks: []tmconsensus.ProposedBlock{pb1},
 
@@ -751,7 +747,7 @@ func TestMirror_HandlePrevoteProofs(t *testing.T) {
 
 		require.Equal(t, tmconsensus.HandleProposedBlockAccepted, m.HandleProposedBlock(ctx, pb1))
 
-		keyHash, powHash := mfx.Fx.ValidatorHashes()
+		keyHash, _ := mfx.Fx.ValidatorHashes()
 
 		// Start an independent goroutine for each prevote to submit.
 		start := make(chan struct{})
@@ -791,12 +787,9 @@ func TestMirror_HandlePrevoteProofs(t *testing.T) {
 
 		// Only asserting against the RoundView content, ignoring the versioned details.
 		expNV := tmconsensus.RoundView{
-			Height:     1,
-			Round:      0,
-			Validators: mfx.Fx.Vals(),
-
-			ValidatorPubKeyHash:    keyHash,
-			ValidatorVotePowerHash: powHash,
+			Height:       1,
+			Round:        0,
+			ValidatorSet: mfx.Fx.ValSet(),
 
 			ProposedBlocks: []tmconsensus.ProposedBlock{pb1},
 
@@ -807,8 +800,8 @@ func TestMirror_HandlePrevoteProofs(t *testing.T) {
 		}
 
 		vs := tmconsensus.NewVoteSummary()
-		vs.SetAvailablePower(expNV.Validators)
-		vs.SetPrevotePowers(expNV.Validators, expNV.PrevoteProofs)
+		vs.SetAvailablePower(expNV.ValidatorSet.Validators)
+		vs.SetPrevotePowers(expNV.ValidatorSet.Validators, expNV.PrevoteProofs)
 		expNV.VoteSummary = vs
 
 		var vnv tmconsensus.VersionedRoundView
@@ -849,7 +842,7 @@ func TestMirror_HandlePrecommitProofs(t *testing.T) {
 
 		require.Equal(t, tmconsensus.HandleProposedBlockAccepted, m.HandleProposedBlock(ctx, pb1))
 
-		keyHash, powHash := mfx.Fx.ValidatorHashes()
+		keyHash, _ := mfx.Fx.ValidatorHashes()
 
 		// One active and one nil precommit.
 		// Still below 2/3 voting power present.
@@ -874,14 +867,12 @@ func TestMirror_HandlePrecommitProofs(t *testing.T) {
 		vs := tmconsensus.NewVoteSummary()
 		vs.SetAvailablePower(mfx.Fx.Vals())
 		vs.SetPrecommitPowers(mfx.Fx.Vals(), fullPrecommitProofMap)
+
 		require.Equal(t, tmconsensus.VersionedRoundView{
 			RoundView: tmconsensus.RoundView{
-				Height:     1,
-				Round:      0,
-				Validators: mfx.Fx.Vals(),
-
-				ValidatorPubKeyHash:    keyHash,
-				ValidatorVotePowerHash: powHash,
+				Height:       1,
+				Round:        0,
+				ValidatorSet: mfx.Fx.ValSet(),
 
 				ProposedBlocks: []tmconsensus.ProposedBlock{pb1},
 
@@ -1036,7 +1027,7 @@ func TestMirror_pastInitialHeight(t *testing.T) {
 		// Haven't seen anything in the voting round yet,
 		// so we should have no proposed blocks,
 		// and we should have empty proofs for nil votes.
-		require.True(t, tmconsensus.ValidatorSlicesEqual(mfx.Cfg.InitialValidators, vv.Validators))
+		require.True(t, tmconsensus.ValidatorSlicesEqual(mfx.Cfg.InitialValidators, vv.ValidatorSet.Validators))
 		require.Empty(t, vv.ProposedBlocks)
 		require.Len(t, vv.PrevoteProofs, 1)
 		np := vv.PrevoteProofs[""]
@@ -1745,8 +1736,8 @@ func TestMirror_nextRound(t *testing.T) {
 		require.Equal(t, uint64(1), vrv.Height)
 		require.Equal(t, uint32(1), vrv.Round)
 		require.Equal(t, []tmconsensus.ProposedBlock{pb11}, vrv.ProposedBlocks)
-		require.Equal(t, keyHash, vrv.ValidatorPubKeyHash)
-		require.Equal(t, powHash, vrv.ValidatorVotePowerHash)
+		require.Equal(t, keyHash, string(vrv.ValidatorSet.PubKeyHash))
+		require.Equal(t, powHash, string(vrv.ValidatorSet.VotePowerHash))
 
 		nrrv = gso.NextRound
 		require.Equal(t, uint64(1), nrrv.Height)

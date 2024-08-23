@@ -80,7 +80,7 @@ func (a *valShuffleApp) kernel(
 		return
 
 	case req := <-initChainRequests:
-		initVals = req.Genesis.GenesisValidators
+		initVals = req.Genesis.GenesisValidatorSet.Validators
 
 		// State hash for this app is the concatenation of the height and the validator key and power hashes.
 		keyHash, powHash, err := validatorHashes(initVals, a.hs)
@@ -112,7 +112,8 @@ func (a *valShuffleApp) kernel(
 			return
 
 		case req := <-finalizeBlockRequests:
-			keyHash, powHash, err := validatorHashes(req.Block.Validators, a.hs)
+			// TODO: should we trust these from somewhere instead?
+			keyHash, powHash, err := validatorHashes(req.Block.ValidatorSet.Validators, a.hs)
 			if err != nil {
 				panic(fmt.Errorf("failed to calculate validator hashes at finalization: %w", err))
 			}
@@ -206,8 +207,8 @@ func (s *valShuffleConsensusStrategy) EnterRound(ctx context.Context, rv tmconse
 	s.curR = rv.Round
 
 	// Pseudo-copy of the modulo round robin proposer selection strategy that the v0.2 code used.
-	s.expProposerIndex = (int(rv.Height) + int(rv.Round)) % len(rv.Validators)
-	s.expProposerPubKey = rv.Validators[s.expProposerIndex].PubKey
+	s.expProposerIndex = (int(rv.Height) + int(rv.Round)) % len(rv.ValidatorSet.Validators)
+	s.expProposerPubKey = rv.ValidatorSet.Validators[s.expProposerIndex].PubKey
 
 	if !s.expProposerPubKey.Equal(s.PubKey) {
 		// We are not the proposer.
@@ -215,7 +216,7 @@ func (s *valShuffleConsensusStrategy) EnterRound(ctx context.Context, rv tmconse
 	}
 
 	// If we are the proposer, we set the app data ID as the raw data of height, hash, hash
-	keyHash, powHash, err := validatorHashes(rv.Validators, s.HashScheme)
+	keyHash, powHash, err := validatorHashes(rv.ValidatorSet.Validators, s.HashScheme)
 	if err != nil {
 		return fmt.Errorf("failed to get validator hashes: %w", err)
 	}
@@ -243,7 +244,7 @@ func (s *valShuffleConsensusStrategy) ConsiderProposedBlocks(
 			continue
 		}
 
-		keyHash, powHash, err := validatorHashes(pb.Block.Validators, s.HashScheme)
+		keyHash, powHash, err := validatorHashes(pb.Block.ValidatorSet.Validators, s.HashScheme)
 		if err != nil {
 			return "", err
 		}

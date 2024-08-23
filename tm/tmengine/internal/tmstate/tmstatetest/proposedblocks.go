@@ -20,7 +20,9 @@ type ProposedBlockMutator struct {
 // The nCurVals and nNextVals arguments are used to determine
 // an incorrect number of validators to set in the proposed block,
 // in order to be ignored.
-func UnacceptableProposedBlockMutations(nCurVals, nNextVals int) []ProposedBlockMutator {
+func UnacceptableProposedBlockMutations(
+	hs tmconsensus.HashScheme, nCurVals, nNextVals int,
+) []ProposedBlockMutator {
 	return []ProposedBlockMutator{
 		{
 			Name: "wrong PrevAppStateHash",
@@ -31,13 +33,27 @@ func UnacceptableProposedBlockMutations(nCurVals, nNextVals int) []ProposedBlock
 		{
 			Name: "extra current validator",
 			Mutate: func(pb *tmconsensus.ProposedBlock) {
-				pb.Block.Validators = tmconsensustest.DeterministicValidatorsEd25519(nCurVals + 1).Vals()
+				var err error
+				pb.Block.ValidatorSet, err = tmconsensus.NewValidatorSet(
+					tmconsensustest.DeterministicValidatorsEd25519(nCurVals+1).Vals(),
+					hs,
+				)
+				if err != nil {
+					panic(err)
+				}
 			},
 		},
 		{
 			Name: "extra next validator",
 			Mutate: func(pb *tmconsensus.ProposedBlock) {
-				pb.Block.NextValidators = tmconsensustest.DeterministicValidatorsEd25519(nNextVals + 1).Vals()
+				var err error
+				pb.Block.NextValidatorSet, err = tmconsensus.NewValidatorSet(
+					tmconsensustest.DeterministicValidatorsEd25519(nNextVals+1).Vals(),
+					hs,
+				)
+				if err != nil {
+					panic(err)
+				}
 			},
 		},
 	}

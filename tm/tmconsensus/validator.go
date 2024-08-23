@@ -2,15 +2,56 @@ package tmconsensus
 
 import (
 	"bytes"
+	"fmt"
 	"slices"
 	"sort"
 
 	"github.com/rollchains/gordian/gcrypto"
 )
 
+// Validator is the simple representation of a validator,
+// just a public key and a voting power.
 type Validator struct {
 	PubKey gcrypto.PubKey
 	Power  uint64
+}
+
+// ValidatorSet is a fixed, ordered collection of validators.
+type ValidatorSet struct {
+	Validators []Validator
+
+	// Hashes generated via a [HashScheme].
+	PubKeyHash, VotePowerHash []byte
+}
+
+// ValidatorSet reports whether the collection of validators and the calculated hashes
+// are the same in v and other.
+func (v ValidatorSet) Equal(other ValidatorSet) bool {
+	return bytes.Equal(v.PubKeyHash, other.PubKeyHash) &&
+		bytes.Equal(v.VotePowerHash, other.VotePowerHash) &&
+		ValidatorSlicesEqual(v.Validators, other.Validators)
+}
+
+// NewValidatorSet returns a ValidatorSet based on vs,
+// with hashes calculated using hs.
+//
+// NewValidatorSet assumes ownership over the validator slice,
+// so that slice should not be modified after passing it to NewValidatorSet.
+func NewValidatorSet(vs []Validator, hs HashScheme) (ValidatorSet, error) {
+	s := ValidatorSet{Validators: vs}
+
+	var err error
+	s.PubKeyHash, err = hs.PubKeys(ValidatorsToPubKeys(vs))
+	if err != nil {
+		return ValidatorSet{}, fmt.Errorf("failed to calculate public key hash: %w", err)
+	}
+
+	s.VotePowerHash, err = hs.VotePowers(ValidatorsToVotePowers(vs))
+	if err != nil {
+		return ValidatorSet{}, fmt.Errorf("failed to calculate vote power hash: %w", err)
+	}
+
+	return s, nil
 }
 
 // SortValidators sorts vs in-place, by power descending,

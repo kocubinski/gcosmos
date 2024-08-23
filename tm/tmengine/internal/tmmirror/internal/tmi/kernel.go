@@ -37,7 +37,7 @@ type Kernel struct {
 	// Required for certain edge cases.
 	// Usually 1.
 	initialHeight uint64
-	initialVals   []tmconsensus.Validator
+	initialVals   tmconsensus.ValidatorSet
 
 	pbf tmelink.ProposedBlockFetcher
 	mc  *tmemetrics.Collector
@@ -123,6 +123,13 @@ func NewKernel(ctx context.Context, log *slog.Logger, cfg KernelConfig) (*Kernel
 		}
 	}
 
+	initialValSet, err := tmconsensus.NewValidatorSet(cfg.InitialValidators, cfg.HashScheme)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"cannot initialize mirror kernel: failed to build initial validator set: %w", err,
+		)
+	}
+
 	k := &Kernel{
 		log: log,
 
@@ -136,7 +143,7 @@ func NewKernel(ctx context.Context, log *slog.Logger, cfg KernelConfig) (*Kernel
 		cmspScheme: cfg.CommonMessageSignatureProofScheme,
 
 		initialHeight: cfg.InitialHeight,
-		initialVals:   slices.Clone(cfg.InitialValidators),
+		initialVals:   initialValSet,
 
 		pbf: cfg.ProposedBlockFetcher,
 		mc:  cfg.MetricsCollector,
@@ -474,7 +481,7 @@ func (k *Kernel) addPrevote(ctx context.Context, s *kState, req AddPrevoteReques
 
 	// Bookkeeping.
 	if anyAdded {
-		vrv.VoteSummary.SetPrevotePowers(vrv.Validators, vrv.PrevoteProofs)
+		vrv.VoteSummary.SetPrevotePowers(vrv.ValidatorSet.Validators, vrv.PrevoteProofs)
 		s.MarkViewUpdated(vID)
 
 		if err := k.rStore.OverwritePrevoteProofs(
@@ -575,7 +582,7 @@ func (k *Kernel) addPrecommit(ctx context.Context, s *kState, req AddPrecommitRe
 
 	// Bookkeeping.
 	if anyAdded {
-		vrv.VoteSummary.SetPrecommitPowers(vrv.Validators, vrv.PrecommitProofs)
+		vrv.VoteSummary.SetPrecommitPowers(vrv.ValidatorSet.Validators, vrv.PrecommitProofs)
 		s.MarkViewUpdated(vID)
 
 		if err := k.rStore.OverwritePrecommitProofs(
@@ -726,38 +733,21 @@ func (k *Kernel) checkVotingPrecommitViewShift(ctx context.Context, s *kState) e
 		}
 	}
 
-	nextVals := slices.Clone(votedBlock.NextValidators)
-	nhd := nextHeightDetails{
-		Validators: nextVals,
-	}
+	// TODO: gassert: verify incoming validator set's hashes.
+	nextValSet := votedBlock.NextValidatorSet
+	nhd := nextHeightDetails{ValidatorSet: nextValSet}
 	var err error
 
 	nhd.Round0NilPrevote, nhd.Round0NilPrecommit, err =
-		k.getInitialNilProofs(votedBlock.Height+1, 0, nextVals)
+		k.getInitialNilProofs(votedBlock.Height+1, 0, nextValSet)
 	if err != nil {
 		return fmt.Errorf("failed to load nil proofs on new voting round: %w", err)
 	}
 	nhd.Round1NilPrevote, nhd.Round1NilPrecommit, err =
-		k.getInitialNilProofs(votedBlock.Height+1, 1, nextVals)
+		k.getInitialNilProofs(votedBlock.Height+1, 1, nextValSet)
 	if err != nil {
 		return fmt.Errorf("failed to load nil proofs on new next round: %w", err)
 	}
-
-	// TODO: we can avoid calculating these hashes sometimes,
-	// if we are smart about inspecting the previous view.
-	pubKeys := tmconsensus.ValidatorsToPubKeys(nextVals)
-	bPubKeyHash, err := k.hashScheme.PubKeys(pubKeys)
-	if err != nil {
-		return fmt.Errorf("failed to build public key hash for new voting height: %w", err)
-	}
-	nhd.ValidatorPubKeyHash = string(bPubKeyHash)
-
-	pows := tmconsensus.ValidatorsToVotePowers(nextVals)
-	bPowHash, err := k.hashScheme.VotePowers(pows)
-	if err != nil {
-		return fmt.Errorf("failed to build vote power hash for new voting height: %w", err)
-	}
-	nhd.ValidatorVotePowerHash = string(bPowHash)
 
 	nhd.VotedBlock = votedBlock
 
@@ -929,7 +919,7 @@ func (k *Kernel) checkMissingPBs(ctx context.Context, s *kState, proofs map[stri
 	// nonexistent proposed block
 
 	// TODO: figure out how to use the VoteSummary with the proofs argument properly.
-	dist := newVoteDistribution(proofs, s.Voting.Validators)
+	dist := newVoteDistribution(proofs, s.Voting.ValidatorSet.Validators)
 
 	min := tmconsensus.ByzantineMinority(dist.AvailableVotePower)
 
@@ -973,7 +963,7 @@ func (k *Kernel) checkMissingPBs(ctx context.Context, s *kState, proofs map[stri
 func (k *Kernel) advanceVotingRound(ctx context.Context, s *kState) error {
 	h := s.NextRound.Height
 	r := s.NextRound.Round + 1
-	nilPrevote, nilPrecommit, err := k.getInitialNilProofs(h, r, s.NextRound.Validators)
+	nilPrevote, nilPrecommit, err := k.getInitialNilProofs(h, r, s.NextRound.ValidatorSet)
 	if err != nil {
 		return fmt.Errorf(
 			"failed to get initial nil proofs for h=%d/r=%d when advancing voting round",
@@ -995,7 +985,7 @@ func (k *Kernel) advanceVotingRound(ctx context.Context, s *kState) error {
 func (k *Kernel) jumpVotingRound(ctx context.Context, s *kState) error {
 	h := s.NextRound.Height
 	r := s.NextRound.Round + 1
-	nilPrevote, nilPrecommit, err := k.getInitialNilProofs(h, r, s.NextRound.Validators)
+	nilPrevote, nilPrecommit, err := k.getInitialNilProofs(h, r, s.NextRound.ValidatorSet)
 	if err != nil {
 		return fmt.Errorf(
 			"failed to get initial nil proofs for h=%d/r=%d when jumping voting round",
@@ -1011,7 +1001,7 @@ func (k *Kernel) jumpVotingRound(ctx context.Context, s *kState) error {
 	return nil
 }
 
-func (k *Kernel) getInitialNilProofs(h uint64, r uint32, vals []tmconsensus.Validator) (
+func (k *Kernel) getInitialNilProofs(h uint64, r uint32, vs tmconsensus.ValidatorSet) (
 	prevote, precommit gcrypto.CommonMessageSignatureProof,
 	err error,
 ) {
@@ -1024,12 +1014,8 @@ func (k *Kernel) getInitialNilProofs(h uint64, r uint32, vals []tmconsensus.Vali
 		return nil, nil, fmt.Errorf("failed to get initial nil prevote sign bytes: %w", err)
 	}
 
-	pubKeys := tmconsensus.ValidatorsToPubKeys(vals)
-	bPubKeyHash, err := k.hashScheme.PubKeys(pubKeys)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to build public key hash: %w", err)
-	}
-	pubKeyHash := string(bPubKeyHash)
+	pubKeys := tmconsensus.ValidatorsToPubKeys(vs.Validators)
+	pubKeyHash := string(vs.PubKeyHash)
 
 	prevoteNilProof, err := k.cmspScheme.New(nilPrevoteContent, pubKeys, pubKeyHash)
 	if err != nil {
@@ -1068,15 +1054,11 @@ func (k *Kernel) copySnapshotView(src tmconsensus.VersionedRoundView, dst *tmcon
 	dst.Round = src.Round
 	dst.Version = src.Version
 
-	// Reuse any existing allocated space in the input slices.
+	// Copy or clear the destination validators.
 	if (fields & RVValidators) > 0 {
-		dst.Validators = append(dst.Validators[:0], src.Validators...)
-		dst.ValidatorPubKeyHash = src.ValidatorPubKeyHash
-		dst.ValidatorVotePowerHash = src.ValidatorVotePowerHash
+		dst.ValidatorSet = src.ValidatorSet
 	} else {
-		dst.Validators = dst.Validators[:0]
-		dst.ValidatorPubKeyHash = ""
-		dst.ValidatorVotePowerHash = ""
+		dst.ValidatorSet = tmconsensus.ValidatorSet{}
 	}
 
 	if (fields & RVProposedBlocks) > 0 {
@@ -1249,7 +1231,7 @@ func (k *Kernel) setPBCheckStatus(
 		// We are currently assuming that it is cheaper for the kernel to block on seeking through the validators
 		// than it is to copy over the entire validator block and hand it off to the mirror's calling goroutine.
 		var proposerPubKey gcrypto.PubKey
-		for _, val := range vrv.Validators {
+		for _, val := range vrv.ValidatorSet.Validators {
 			if req.PB.ProposerPubKey.Equal(val.PubKey) {
 				proposerPubKey = val.PubKey
 				break
@@ -1366,8 +1348,8 @@ func (k *Kernel) handleStateMachineAction(ctx context.Context, s *kState, act tm
 			var err error
 			updatedVote, err = k.cmspScheme.New(
 				act.Prevote.SignContent,
-				tmconsensus.ValidatorsToPubKeys(s.Voting.Validators),
-				s.Voting.ValidatorPubKeyHash,
+				tmconsensus.ValidatorsToPubKeys(s.Voting.ValidatorSet.Validators),
+				string(s.Voting.ValidatorSet.PubKeyHash),
 			)
 			if err != nil {
 				k.log.Error(
@@ -1419,8 +1401,8 @@ func (k *Kernel) handleStateMachineAction(ctx context.Context, s *kState, act tm
 		var err error
 		updatedVote, err = k.cmspScheme.New(
 			act.Precommit.SignContent,
-			tmconsensus.ValidatorsToPubKeys(s.Voting.Validators),
-			s.Voting.ValidatorPubKeyHash,
+			tmconsensus.ValidatorsToPubKeys(s.Voting.ValidatorSet.Validators),
+			string(s.Voting.ValidatorSet.PubKeyHash),
 		)
 		if err != nil {
 			k.log.Error(
@@ -1466,7 +1448,7 @@ func (k *Kernel) handleStateMachineAction(ctx context.Context, s *kState, act tm
 func (k *Kernel) loadInitialView(
 	ctx context.Context,
 	h uint64, r uint32,
-	vals []tmconsensus.Validator,
+	vs tmconsensus.ValidatorSet,
 ) (tmconsensus.RoundView, error) {
 	var rv tmconsensus.RoundView
 	pbs, prevotes, precommits, err := k.rStore.LoadRoundState(ctx, h, r)
@@ -1478,15 +1460,18 @@ func (k *Kernel) loadInitialView(
 		Height: h,
 		Round:  r,
 
-		Validators: vals,
+		ValidatorSet: vs,
 
 		ProposedBlocks: pbs,
 	}
 
 	// Is there ever a case where we don't have the validator hashes in the store?
 	// This should be safe anyway, and it only happens once at startup.
-	valPubKeys := tmconsensus.ValidatorsToPubKeys(rv.Validators)
-	rv.ValidatorPubKeyHash, err = k.vStore.SavePubKeys(ctx, valPubKeys)
+	valPubKeys := tmconsensus.ValidatorsToPubKeys(vs.Validators)
+
+	// TODO: gassert: confirm the store-returned hashes match vs.
+
+	_, err = k.vStore.SavePubKeys(ctx, valPubKeys)
 	if err != nil && !errors.As(err, new(tmstore.PubKeysAlreadyExistError)) {
 		return tmconsensus.RoundView{}, fmt.Errorf(
 			"cannot initialize view: failed to save or check initial view validator pubkey hash: %w",
@@ -1494,9 +1479,9 @@ func (k *Kernel) loadInitialView(
 		)
 	}
 
-	rv.ValidatorVotePowerHash, err = k.vStore.SaveVotePowers(
+	_, err = k.vStore.SaveVotePowers(
 		ctx,
-		tmconsensus.ValidatorsToVotePowers(rv.Validators),
+		tmconsensus.ValidatorsToVotePowers(vs.Validators),
 	)
 	if err != nil && !errors.As(err, new(tmstore.VotePowersAlreadyExistError)) {
 		return tmconsensus.RoundView{}, fmt.Errorf(
@@ -1516,7 +1501,7 @@ func (k *Kernel) loadInitialView(
 		if err != nil {
 			return tmconsensus.RoundView{}, fmt.Errorf("failed to get initial nil prevote sign bytes: %w", err)
 		}
-		prevotes[""], err = k.cmspScheme.New(content, valPubKeys, rv.ValidatorPubKeyHash)
+		prevotes[""], err = k.cmspScheme.New(content, valPubKeys, string(rv.ValidatorSet.PubKeyHash))
 		if err != nil {
 			return tmconsensus.RoundView{}, fmt.Errorf("failed to get initial nil prevote proof: %w", err)
 		}
@@ -1531,7 +1516,7 @@ func (k *Kernel) loadInitialView(
 		if err != nil {
 			return tmconsensus.RoundView{}, fmt.Errorf("failed to get initial nil precommit sign bytes: %w", err)
 		}
-		precommits[""], err = k.cmspScheme.New(content, valPubKeys, rv.ValidatorPubKeyHash)
+		precommits[""], err = k.cmspScheme.New(content, valPubKeys, string(rv.ValidatorSet.PubKeyHash))
 		if err != nil {
 			return tmconsensus.RoundView{}, fmt.Errorf("failed to get initial nil precommit proof: %w", err)
 		}
@@ -1539,24 +1524,24 @@ func (k *Kernel) loadInitialView(
 	rv.PrecommitProofs = precommits
 
 	rv.VoteSummary = tmconsensus.NewVoteSummary()
-	rv.VoteSummary.SetAvailablePower(rv.Validators)
+	rv.VoteSummary.SetAvailablePower(rv.ValidatorSet.Validators)
 
 	return rv, nil
 }
 
 func (k *Kernel) loadInitialCommittingView(ctx context.Context, s *kState) error {
-	var vals []tmconsensus.Validator
+	var vs tmconsensus.ValidatorSet
 
 	h := s.Committing.Height
 	r := s.Committing.Round
 
 	if h == k.initialHeight || h == k.initialHeight+1 {
-		vals = slices.Clone(k.initialVals)
+		vs = k.initialVals
 	} else {
 		panic("TODO: load committing validators beyond initial height")
 	}
 
-	rv, err := k.loadInitialView(ctx, h, r, vals)
+	rv, err := k.loadInitialView(ctx, h, r, vs)
 	if err != nil {
 		return err
 	}
@@ -1579,7 +1564,7 @@ func (k *Kernel) loadInitialCommittingView(ctx context.Context, s *kState) error
 	var maxPower uint64
 	var committingHash string
 
-	dist := newVoteDistribution(rv.PrecommitProofs, rv.Validators)
+	dist := newVoteDistribution(rv.PrecommitProofs, rv.ValidatorSet.Validators)
 	for blockHash, pow := range dist.BlockVotePower {
 		if pow > maxPower {
 			maxPower = pow
@@ -1610,28 +1595,26 @@ func (k *Kernel) loadInitialCommittingView(ctx context.Context, s *kState) error
 //
 // It also prepopulates the NextRound view.
 func (k *Kernel) loadInitialVotingView(ctx context.Context, s *kState) error {
-	var vals []tmconsensus.Validator
+	var vs tmconsensus.ValidatorSet
 
 	h := s.Voting.Height
 	r := s.Voting.Round
 
 	if h == k.initialHeight || h == k.initialHeight+1 {
-		vals = slices.Clone(k.initialVals)
+		vs = k.initialVals
 	} else {
 		// During initialization, we have set the committing block on the kState value.
-		// TODO: when the validator slice is no longer part of the Block,
-		// we will have to do a store lookup here.
-		vals = slices.Clone(s.CommittingBlock.Validators)
+		vs = s.CommittingBlock.ValidatorSet
 	}
 
-	if len(vals) == 0 {
+	if len(vs.Validators) == 0 {
 		panic(fmt.Errorf(
 			"BUG: no validators available when loading initial Voting View at height=%d/round=%d",
 			h, r,
 		))
 	}
 
-	rv, err := k.loadInitialView(ctx, h, r, vals)
+	rv, err := k.loadInitialView(ctx, h, r, vs)
 	if err != nil {
 		return err
 	}
@@ -1642,7 +1625,7 @@ func (k *Kernel) loadInitialVotingView(ctx context.Context, s *kState) error {
 
 	// The voting view may be cleared independently of the next round view,
 	// so take another clone of the validators slice to be defensive.
-	nrrv, err := k.loadInitialView(ctx, h, r+1, slices.Clone(vals))
+	nrrv, err := k.loadInitialView(ctx, h, r+1, vs)
 	if err != nil {
 		return err
 	}

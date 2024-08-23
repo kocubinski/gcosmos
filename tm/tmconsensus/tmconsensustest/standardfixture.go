@@ -67,6 +67,14 @@ func (f *StandardFixture) Vals() []tmconsensus.Validator {
 	return vals
 }
 
+func (f *StandardFixture) ValSet() tmconsensus.ValidatorSet {
+	vs, err := tmconsensus.NewValidatorSet(f.Vals(), f.HashScheme)
+	if err != nil {
+		panic(fmt.Errorf("error building new validator set: %w", err))
+	}
+	return vs
+}
+
 func (f *StandardFixture) ValidatorHashes() (pubKeyHash, powHash string) {
 	vals := f.Vals()
 	pubKeys := tmconsensus.ValidatorsToPubKeys(vals)
@@ -100,7 +108,7 @@ func (f *StandardFixture) DefaultGenesis() tmconsensus.Genesis {
 
 		CurrentAppStateHash: []byte{0}, // This will probably be something different later.
 
-		Validators: f.Vals(),
+		ValidatorSet: f.ValSet(),
 	}
 
 	f.Genesis = g
@@ -128,7 +136,8 @@ func (f *StandardFixture) DefaultGenesis() tmconsensus.Genesis {
 // These and other fields may be overridden,
 // in which case you should call f.RecalculateHash and f.SignProposal again.
 func (f *StandardFixture) NextProposedBlock(appDataID []byte, valIdx int) tmconsensus.ProposedBlock {
-	vals := f.Vals()
+	vs := f.ValSet()
+
 	b := tmconsensus.Block{
 		Height: f.prevBlockHeight + 1,
 
@@ -136,8 +145,8 @@ func (f *StandardFixture) NextProposedBlock(appDataID []byte, valIdx int) tmcons
 
 		PrevCommitProof: f.prevCommitProof,
 
-		Validators:     vals,
-		NextValidators: vals,
+		ValidatorSet:     vs,
+		NextValidatorSet: vs,
 
 		DataID: appDataID,
 

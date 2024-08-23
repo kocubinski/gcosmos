@@ -68,10 +68,7 @@ func TestEngine_plumbing_ConsensusStrategy(t *testing.T) {
 		require.Equal(t, uint64(1), rv0.Height)
 		require.Zero(t, rv0.Round)
 
-		require.True(t, tmconsensus.ValidatorSlicesEqual(rv0.Validators, efx.Fx.Vals()))
-
-		require.NotEmpty(t, rv0.ValidatorPubKeyHash)
-		require.NotEmpty(t, rv0.ValidatorVotePowerHash)
+		require.True(t, efx.Fx.ValSet().Equal(rv0.ValidatorSet))
 
 		require.Empty(t, rv0.ProposedBlocks)
 
@@ -122,7 +119,7 @@ func TestEngine_plumbing_ConsensusStrategy(t *testing.T) {
 			ChainID:             "my-chain", // NOTE: this is hard-coded to the fixture's default chain ID.
 			InitialHeight:       1,
 			CurrentAppStateHash: []byte(initAppStateHash),
-			Validators:          efx.Fx.Vals(),
+			ValidatorSet:        efx.Fx.ValSet(),
 		}
 
 		gBlock, err := g.Block(efx.Fx.HashScheme)
@@ -166,7 +163,7 @@ func TestEngine_plumbing_ConsensusStrategy(t *testing.T) {
 		})
 		prevoteSparseProof := tmconsensus.PrevoteSparseProof{
 			Height: 1, Round: 0,
-			PubKeyHash: vrv.ValidatorPubKeyHash,
+			PubKeyHash: string(vrv.ValidatorSet.PubKeyHash),
 			Proofs:     fullPrevotes,
 		}
 		require.Equal(t, tmconsensus.HandleVoteProofsAccepted, engine.HandlePrevoteProofs(ctx, prevoteSparseProof))
@@ -204,7 +201,7 @@ func TestEngine_plumbing_ConsensusStrategy(t *testing.T) {
 		})
 		precommitSparseProof := tmconsensus.PrecommitSparseProof{
 			Height: 1, Round: 0,
-			PubKeyHash: vrv.ValidatorPubKeyHash,
+			PubKeyHash: string(vrv.ValidatorSet.PubKeyHash),
 			Proofs:     fullPrecommits,
 		}
 		require.Equal(t, tmconsensus.HandleVoteProofsAccepted, engine.HandlePrecommitProofs(ctx, precommitSparseProof))
@@ -287,7 +284,7 @@ func TestEngine_plumbing_ConsensusStrategy(t *testing.T) {
 		})
 		prevoteSparseProof := tmconsensus.PrevoteSparseProof{
 			Height: 2, Round: 0,
-			PubKeyHash: vrv.ValidatorPubKeyHash,
+			PubKeyHash: string(vrv.ValidatorSet.PubKeyHash),
 			Proofs:     fullPrevotes,
 		}
 		require.Equal(t, tmconsensus.HandleVoteProofsAccepted, engine.HandlePrevoteProofs(ctx, prevoteSparseProof))
@@ -311,7 +308,7 @@ func TestEngine_plumbing_ConsensusStrategy(t *testing.T) {
 		})
 		precommitSparseProof := tmconsensus.PrecommitSparseProof{
 			Height: 2, Round: 0,
-			PubKeyHash: vrv.ValidatorPubKeyHash,
+			PubKeyHash: string(vrv.ValidatorSet.PubKeyHash),
 			Proofs:     fullPrecommits,
 		}
 		require.Equal(t, tmconsensus.HandleVoteProofsAccepted, engine.HandlePrecommitProofs(ctx, precommitSparseProof))
@@ -350,7 +347,7 @@ func TestEngine_plumbing_ConsensusStrategy(t *testing.T) {
 		})
 		prevoteSparseProof := tmconsensus.PrevoteSparseProof{
 			Height: 2, Round: 1,
-			PubKeyHash: vrv.ValidatorPubKeyHash,
+			PubKeyHash: string(vrv.ValidatorSet.PubKeyHash),
 			Proofs:     fullPrevotes,
 		}
 		require.Equal(t, tmconsensus.HandleVoteProofsAccepted, engine.HandlePrevoteProofs(ctx, prevoteSparseProof))
@@ -368,7 +365,7 @@ func TestEngine_plumbing_ConsensusStrategy(t *testing.T) {
 		})
 		precommitSparseProof := tmconsensus.PrecommitSparseProof{
 			Height: 2, Round: 1,
-			PubKeyHash: vrv.ValidatorPubKeyHash,
+			PubKeyHash: string(vrv.ValidatorSet.PubKeyHash),
 			Proofs:     fullPrecommits,
 		}
 		require.Equal(t, tmconsensus.HandleVoteProofsAccepted, engine.HandlePrecommitProofs(ctx, precommitSparseProof))
@@ -744,10 +741,10 @@ func TestEngine_initChain(t *testing.T) {
 			// Overwrite the WithGenesis option so that it has no GenesisValidators specified.
 			optMap := efx.SigningOptionMap()
 			optMap["WithGenesis"] = tmengine.WithGenesis(&tmconsensus.ExternalGenesis{
-				ChainID:           "my-chain",
-				InitialHeight:     1,
-				InitialAppState:   new(bytes.Buffer),
-				GenesisValidators: nil, // Explicitly nil initial validators.
+				ChainID:         "my-chain",
+				InitialHeight:   1,
+				InitialAppState: new(bytes.Buffer),
+				// Explicitly do not set GenesisValidators here.
 			})
 			engine = efx.MustNewEngine(optMap.ToSlice()...)
 		}()
@@ -889,10 +886,10 @@ func TestEngine_configuration(t *testing.T) {
 	cStrat := tmconsensustest.NewMockConsensusStrategy()
 
 	eg := &tmconsensus.ExternalGenesis{
-		ChainID:           "my-chain",
-		InitialHeight:     1,
-		InitialAppState:   new(bytes.Buffer),
-		GenesisValidators: fx.Vals(),
+		ChainID:             "my-chain",
+		InitialHeight:       1,
+		InitialAppState:     new(bytes.Buffer),
+		GenesisValidatorSet: fx.ValSet(),
 	}
 
 	// NOTE: Uncancellable root context means this leaks a goroutine.

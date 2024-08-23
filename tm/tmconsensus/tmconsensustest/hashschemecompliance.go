@@ -41,10 +41,10 @@ func TestHashSchemeCompliance(
 
 			// TODO: assert some details of PrevCommitProof.
 
-			if len(b.Validators) < 2 {
+			if len(b.ValidatorSet.Validators) < 2 {
 				t.Errorf("Validators must have at least two elements, preferably more")
 			}
-			if len(b.NextValidators) < 2 {
+			if len(b.NextValidatorSet.Validators) < 2 {
 				t.Errorf("NextValidators must have at least two elements, preferably more")
 			}
 		})
@@ -53,13 +53,25 @@ func TestHashSchemeCompliance(
 			t.Fatalf("default block validation failed; cannot continue")
 		}
 
-		origHash, err := h.Block(makeDefaultBlock(p))
+		b := makeDefaultBlock(p)
+		var err error
+		b.ValidatorSet, err = tmconsensus.NewValidatorSet(b.ValidatorSet.Validators, h)
+		require.NoError(t, err)
+		b.NextValidatorSet, err = tmconsensus.NewValidatorSet(b.NextValidatorSet.Validators, h)
+		require.NoError(t, err)
+
+		origHash, err := h.Block(b)
 		require.NoError(t, err)
 
 		t.Run("determinism", func(t *testing.T) {
 			t.Parallel()
 
 			b := makeDefaultBlock(p)
+			var err error
+			b.ValidatorSet, err = tmconsensus.NewValidatorSet(b.ValidatorSet.Validators, h)
+			require.NoError(t, err)
+			b.NextValidatorSet, err = tmconsensus.NewValidatorSet(b.NextValidatorSet.Validators, h)
+			require.NoError(t, err)
 
 			for i := 0; i < 100; i++ {
 				bh, err := h.Block(b)
@@ -71,6 +83,11 @@ func TestHashSchemeCompliance(
 
 		t.Run("existing hash value is not consulted", func(t *testing.T) {
 			b := makeDefaultBlock(p)
+			var err error
+			b.ValidatorSet, err = tmconsensus.NewValidatorSet(b.ValidatorSet.Validators, h)
+			require.NoError(t, err)
+			b.NextValidatorSet, err = tmconsensus.NewValidatorSet(b.NextValidatorSet.Validators, h)
+			require.NoError(t, err)
 
 			if b.Hash == nil {
 				b.Hash = []byte("some hash")
@@ -115,29 +132,31 @@ func TestHashSchemeCompliance(
 				{
 					name: "Validators (drop element)",
 					fn: func(b *tmconsensus.Block) {
-						b.Validators = b.Validators[1:]
+						updatedVS := b.ValidatorSet
+						updatedVS.Validators = updatedVS.Validators[1:]
+						b.ValidatorSet = updatedVS
 					},
 				},
 				{
 					name: "Validators (change power on one element)",
 					fn: func(b *tmconsensus.Block) {
-						b.Validators[0].Power++
+						b.ValidatorSet.Validators[0].Power++
 					},
 				},
 				{
 					name: "NextValidators (drop element)",
 					fn: func(b *tmconsensus.Block) {
-						b.NextValidators = b.NextValidators[1:]
+						updatedVS := b.NextValidatorSet
+						updatedVS.Validators = updatedVS.Validators[1:]
+						b.NextValidatorSet = updatedVS
 					},
 				},
 				{
 					name: "NextValidators (change power on one element)",
 					fn: func(b *tmconsensus.Block) {
-						b.NextValidators[0].Power++
+						b.NextValidatorSet.Validators[0].Power++
 					},
 				},
-				// TODO: change just the ID of one in Validators, NextValidators
-
 			}
 
 			// Use AnnotationCombinations to expand the test cases.
@@ -286,8 +305,14 @@ func defaultHashSchemeBlock(p gcrypto.CommonMessageSignatureProofScheme) tmconse
 
 		DataID: []byte("data_id"),
 
-		Validators:     blockValidators,
-		NextValidators: vals.Vals(), // One more next validator than current.
+		// We don't have a hash scheme yet at this point in the test,
+		// so we make invalid ValidatorSet values lacking hashes.
+		ValidatorSet: tmconsensus.ValidatorSet{
+			Validators: blockValidators,
+		},
+		NextValidatorSet: tmconsensus.ValidatorSet{
+			Validators: vals.Vals(), // One more next validator than current.
+		},
 
 		PrevAppStateHash: []byte("prev_app_state"),
 	}

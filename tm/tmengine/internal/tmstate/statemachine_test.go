@@ -1018,7 +1018,7 @@ func TestStateMachine_proposedBlockFiltering(t *testing.T) {
 		t.Skip("skipping in short mode due to many sleeps")
 	}
 
-	for _, tc := range tmstatetest.UnacceptableProposedBlockMutations(4, 4) {
+	for _, tc := range tmstatetest.UnacceptableProposedBlockMutations(tmconsensustest.SimpleHashScheme{}, 4, 4) {
 		tc := tc
 		t.Run("on initial height and round entrance", func(t *testing.T) {
 			t.Run("when the only proposed block is unacceptable", func(t *testing.T) {
@@ -2130,7 +2130,7 @@ func TestStateMachine_finalization(t *testing.T) {
 		require.NoError(t, err)
 		require.Zero(t, r)
 		require.Equal(t, string(pb1.Block.Hash), blockHash)
-		require.True(t, tmconsensus.ValidatorSlicesEqual(vals, pb1.Block.Validators))
+		require.True(t, tmconsensus.ValidatorSlicesEqual(vals, pb1.Block.ValidatorSet.Validators))
 		require.Equal(t, "app_state_1", appHash) // String from the hand-coded response earlier in this test.
 	})
 
@@ -2228,7 +2228,7 @@ func TestStateMachine_finalization(t *testing.T) {
 		require.NoError(t, err)
 		require.Zero(t, r)
 		require.Equal(t, string(pb1.Block.Hash), blockHash)
-		require.True(t, tmconsensus.ValidatorSlicesEqual(vals, pb1.Block.Validators))
+		require.True(t, tmconsensus.ValidatorSlicesEqual(vals, pb1.Block.ValidatorSet.Validators))
 		require.Equal(t, "app_state_1", appHash) // String from the hand-coded response earlier in this test.
 	})
 
@@ -2335,7 +2335,7 @@ func TestStateMachine_finalization(t *testing.T) {
 		require.NoError(t, err)
 		require.Zero(t, r)
 		require.Equal(t, string(pb1.Block.Hash), blockHash)
-		require.True(t, tmconsensus.ValidatorSlicesEqual(vals, pb1.Block.Validators))
+		require.True(t, tmconsensus.ValidatorSlicesEqual(vals, pb1.Block.ValidatorSet.Validators))
 		require.Equal(t, "app_state_1", appHash) // String from the hand-coded response earlier in this test.
 	})
 
@@ -3563,7 +3563,7 @@ func TestStateMachine_metrics(t *testing.T) {
 	finReq.Resp <- tmdriver.FinalizeBlockResponse{
 		Height: 1, Round: 0,
 		BlockHash:    pb1.Block.Hash,
-		Validators:   pb1.Block.Validators,
+		Validators:   pb1.Block.ValidatorSet.Validators,
 		AppStateHash: []byte("app_state"),
 	}
 	require.NoError(t, sfx.RoundTimer.ElapseCommitWaitTimer(1, 0))

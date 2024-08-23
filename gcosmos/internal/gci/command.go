@@ -208,10 +208,10 @@ func runStateMachine(
 		tmengine.WithGossipStrategy(gs),
 
 		tmengine.WithGenesis(&tmconsensus.ExternalGenesis{
-			ChainID:           chainID,
-			InitialHeight:     1,
-			InitialAppState:   strings.NewReader(""), // No initial app state for echo app.
-			GenesisValidators: nil,                   // TODO: where will the validators come from?
+			ChainID:         chainID,
+			InitialHeight:   1,
+			InitialAppState: strings.NewReader(""), // No initial app state for echo app.
+			// TODO: where will the genesis validators come from?
 		}),
 
 		tmengine.WithTimeoutStrategy(ctx, tmengine.LinearTimeoutStrategy{}),

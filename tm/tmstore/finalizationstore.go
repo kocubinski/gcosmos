@@ -7,6 +7,9 @@ import (
 )
 
 type FinalizationStore interface {
+	// TODO: should these still operate on validator slices,
+	// or should they use a ValidatorSet?
+
 	SaveFinalization(
 		ctx context.Context,
 		height uint64, round uint32,

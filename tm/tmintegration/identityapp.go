@@ -66,7 +66,7 @@ func (a *identityApp) kernel(
 	case req := <-initChainRequests:
 		// The validators don't change in this app, so just hold on to the initial ones
 		// for any finalization responses later.
-		vals = req.Genesis.GenesisValidators
+		vals = req.Genesis.GenesisValidatorSet.Validators
 
 		// Ignore genesis app state, start with empty state.
 
@@ -138,8 +138,8 @@ func (s *identityConsensusStrategy) EnterRound(ctx context.Context, rv tmconsens
 	s.Log.Info("Entering round", "h", s.curH, "r", s.curR)
 
 	// Pseudo-copy of the modulo round robin proposer selection strategy that the v0.2 code used.
-	s.expProposerIndex = (int(rv.Height) + int(rv.Round)) % len(rv.Validators)
-	s.expProposerPubKey = rv.Validators[s.expProposerIndex].PubKey
+	s.expProposerIndex = (int(rv.Height) + int(rv.Round)) % len(rv.ValidatorSet.Validators)
+	s.expProposerPubKey = rv.ValidatorSet.Validators[s.expProposerIndex].PubKey
 
 	if s.expProposerPubKey.Equal(s.PubKey) {
 		appData := fmt.Sprintf("Height: %d; Round: %d", s.curH, s.curR)

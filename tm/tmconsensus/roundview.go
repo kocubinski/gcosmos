@@ -18,9 +18,7 @@ type RoundView struct {
 	Height uint64
 	Round  uint32
 
-	Validators []Validator
-
-	ValidatorPubKeyHash, ValidatorVotePowerHash string
+	ValidatorSet ValidatorSet
 
 	ProposedBlocks []ProposedBlock
 
@@ -52,10 +50,7 @@ func (v *RoundView) Clone() RoundView {
 		Height: v.Height,
 		Round:  v.Round,
 
-		Validators: slices.Clone(v.Validators),
-
-		ValidatorPubKeyHash:    v.ValidatorPubKeyHash,
-		ValidatorVotePowerHash: v.ValidatorVotePowerHash,
+		ValidatorSet: v.ValidatorSet,
 
 		ProposedBlocks: slices.Clone(v.ProposedBlocks),
 
@@ -72,13 +67,7 @@ func (v *RoundView) Clone() RoundView {
 func (v *RoundView) Reset() {
 	v.Height = 0
 
-	// Clear the slice to avoid retaining a reference
-	// beyond length 0 but longer than the existing capacity.
-	clear(v.Validators)
-	v.Validators = v.Validators[:0]
-
-	v.ValidatorPubKeyHash = ""
-	v.ValidatorVotePowerHash = ""
+	v.ValidatorSet = ValidatorSet{}
 
 	v.ResetForSameHeight()
 	v.VoteSummary.Reset()
@@ -107,8 +96,8 @@ func (v *RoundView) ResetForSameHeight() {
 func (v RoundView) LogValue() slog.Value {
 	// This method is a value receiver because the slog package will not call the method
 	// if it is a pointer receiver and we are not calling with a pointer.
-	valAttrs := make([]slog.Attr, len(v.Validators))
-	for i, val := range v.Validators {
+	valAttrs := make([]slog.Attr, len(v.ValidatorSet.Validators))
+	for i, val := range v.ValidatorSet.Validators {
 		valAttrs[i] = slog.Attr{
 			Key: fmt.Sprintf("%x", val.PubKey.PubKeyBytes()),
 			Value: slog.GroupValue(
@@ -149,8 +138,9 @@ func (v RoundView) LogValue() slog.Value {
 
 		slog.Attr{Key: "validators", Value: slog.GroupValue(valAttrs...)},
 
-		slog.String("validator_pub_key_hash", fmt.Sprintf("%x", v.ValidatorPubKeyHash)),
-		slog.String("validator_vote_power_hash", fmt.Sprintf("%x", v.ValidatorVotePowerHash)),
+		// Should this be using glog.Hex?
+		slog.String("validator_pub_key_hash", fmt.Sprintf("%x", v.ValidatorSet.PubKeyHash)),
+		slog.String("validator_vote_power_hash", fmt.Sprintf("%x", v.ValidatorSet.VotePowerHash)),
 
 		slog.String("proposed_blocks", strings.Join(pbHashes, ", ")),
 

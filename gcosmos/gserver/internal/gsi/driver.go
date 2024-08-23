@@ -281,7 +281,7 @@ func (d *Driver) handleFinalizations(
 				// At genesis, we don't have a block response
 				// from which to extract the next validators.
 				// By design, the validators at height 2 match height 1.
-				Validators:   fbReq.Block.NextValidators,
+				Validators:   fbReq.Block.NextValidatorSet.Validators,
 				AppStateHash: appHash,
 			}
 			if !gchan.SendC(
@@ -368,14 +368,11 @@ func (d *Driver) handleFinalizations(
 		}
 
 		// By default, we just use the block's declared next validators block.
-		nextVals := fbReq.Block.NextValidators
+		updatedVals := fbReq.Block.NextValidatorSet.Validators
 		if len(blockResp.ValidatorUpdates) > 0 {
-			// Unclear if this is strictly necessary,
-			// but just be defensive here anyway.
-			// Since validators are just plain structs with a power and a pubkey,
-			// cloning this slice means updates to this slice
-			// do not affect the original.
-			nextVals = slices.Clone(nextVals)
+			// We can never modify a ValdatorSet's validators,
+			// so create a clone.
+			updatedVals = slices.Clone(fbReq.Block.NextValidatorSet.Validators)
 
 			// Make a map of pubkeys that have a power change.
 			// TODO: this doesn't respect key type, and it should.
@@ -395,18 +392,18 @@ func (d *Driver) handleFinalizations(
 			}
 
 			// Now iterate over all the validators, applying the new powers.
-			for i := range nextVals {
+			for i := range updatedVals {
 				// Is the current validator in the update map?
-				newPow, ok := valsToUpdate[string(nextVals[i].PubKey.PubKeyBytes())]
+				newPow, ok := valsToUpdate[string(updatedVals[i].PubKey.PubKeyBytes())]
 				if !ok {
 					continue
 				}
 
 				// Yes, so reassign its power.
-				nextVals[i].Power = newPow
+				updatedVals[i].Power = newPow
 
 				// Delete this entry.
-				delete(valsToUpdate, string(nextVals[i].PubKey.PubKeyBytes()))
+				delete(valsToUpdate, string(updatedVals[i].PubKey.PubKeyBytes()))
 
 				// Stop iterating if this was the last entry.
 				if len(valsToUpdate) == 0 {
@@ -418,7 +415,7 @@ func (d *Driver) handleFinalizations(
 			// That might help avoid growing the slice if we delete some validators
 			// before appending new ones.
 			if hasDelete {
-				nextVals = slices.DeleteFunc(nextVals, func(v tmconsensus.Validator) bool {
+				updatedVals = slices.DeleteFunc(updatedVals, func(v tmconsensus.Validator) bool {
 					return v.Power == 0
 				})
 			}
@@ -445,7 +442,7 @@ func (d *Driver) handleFinalizations(
 						continue
 					}
 
-					nextVals = append(nextVals, tmconsensus.Validator{
+					updatedVals = append(updatedVals, tmconsensus.Validator{
 						PubKey: pubKey, Power: pow,
 					})
 				}
@@ -480,7 +477,7 @@ func (d *Driver) handleFinalizations(
 			Round:     fbReq.Round,
 			BlockHash: fbReq.Block.Hash,
 
-			Validators: nextVals,
+			Validators: updatedVals,
 
 			AppStateHash: appHash,
 		}

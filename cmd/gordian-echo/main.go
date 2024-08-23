@@ -343,6 +343,11 @@ func NewStandaloneMirrorCmd(log *slog.Logger) *cobra.Command {
 				}
 			}
 
+			valSet, err := tmconsensus.NewValidatorSet(vals, tmconsensustest.SimpleHashScheme{})
+			if err != nil {
+				return fmt.Errorf("failed to build validator set for genesis: %w", err)
+			}
+
 			m, err := tmengine.NewMirror(
 				ctx,
 				log.With("sys", "mirror"),
@@ -356,10 +361,10 @@ func NewStandaloneMirrorCmd(log *slog.Logger) *cobra.Command {
 				tmengine.WithCommonMessageSignatureProofScheme(gcrypto.SimpleCommonMessageSignatureProofScheme),
 
 				tmengine.WithGenesis(&tmconsensus.ExternalGenesis{
-					ChainID:           "gordiandemo-echo",
-					InitialHeight:     1,
-					InitialAppState:   strings.NewReader(""), // No initial app state for identity app.
-					GenesisValidators: vals,
+					ChainID:             "gordiandemo-echo",
+					InitialHeight:       1,
+					InitialAppState:     strings.NewReader(""), // No initial app state for identity app.
+					GenesisValidatorSet: valSet,
 				}),
 			)
 			if err != nil {
@@ -590,6 +595,11 @@ func runStateMachineV3(
 
 	gs := tmgossip.NewChattyStrategy(ctx, log.With("sys", "chattygossip"), conn)
 
+	valSet, err := tmconsensus.NewValidatorSet(vals, tmconsensustest.SimpleHashScheme{})
+	if err != nil {
+		return fmt.Errorf("failed to build validator set for genesis: %w", err)
+	}
+
 	e, err := tmengine.New(
 		ctx,
 		log.With("sys", "engine"),
@@ -608,10 +618,10 @@ func runStateMachineV3(
 		tmengine.WithGossipStrategy(gs),
 
 		tmengine.WithGenesis(&tmconsensus.ExternalGenesis{
-			ChainID:           "gordiandemo-echo",
-			InitialHeight:     1,
-			InitialAppState:   strings.NewReader(""), // No initial app state for identity app.
-			GenesisValidators: vals,
+			ChainID:             "gordiandemo-echo",
+			InitialHeight:       1,
+			InitialAppState:     strings.NewReader(""), // No initial app state for identity app.
+			GenesisValidatorSet: valSet,
 		}),
 
 		tmengine.WithTimeoutStrategy(ctx, tmengine.LinearTimeoutStrategy{}),

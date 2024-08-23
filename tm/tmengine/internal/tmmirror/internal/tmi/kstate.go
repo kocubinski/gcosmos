@@ -147,9 +147,7 @@ func (s *kState) MarkViewUpdated(id ViewID) {
 }
 
 type nextHeightDetails struct {
-	Validators []tmconsensus.Validator
-
-	ValidatorPubKeyHash, ValidatorVotePowerHash string
+	ValidatorSet tmconsensus.ValidatorSet
 
 	VotedBlock tmconsensus.Block
 
@@ -171,10 +169,7 @@ func (s *kState) ShiftVotingToCommitting(nhd nextHeightDetails) {
 			Height: newHeight,
 			Round:  0,
 
-			Validators: nhd.Validators,
-
-			ValidatorPubKeyHash:    nhd.ValidatorPubKeyHash,
-			ValidatorVotePowerHash: nhd.ValidatorVotePowerHash,
+			ValidatorSet: nhd.ValidatorSet,
 
 			PrevoteProofs: map[string]gcrypto.CommonMessageSignatureProof{
 				"": nhd.Round0NilPrevote,
@@ -190,16 +185,14 @@ func (s *kState) ShiftVotingToCommitting(nhd nextHeightDetails) {
 		PrecommitVersion: 1,
 	}
 
-	s.Voting.VoteSummary.SetAvailablePower(nhd.Validators)
+	s.Voting.VoteSummary.SetAvailablePower(nhd.ValidatorSet.Validators)
 	s.MarkVotingViewUpdated()
 
 	// Now for the next round.
 	s.NextRound.Reset()
 	s.NextRound.Height = newHeight
 	s.NextRound.Round = 1
-	s.NextRound.Validators = append(s.NextRound.Validators[:0], nhd.Validators...)
-	s.NextRound.ValidatorPubKeyHash = nhd.ValidatorPubKeyHash
-	s.NextRound.ValidatorVotePowerHash = nhd.ValidatorVotePowerHash
+	s.NextRound.ValidatorSet = nhd.ValidatorSet
 	s.NextRound.PrevoteVersion = 1
 	s.NextRound.PrecommitVersion = 1
 	s.NextRound.VoteSummary.AvailablePower = s.Voting.VoteSummary.AvailablePower

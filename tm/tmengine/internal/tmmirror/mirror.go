@@ -335,7 +335,7 @@ RETRY:
 		))
 	}
 
-	if p.PubKeyHash != curPrevoteState.ValidatorPubKeyHash {
+	if p.PubKeyHash != string(curPrevoteState.ValidatorSet.PubKeyHash) {
 		// We assume our view of the network is correct,
 		// and so we refuse to continue propagating this message
 		// containing a validator hash mismatch.
@@ -367,7 +367,7 @@ RETRY:
 				))
 			}
 			emptyProof, ok := m.makeNewPrevoteProof(
-				p.Height, p.Round, blockHash, curPrevoteState.Validators, curPrevoteState.ValidatorPubKeyHash,
+				p.Height, p.Round, blockHash, curPrevoteState.ValidatorSet,
 			)
 			if !ok {
 				// Already logged.
@@ -500,7 +500,7 @@ RETRY:
 		))
 	}
 
-	if p.PubKeyHash != curPrecommitState.ValidatorPubKeyHash {
+	if p.PubKeyHash != string(curPrecommitState.ValidatorSet.PubKeyHash) {
 		// We assume our view of the network is correct,
 		// and so we refuse to continue propagating this message
 		// containing a validator hash mismatch.
@@ -532,7 +532,7 @@ RETRY:
 				))
 			}
 			emptyProof, ok := m.makeNewPrecommitProof(
-				p.Height, p.Round, blockHash, curPrecommitState.Validators, curPrecommitState.ValidatorPubKeyHash,
+				p.Height, p.Round, blockHash, curPrecommitState.ValidatorSet,
 			)
 			if !ok {
 				// Already logged.
@@ -690,8 +690,7 @@ func (m *Mirror) makeNewPrevoteProof(
 	// We expect that most of the time we will not be adding a new proof,
 	// so use the already available slice of validators
 	// and do the work of extracting the public keys in this rarely executed method.
-	trustedValidators []tmconsensus.Validator,
-	pubKeyHash string,
+	valSet tmconsensus.ValidatorSet,
 ) (p gcrypto.CommonMessageSignatureProof, ok bool) {
 	vt := tmconsensus.VoteTarget{
 		Height:    height,
@@ -707,7 +706,11 @@ func (m *Mirror) makeNewPrevoteProof(
 		)
 		return nil, false
 	}
-	emptyProof, err := m.cmspScheme.New(signContent, tmconsensus.ValidatorsToPubKeys(trustedValidators), pubKeyHash)
+	emptyProof, err := m.cmspScheme.New(
+		signContent,
+		tmconsensus.ValidatorsToPubKeys(valSet.Validators),
+		string(valSet.PubKeyHash),
+	)
 	if err != nil {
 		m.log.Warn(
 			"Failed to build signature proof",
@@ -727,8 +730,7 @@ func (m *Mirror) makeNewPrecommitProof(
 	// We expect that most of the time we will not be adding a new proof,
 	// so use the already available slice of validators
 	// and do the work of extracting the public keys in this rarely executed method.
-	trustedValidators []tmconsensus.Validator,
-	pubKeyHash string,
+	valSet tmconsensus.ValidatorSet,
 ) (p gcrypto.CommonMessageSignatureProof, ok bool) {
 	vt := tmconsensus.VoteTarget{
 		Height:    height,
@@ -744,7 +746,11 @@ func (m *Mirror) makeNewPrecommitProof(
 		)
 		return nil, false
 	}
-	emptyProof, err := m.cmspScheme.New(signContent, tmconsensus.ValidatorsToPubKeys(trustedValidators), pubKeyHash)
+	emptyProof, err := m.cmspScheme.New(
+		signContent,
+		tmconsensus.ValidatorsToPubKeys(valSet.Validators),
+		string(valSet.PubKeyHash),
+	)
 	if err != nil {
 		m.log.Warn(
 			"Failed to build signature proof",

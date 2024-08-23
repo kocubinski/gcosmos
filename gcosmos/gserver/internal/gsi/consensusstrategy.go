@@ -104,9 +104,9 @@ func (c *ConsensusStrategy) EnterRound(
 	c.pool.EnterRound(ctx, rv.Height, rv.Round)
 
 	// Very naive round-robin-ish proposer selection.
-	proposerIdx := (int(rv.Height) + int(rv.Round)) % len(rv.Validators)
+	proposerIdx := (int(rv.Height) + int(rv.Round)) % len(rv.ValidatorSet.Validators)
 
-	proposingVal := rv.Validators[proposerIdx]
+	proposingVal := rv.ValidatorSet.Validators[proposerIdx]
 	weShouldPropose := proposingVal.PubKey.Equal(c.signer.PubKey())
 	if !weShouldPropose {
 		return nil

@@ -105,10 +105,10 @@ func (m OptionMap) ToSlice() []tmengine.Opt {
 
 func (f *Fixture) BaseOptionMap() OptionMap {
 	eg := &tmconsensus.ExternalGenesis{
-		ChainID:           "my-chain",
-		InitialHeight:     1,
-		InitialAppState:   new(bytes.Buffer),
-		GenesisValidators: f.Fx.Vals(),
+		ChainID:             "my-chain",
+		InitialHeight:       1,
+		InitialAppState:     new(bytes.Buffer),
+		GenesisValidatorSet: f.Fx.ValSet(),
 	}
 
 	return OptionMap{

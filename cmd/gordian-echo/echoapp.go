@@ -56,7 +56,7 @@ func (a *echoApp) background(
 		return
 
 	case req := <-initChainRequests:
-		a.vals = req.Genesis.GenesisValidators
+		a.vals = req.Genesis.GenesisValidatorSet.Validators
 
 		// Ignore genesis app state, start with empty state.
 
@@ -90,7 +90,7 @@ func (a *echoApp) background(
 				BlockHash: req.Block.Hash,
 
 				// We never change validators.
-				Validators: req.Block.NextValidators,
+				Validators: req.Block.NextValidatorSet.Validators,
 			}
 
 			blockData := fmt.Sprintf("Height: %d; Round: %d", resp.Height, resp.Round)
@@ -139,8 +139,8 @@ func (s *echoConsensusStrategy) EnterRound(ctx context.Context, rv tmconsensus.R
 
 	// Pseudo-copy of the modulo round robin proposer selection strategy that the v0.2 code uses.
 
-	expProposerIndex := (int(rv.Height) + int(rv.Round)) % len(rv.Validators)
-	s.expProposerPubKey = rv.Validators[expProposerIndex].PubKey
+	expProposerIndex := (int(rv.Height) + int(rv.Round)) % len(rv.ValidatorSet.Validators)
+	s.expProposerPubKey = rv.ValidatorSet.Validators[expProposerIndex].PubKey
 	s.Log.Info("Entering round", "height", rv.Height, "round", rv.Round, "exp_proposer_index", expProposerIndex)
 
 	if s.expProposerPubKey.Equal(s.PubKey) {

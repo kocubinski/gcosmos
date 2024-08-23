@@ -99,9 +99,9 @@ func New(ctx context.Context, log *slog.Logger, opts ...Opt) (*Engine, error) {
 	// to match the state machine's validators that resulted from the InitChain call.
 	// But if that is nil (probably because we didn't need to InitChain),
 	// then fall back to the configured genesis validators.
-	e.mCfg.InitialValidators = smCfg.Genesis.Validators
+	e.mCfg.InitialValidators = smCfg.Genesis.ValidatorSet.Validators
 	if e.mCfg.InitialValidators == nil {
-		e.mCfg.InitialValidators = e.genesis.GenesisValidators
+		e.mCfg.InitialValidators = e.genesis.GenesisValidatorSet.Validators
 	}
 
 	// Set up a cancelable context in case any of the subsystems fail to create.
@@ -287,10 +287,17 @@ func (e *Engine) maybeInitializeChain(
 	}
 
 	// Confirm whether the validators were overridden.
-	vals := resp.Validators
-	if len(vals) == 0 {
+	var valSet tmconsensus.ValidatorSet
+	if len(resp.Validators) == 0 {
 		// Nil validators in init chain response means use whatever was in genesis.
-		vals = e.genesis.GenesisValidators
+		valSet = e.genesis.GenesisValidatorSet
+	} else {
+		valSet, err = tmconsensus.NewValidatorSet(resp.Validators, e.hashScheme)
+		if err != nil {
+			return tmconsensus.Genesis{}, fmt.Errorf(
+				"failed to build validator set from init genesis response: %w", err,
+			)
+		}
 	}
 
 	// Get the block hash from the genesis with possibly updated validators.
@@ -298,7 +305,7 @@ func (e *Engine) maybeInitializeChain(
 		ChainID:             e.genesis.ChainID,
 		InitialHeight:       e.genesis.InitialHeight,
 		CurrentAppStateHash: resp.AppStateHash,
-		Validators:          vals,
+		ValidatorSet:        valSet,
 	}
 	b, err := updatedGenesis.Block(e.hashScheme)
 	if err != nil {
@@ -310,7 +317,7 @@ func (e *Engine) maybeInitializeChain(
 		ctx,
 		initFinHeight, 0,
 		string(b.Hash),
-		vals,
+		valSet.Validators,
 		string(resp.AppStateHash),
 	); err != nil {
 		return tmconsensus.Genesis{}, fmt.Errorf("failure saving genesis finalization: %w", err)

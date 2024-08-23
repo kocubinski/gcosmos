@@ -147,11 +147,11 @@ func makeRV(nVals int) (*tmconsensustest.StandardFixture, tmconsensus.RoundView)
 		Height: 1,
 		Round:  0,
 
-		Validators: fx.Vals(),
+		ValidatorSet: fx.ValSet(),
 
 		VoteSummary: tmconsensus.NewVoteSummary(),
 	}
-	rv.VoteSummary.SetAvailablePower(rv.Validators)
+	rv.VoteSummary.SetAvailablePower(rv.ValidatorSet.Validators)
 
 	return fx, rv
 }

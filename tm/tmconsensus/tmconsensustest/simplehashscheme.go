@@ -19,29 +19,10 @@ func (SimpleHashScheme) Block(b tmconsensus.Block) ([]byte, error) {
 		return nil, fmt.Errorf("failed to create new blake2b hasher: %w", err)
 	}
 
-	// Current validators' ID and power.
 	var buf bytes.Buffer
-	for i, v := range b.Validators {
-		if i > 0 {
-			buf.WriteByte(',')
-		}
-		fmt.Fprintf(&buf, "%x/%d", v.PubKey.PubKeyBytes(), v.Power)
-	}
-	valData := buf.String()
-
-	// Next validators' ID and power.
-	buf.Reset()
-	for i, v := range b.NextValidators {
-		if i > 0 {
-			buf.WriteByte(',')
-		}
-		fmt.Fprintf(&buf, "%x/%d", v.PubKey.PubKeyBytes(), v.Power)
-	}
-	nextValData := buf.String()
 
 	// Serialize the previous commit proof.
 	// First iterate over the voted blocks in order.
-	buf.Reset()
 	prevCommitBlocks := make([]string, 0, len(b.PrevCommitProof.Proofs))
 	for h := range b.PrevCommitProof.Proofs {
 		var blockKey string
@@ -85,8 +66,8 @@ PrevCommitProof:
   Round: %d
   PubKeyHash: %x
   Signatures: %s
-Validators: %s
-NextValidators: %s
+ValidatorSet: %x.%x
+NextValidatorSet: %x.%x
 DataID: %x
 PrevAppStateHash: %x
 `,
@@ -95,8 +76,8 @@ PrevAppStateHash: %x
 		b.PrevCommitProof.Round,
 		b.PrevCommitProof.PubKeyHash,
 		prevCommitSignatures,
-		valData,
-		nextValData,
+		b.ValidatorSet.PubKeyHash, b.ValidatorSet.VotePowerHash,
+		b.NextValidatorSet.PubKeyHash, b.NextValidatorSet.VotePowerHash,
 		b.DataID,
 		b.PrevAppStateHash,
 	)

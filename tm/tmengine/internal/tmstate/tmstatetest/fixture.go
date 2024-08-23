@@ -117,17 +117,14 @@ func (f *Fixture) NewStateMachine() *tmstate.StateMachine {
 }
 
 func (f *Fixture) EmptyVRV(h uint64, r uint32) tmconsensus.VersionedRoundView {
-	vals := f.Fx.Vals()
+	valSet := f.Fx.ValSet()
 	vs := tmconsensus.NewVoteSummary()
-	vs.SetAvailablePower(vals)
-	keyHash, powHash := f.Fx.ValidatorHashes()
+	vs.SetAvailablePower(valSet.Validators)
 	return tmconsensus.VersionedRoundView{
 		RoundView: tmconsensus.RoundView{
-			Height:                 h,
-			Round:                  r,
-			Validators:             vals,
-			ValidatorPubKeyHash:    keyHash,
-			ValidatorVotePowerHash: powHash,
+			Height:       h,
+			Round:        r,
+			ValidatorSet: valSet,
 
 			VoteSummary: vs,
 		},

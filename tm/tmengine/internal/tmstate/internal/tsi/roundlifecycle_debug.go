@@ -13,7 +13,7 @@ func (rlc *RoundLifecycle) invariantCycleFinalization() {
 	}
 
 	var err error
-	if len(rlc.FinalizedValidators) == 0 {
+	if len(rlc.FinalizedValSet.Validators) == 0 {
 		err = errors.New("rlc.FinalizedValidators is empty")
 	}
 

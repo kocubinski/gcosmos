@@ -19,8 +19,8 @@ type Genesis struct {
 	// This determines PrevAppStateHash for the first proposed block.
 	CurrentAppStateHash []byte
 
-	// The validators to propose and vote on the first block.
-	Validators []Validator
+	// The set of validators to propose and vote on the first block.
+	ValidatorSet ValidatorSet
 }
 
 // AsBlock returns the genesis Block corresponding to g.
@@ -32,7 +32,7 @@ func (g Genesis) Block(h HashScheme) (Block, error) {
 		// so the stored block must be one less.
 		Height: g.InitialHeight - 1,
 
-		NextValidators: g.Validators,
+		NextValidatorSet: g.ValidatorSet,
 	}
 
 	bh, err := h.Block(b)
@@ -45,7 +45,7 @@ func (g Genesis) Block(h HashScheme) (Block, error) {
 }
 
 // ExternalGenesis is a view of the externally defined genesis data,
-// sent to the app as part of [InitChainRequest].
+// sent to the app as part of [tmdriver.InitChainRequest].
 type ExternalGenesis struct {
 	ChainID string
 
@@ -60,6 +60,6 @@ type ExternalGenesis struct {
 	InitialAppState io.Reader
 
 	// Validators according to the consensus engine's view.
-	// Can be overridden in the [InitChainResponse].
-	GenesisValidators []Validator
+	// Can be overridden in the [tmdriver.InitChainResponse].
+	GenesisValidatorSet ValidatorSet
 }

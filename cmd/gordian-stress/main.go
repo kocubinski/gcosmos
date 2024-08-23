@@ -597,6 +597,11 @@ func runStateMachine(
 
 	metricsCh := make(chan tmengine.Metrics)
 
+	valSet, err := tmconsensus.NewValidatorSet(seedGenesis.Validators, tmconsensustest.SimpleHashScheme{})
+	if err != nil {
+		return fmt.Errorf("failed to build validator set for genesis: %w", err)
+	}
+
 	e, err := tmengine.New(
 		ctx,
 		log.With("sys", "engine"),
@@ -615,10 +620,10 @@ func runStateMachine(
 		tmengine.WithGossipStrategy(gs),
 
 		tmengine.WithGenesis(&tmconsensus.ExternalGenesis{
-			ChainID:           seedGenesis.App,
-			InitialHeight:     1,
-			InitialAppState:   strings.NewReader(""), // No initial app state for echo app.
-			GenesisValidators: seedGenesis.Validators,
+			ChainID:             seedGenesis.App,
+			InitialHeight:       1,
+			InitialAppState:     strings.NewReader(""), // No initial app state for echo app.
+			GenesisValidatorSet: valSet,
 		}),
 
 		tmengine.WithTimeoutStrategy(ctx, tmengine.LinearTimeoutStrategy{}),

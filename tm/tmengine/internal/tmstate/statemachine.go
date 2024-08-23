@@ -333,12 +333,7 @@ func (m *StateMachine) beginRoundLive(
 	switch curStep {
 	case tsi.StepAwaitingProposal:
 		// Only send the filtered proposed blocks.
-		if okPBs := rejectMismatchedProposedBlocks(
-			initVRV.ProposedBlocks,
-			rlc.PrevFinAppStateHash,
-			rlc.CurVals,
-			rlc.PrevFinNextVals,
-		); len(okPBs) > 0 {
+		if okPBs := m.rejectMismatchedProposedBlocks(initVRV.ProposedBlocks, rlc); len(okPBs) > 0 {
 			req := tsi.ConsiderProposedBlocksRequest{
 				PBs:    okPBs,
 				Result: rlc.PrevoteHashCh,
@@ -469,10 +464,11 @@ func (m *StateMachine) sendInitialActionSet(ctx context.Context) (
 
 		// Still assuming we are initializing at the chain's initial height,
 		// which will not always be a correct assumption.
-		rlc.PrevFinNextVals = slices.Clone(m.genesis.Validators)
+		// Also assuming it's safe to take the reference of the genesis validators.
+		rlc.PrevFinNextValSet = m.genesis.ValidatorSet
 		rlc.PrevFinAppStateHash = string(m.genesis.CurrentAppStateHash)
 
-		rlc.CurVals = slices.Clone(m.genesis.Validators)
+		rlc.CurValSet = m.genesis.ValidatorSet
 
 		// For now, set the previous block hash as the genesis pseudo-block's hash.
 		// But maybe it would be better if the mirror generated this
@@ -490,10 +486,8 @@ func (m *StateMachine) sendInitialActionSet(ctx context.Context) (
 
 		// Overwrite the proposed blocks we present to the consensus strategy,
 		// to exclude any known invalid blocks according to the genesis we just parsed.
-		rer.VRV.RoundView.ProposedBlocks = rejectMismatchedProposedBlocks(
-			rer.VRV.RoundView.ProposedBlocks,
-			rlc.PrevFinAppStateHash,
-			rlc.CurVals, rlc.PrevFinNextVals,
+		rer.VRV.RoundView.ProposedBlocks = m.rejectMismatchedProposedBlocks(
+			rer.VRV.RoundView.ProposedBlocks, &rlc,
 		)
 
 		// We have to synchronously enter the round,
@@ -724,11 +718,7 @@ func (m *StateMachine) handleProposalViewUpdate(
 
 		// And we are making a request to choose or consider in either case too.
 		req := tsi.ChooseProposedBlockRequest{
-			PBs: rejectMismatchedProposedBlocks(
-				vrv.ProposedBlocks,
-				rlc.PrevFinAppStateHash,
-				rlc.CurVals, rlc.PrevFinNextVals,
-			),
+			PBs: m.rejectMismatchedProposedBlocks(vrv.ProposedBlocks, rlc),
 
 			Result: rlc.PrevoteHashCh,
 		}
@@ -811,18 +801,8 @@ func (m *StateMachine) handleProposalViewUpdate(
 		//
 		// Operate on clones to avoid mutating either of the canonical slices.
 
-		incoming := rejectMismatchedProposedBlocks(
-			vrv.ProposedBlocks,
-			rlc.PrevFinAppStateHash,
-			rlc.CurVals,
-			rlc.PrevFinNextVals,
-		)
-		have := rejectMismatchedProposedBlocks(
-			rlc.PrevVRV.ProposedBlocks,
-			rlc.PrevFinAppStateHash,
-			rlc.CurVals,
-			rlc.PrevFinNextVals,
-		)
+		incoming := m.rejectMismatchedProposedBlocks(vrv.ProposedBlocks, rlc)
+		have := m.rejectMismatchedProposedBlocks(rlc.PrevVRV.ProposedBlocks, rlc)
 		// TODO: we could be more efficient than building up the have slice
 		// only to check its length.
 		if len(incoming) <= len(have) {
@@ -1141,8 +1121,8 @@ func (m *StateMachine) recordProposedBlock(
 
 			// TODO: previous commit proof. This should come from the mirror.
 
-			Validators:     slices.Clone(rlc.CurVals),
-			NextValidators: slices.Clone(rlc.PrevFinNextVals),
+			ValidatorSet:     rlc.CurValSet,
+			NextValidatorSet: rlc.PrevFinNextValSet,
 
 			DataID: []byte(p.DataID),
 
@@ -1231,8 +1211,14 @@ func (m *StateMachine) handleFinalization(
 		))
 	}
 
-	clear(rlc.FinalizedValidators)
-	rlc.FinalizedValidators = append(rlc.FinalizedValidators, resp.Validators...)
+	var err error
+	rlc.FinalizedValSet, err = tmconsensus.NewValidatorSet(resp.Validators, m.hashScheme)
+	if err != nil {
+		glog.HRE(m.log, rlc.H, rlc.R, err).Error(
+			"Failed to calculate hashes for newly finalized validator set",
+		)
+		return false
+	}
 	rlc.FinalizedAppStateHash = string(resp.AppStateHash)
 	rlc.FinalizedBlockHash = string(resp.BlockHash)
 
@@ -1249,7 +1235,7 @@ func (m *StateMachine) handleFinalization(
 		ctx,
 		rlc.H, rlc.R,
 		string(resp.BlockHash),
-		rlc.FinalizedValidators,
+		rlc.FinalizedValSet.Validators,
 		string(resp.AppStateHash),
 	); err != nil {
 		glog.HRE(m.log, rlc.H, rlc.R, err).Error(
@@ -1277,12 +1263,7 @@ func (m *StateMachine) handleTimerElapsed(ctx context.Context, rlc *tsi.RoundLif
 			ctx, m.log,
 			m.cm.ChooseProposedBlockRequests, tsi.ChooseProposedBlockRequest{
 				// Exclude invalid proposed blocks.
-				PBs: rejectMismatchedProposedBlocks(
-					rlc.PrevVRV.ProposedBlocks,
-					rlc.PrevFinAppStateHash,
-					rlc.CurVals,
-					rlc.PrevFinNextVals,
-				),
+				PBs:    m.rejectMismatchedProposedBlocks(rlc.PrevVRV.ProposedBlocks, rlc),
 				Result: rlc.PrevoteHashCh, // Is it ever possible this channel is nil?
 			},
 			"choosing proposed block following proposal timeout",
@@ -1339,7 +1320,7 @@ func (m *StateMachine) handleTimerElapsed(ctx context.Context, rlc *tsi.RoundLif
 		rlc.StepTimer = nil
 		rlc.CancelTimer = nil
 
-		if len(rlc.FinalizedValidators) == 0 {
+		if len(rlc.FinalizedValSet.Validators) == 0 {
 			// The timer has elapsed but we don't have a finalization yet.
 			rlc.S = tsi.StepAwaitingFinalization
 			return true
@@ -1380,12 +1361,7 @@ func (m *StateMachine) handleBlockDataArrival(ctx context.Context, rlc *tsi.Roun
 
 	// The height and round match, and we are able to prevote,
 	// so now we need to construct the consider block request.
-	okPBs := rejectMismatchedProposedBlocks(
-		rlc.PrevVRV.ProposedBlocks,
-		rlc.PrevFinAppStateHash,
-		rlc.CurVals,
-		rlc.PrevFinNextVals,
-	)
+	okPBs := m.rejectMismatchedProposedBlocks(rlc.PrevVRV.ProposedBlocks, rlc)
 	if len(okPBs) == 0 {
 		return true
 	}
@@ -1592,4 +1568,34 @@ func (m *StateMachine) handleJumpAhead(
 		"height", rlc.H,
 		"old_round", oldRound, "new_round", rlc.R,
 	)
+}
+
+// rejectMismatchedProposedBlocks returns a copy of the input slice,
+// excluding any proposed blocks that do not match
+// the expected previous app state hash or current validators.
+func (m *StateMachine) rejectMismatchedProposedBlocks(
+	in []tmconsensus.ProposedBlock, rlc *tsi.RoundLifecycle,
+) []tmconsensus.ProposedBlock {
+	if in == nil {
+		// Special case; don't bother allocating an empty slice here.
+		return nil
+	}
+
+	out := make([]tmconsensus.ProposedBlock, 0, len(in))
+	for _, pb := range in {
+		if string(pb.Block.PrevAppStateHash) != rlc.PrevFinAppStateHash {
+			continue
+		}
+
+		if !pb.Block.ValidatorSet.Equal(rlc.CurValSet) {
+			continue
+		}
+		if !pb.Block.NextValidatorSet.Equal(rlc.PrevFinNextValSet) {
+			continue
+		}
+
+		out = append(out, pb)
+	}
+
+	return slices.Clip(out)
 }

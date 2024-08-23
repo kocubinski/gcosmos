@@ -22,11 +22,9 @@ type Block struct {
 	// besides the committed one and nil.
 	PrevCommitProof CommitProof
 
-	// The validators for this block.
-	Validators []Validator
-
-	// The validators for the next block.
-	NextValidators []Validator
+	// The validators for this block,
+	// and validators for the next block
+	ValidatorSet, NextValidatorSet ValidatorSet
 
 	// ID of the data for this block.
 	// The user-defined consensus strategy provides this ID,

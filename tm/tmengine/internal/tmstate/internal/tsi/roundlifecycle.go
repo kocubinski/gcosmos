@@ -28,13 +28,13 @@ type RoundLifecycle struct {
 	// The validators for this height.
 	// Derived from the previous block's NextValidators field.
 	// Used when proposing a block.
-	CurVals []tmconsensus.Validator
+	CurValSet tmconsensus.ValidatorSet
 
 	// A non-nil PrevVRV indicates that the round lifecycle is handling live votes.
 	// If nil, that indicates the round lifecycle is in replay mode.
 	PrevVRV             *tmconsensus.VersionedRoundView
 	PrevBlockHash       string // The previous block hash as reported by the mirror when entering a round.
-	PrevFinNextVals     []tmconsensus.Validator
+	PrevFinNextValSet   tmconsensus.ValidatorSet
 	PrevFinAppStateHash string
 
 	// By tracking the previously considered hashes,
@@ -59,7 +59,7 @@ type RoundLifecycle struct {
 
 	// Values reported by the application for the finalization of the current round.
 	// These must be set before calling CycleFinalization.
-	FinalizedValidators   []tmconsensus.Validator
+	FinalizedValSet       tmconsensus.ValidatorSet
 	FinalizedAppStateHash string
 	FinalizedBlockHash    string
 
@@ -119,8 +119,8 @@ func (rlc RoundLifecycle) IsReplaying() bool {
 func (rlc *RoundLifecycle) CycleFinalization() {
 	rlc.invariantCycleFinalization()
 
-	rlc.PrevFinNextVals, rlc.CurVals, rlc.FinalizedValidators =
-		rlc.FinalizedValidators, rlc.PrevFinNextVals, nil
+	rlc.PrevFinNextValSet, rlc.CurValSet, rlc.FinalizedValSet =
+		rlc.FinalizedValSet, rlc.PrevFinNextValSet, tmconsensus.ValidatorSet{}
 
 	rlc.PrevFinAppStateHash, rlc.FinalizedAppStateHash =
 		rlc.FinalizedAppStateHash, ""
