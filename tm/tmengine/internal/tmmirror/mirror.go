@@ -34,9 +34,9 @@ type Mirror struct {
 	snapshotRequests   chan<- tmi.SnapshotRequest
 	viewLookupRequests chan<- tmi.ViewLookupRequest
 
-	pbCheckRequests chan<- tmi.PBCheckRequest
+	phCheckRequests chan<- tmi.PHCheckRequest
 
-	addPBRequests        chan<- tmconsensus.ProposedBlock
+	addPHRequests        chan<- tmconsensus.ProposedHeader
 	addPrevoteRequests   chan<- tmi.AddPrevoteRequest
 	addPrecommitRequests chan<- tmi.AddPrecommitRequest
 
@@ -46,7 +46,7 @@ type Mirror struct {
 // MirrorConfig holds the configuration required to start a [Mirror].
 type MirrorConfig struct {
 	Store          tmstore.MirrorStore
-	BlockStore     tmstore.BlockStore
+	HeaderStore    tmstore.HeaderStore
 	RoundStore     tmstore.RoundStore
 	ValidatorStore tmstore.ValidatorStore
 
@@ -57,7 +57,7 @@ type MirrorConfig struct {
 	SignatureScheme                   tmconsensus.SignatureScheme
 	CommonMessageSignatureProofScheme gcrypto.CommonMessageSignatureProofScheme
 
-	ProposedBlockFetcher tmelink.ProposedBlockFetcher
+	ProposedHeaderFetcher tmelink.ProposedHeaderFetcher
 
 	GossipStrategyOut chan<- tmelink.NetworkViewUpdate
 
@@ -76,7 +76,7 @@ type MirrorConfig struct {
 func (c MirrorConfig) toKernelConfig() tmi.KernelConfig {
 	return tmi.KernelConfig{
 		Store:          c.Store,
-		BlockStore:     c.BlockStore,
+		HeaderStore:    c.HeaderStore,
 		RoundStore:     c.RoundStore,
 		ValidatorStore: c.ValidatorStore,
 
@@ -87,7 +87,7 @@ func (c MirrorConfig) toKernelConfig() tmi.KernelConfig {
 		InitialHeight:     c.InitialHeight,
 		InitialValidators: c.InitialValidators,
 
-		ProposedBlockFetcher: c.ProposedBlockFetcher,
+		ProposedHeaderFetcher: c.ProposedHeaderFetcher,
 
 		GossipStrategyOut: c.GossipStrategyOut,
 
@@ -122,13 +122,13 @@ func NewMirror(
 	kCfg.ViewLookupRequests = viewLookupRequests
 
 	// No work to do after initiating these requests.
-	pbCheckRequests := make(chan tmi.PBCheckRequest)
-	kCfg.PBCheckRequests = pbCheckRequests
+	phCheckRequests := make(chan tmi.PHCheckRequest)
+	kCfg.PHCheckRequests = phCheckRequests
 
 	// Arbitrarily sized to allow some concurrent requests,
 	// with low likelihood of blocking.
-	addPBRequests := make(chan tmconsensus.ProposedBlock, 8)
-	kCfg.AddPBRequests = addPBRequests
+	addPHRequests := make(chan tmconsensus.ProposedHeader, 8)
+	kCfg.AddPHRequests = addPHRequests
 
 	// The calling method blocks on the response regardless,
 	// so no point in buffering these.
@@ -154,9 +154,9 @@ func NewMirror(
 
 		snapshotRequests:   snapshotRequests,
 		viewLookupRequests: viewLookupRequests,
-		pbCheckRequests:    pbCheckRequests,
+		phCheckRequests:    phCheckRequests,
 
-		addPBRequests:        addPBRequests,
+		addPHRequests:        addPHRequests,
 		addPrevoteRequests:   addPrevoteRequests,
 		addPrecommitRequests: addPrecommitRequests,
 	}
@@ -174,25 +174,25 @@ func (m *Mirror) Wait() {
 // is usually a poor, clunky experience.
 type NetworkHeightRound = tmi.NetworkHeightRound
 
-func (m *Mirror) HandleProposedBlock(ctx context.Context, pb tmconsensus.ProposedBlock) tmconsensus.HandleProposedBlockResult {
-	defer trace.StartRegion(ctx, "HandleProposedBlock").End()
+func (m *Mirror) HandleProposedHeader(ctx context.Context, ph tmconsensus.ProposedHeader) tmconsensus.HandleProposedHeaderResult {
+	defer trace.StartRegion(ctx, "HandleProposedHeader").End()
 
 RESTART:
-	req := tmi.PBCheckRequest{
-		PB:   pb,
-		Resp: make(chan tmi.PBCheckResponse, 1),
+	req := tmi.PHCheckRequest{
+		PH:   ph,
+		Resp: make(chan tmi.PHCheckResponse, 1),
 	}
 	resp, ok := gchan.ReqResp(
 		ctx, m.log,
-		m.pbCheckRequests, req,
+		m.phCheckRequests, req,
 		req.Resp,
-		"HandleProposedBlock:PBCheck",
+		"HandleProposedHeader:PHCheck",
 	)
 	if !ok {
-		return tmconsensus.HandleProposedBlockInternalError
+		return tmconsensus.HandleProposedHeaderInternalError
 	}
 
-	if resp.Status == tmi.PBCheckAlreadyHaveSignature {
+	if resp.Status == tmi.PHCheckAlreadyHaveSignature {
 		// Easy early return case.
 		// We will say it's already stored.
 		// Note, this is only a lightweight signature comparison,
@@ -200,81 +200,81 @@ RESTART:
 		// may be propagated through the network.
 		// TODO: do a deep comparison to see if the proposed block matches,
 		// and possibly return a new status if the signature is forged.
-		return tmconsensus.HandleProposedBlockAlreadyStored
+		return tmconsensus.HandleProposedHeaderAlreadyStored
 	}
 
 	switch resp.Status {
-	case tmi.PBCheckAcceptable:
+	case tmi.PHCheckAcceptable:
 		// Okay.
-	case tmi.PBCheckSignerUnrecognized:
+	case tmi.PHCheckSignerUnrecognized:
 		// Cannot continue.
-		return tmconsensus.HandleProposedBlockSignerUnrecognized
-	case tmi.PBCheckNextHeight:
-		// Special case: we make an additional request to the kernel if the PB is for the next height.
-		m.backfillCommitForNextHeightPB(ctx, req.PB, *resp.VotingRoundView)
+		return tmconsensus.HandleProposedHeaderSignerUnrecognized
+	case tmi.PHCheckNextHeight:
+		// Special case: we make an additional request to the kernel if the PH is for the next height.
+		m.backfillCommitForNextHeightPE(ctx, req.PH, *resp.VotingRoundView)
 		goto RESTART // TODO: find a cleaner way to apply the proposed block after backfilling commit.
-	case tmi.PBCheckRoundTooOld:
-		return tmconsensus.HandleProposedBlockRoundTooOld
-	case tmi.PBCheckRoundTooFarInFuture:
-		return tmconsensus.HandleProposedBlockRoundTooFarInFuture
+	case tmi.PHCheckRoundTooOld:
+		return tmconsensus.HandleProposedHeaderRoundTooOld
+	case tmi.PHCheckRoundTooFarInFuture:
+		return tmconsensus.HandleProposedHeaderRoundTooFarInFuture
 	default:
-		panic(fmt.Errorf("TODO: handle PBCheck status %s", resp.Status))
+		panic(fmt.Errorf("TODO: handle PHCheck status %s", resp.Status))
 	}
 
 	// Arbitrarily choosing to validate the block hash before the signature.
-	wantHash, err := m.hashScheme.Block(pb.Block)
+	wantHash, err := m.hashScheme.Block(ph.Header)
 	if err != nil {
-		return tmconsensus.HandleProposedBlockInternalError
+		return tmconsensus.HandleProposedHeaderInternalError
 	}
 
-	if !bytes.Equal(wantHash, pb.Block.Hash) {
+	if !bytes.Equal(wantHash, ph.Header.Hash) {
 		// Actual hash didn't match expected hash:
 		// this message should not be on the network.
-		return tmconsensus.HandleProposedBlockBadBlockHash
+		return tmconsensus.HandleProposedHeaderBadBlockHash
 	}
 
 	// Validate the signature based on the public key the kernel reported.
-	signContent, err := tmconsensus.ProposalSignBytes(pb.Block, pb.Round, pb.Annotations, m.sigScheme)
+	signContent, err := tmconsensus.ProposalSignBytes(ph.Header, ph.Round, ph.Annotations, m.sigScheme)
 	if err != nil {
-		return tmconsensus.HandleProposedBlockInternalError
+		return tmconsensus.HandleProposedHeaderInternalError
 	}
-	if !resp.ProposerPubKey.Verify(signContent, pb.Signature) {
-		return tmconsensus.HandleProposedBlockBadSignature
+	if !resp.ProposerPubKey.Verify(signContent, ph.Signature) {
+		return tmconsensus.HandleProposedHeaderBadSignature
 	}
 
-	// The hash matches and the proposed block was signed by a validator we know,
+	// The hash matches and the proposed header was signed by a validator we know,
 	// so we can accept the message.
 
 	// Fire-and-forget a request to the kernel, to add this proposed block.
-	// The m.addPBRequests channel has a larger buffer
+	// The m.addPHRequests channel has a larger buffer
 	// for a relative guarantee that this send won't block.
 	// But if it does, that's okay, it's effective backpressure at that point.
 	_ = gchan.SendC(
 		ctx, m.log,
-		m.addPBRequests, pb,
-		"requesting proposed block to be added",
+		m.addPHRequests, ph,
+		"requesting proposed header to be added",
 	)
 
 	// Is accepting here sufficient?
-	// We could adjust the addPBRequests channel to respond with a value if needed.
-	return tmconsensus.HandleProposedBlockAccepted
+	// We could adjust the addPHRequests channel to respond with a value if needed.
+	return tmconsensus.HandleProposedHeaderAccepted
 }
 
-func (m *Mirror) backfillCommitForNextHeightPB(
+func (m *Mirror) backfillCommitForNextHeightPE(
 	ctx context.Context,
-	pb tmconsensus.ProposedBlock,
+	ph tmconsensus.ProposedHeader,
 	rv tmconsensus.RoundView,
 ) backfillCommitStatus {
-	defer trace.StartRegion(ctx, "backfillCommitForNextHeightPB").End()
+	defer trace.StartRegion(ctx, "backfillCommitForNextHeightPE").End()
 
 	res := m.handlePrecommitProofs(ctx, tmconsensus.PrecommitSparseProof{
-		Height: pb.Block.Height - 1,
-		Round:  pb.Block.PrevCommitProof.Round,
+		Height: ph.Header.Height - 1,
+		Round:  ph.Header.PrevCommitProof.Round,
 
-		PubKeyHash: pb.Block.PrevCommitProof.PubKeyHash,
+		PubKeyHash: ph.Header.PrevCommitProof.PubKeyHash,
 
-		Proofs: pb.Block.PrevCommitProof.Proofs,
-	}, "(*Mirror).backfillCommitForNextHeightPB")
+		Proofs: ph.Header.PrevCommitProof.Proofs,
+	}, "(*Mirror).backfillCommitForNextHeightPE")
 
 	if res != tmconsensus.HandleVoteProofsAccepted {
 		return backfillCommitRejected

@@ -307,9 +307,9 @@ func (e *Engine) maybeInitializeChain(
 		CurrentAppStateHash: resp.AppStateHash,
 		ValidatorSet:        valSet,
 	}
-	b, err := updatedGenesis.Block(e.hashScheme)
+	b, err := updatedGenesis.Header(e.hashScheme)
 	if err != nil {
-		return tmconsensus.Genesis{}, fmt.Errorf("failure building genesis block: %w", err)
+		return tmconsensus.Genesis{}, fmt.Errorf("failure building genesis header: %w", err)
 	}
 
 	// Now we have the finalization; we have to store it.
@@ -332,8 +332,8 @@ func (e *Engine) maybeInitializeChain(
 	return updatedGenesis, nil
 }
 
-func (e *Engine) HandleProposedBlock(ctx context.Context, pb tmconsensus.ProposedBlock) tmconsensus.HandleProposedBlockResult {
-	return e.m.HandleProposedBlock(ctx, pb)
+func (e *Engine) HandleProposedHeader(ctx context.Context, ph tmconsensus.ProposedHeader) tmconsensus.HandleProposedHeaderResult {
+	return e.m.HandleProposedHeader(ctx, ph)
 }
 
 func (e *Engine) HandlePrevoteProofs(ctx context.Context, p tmconsensus.PrevoteSparseProof) tmconsensus.HandleVoteProofsResult {

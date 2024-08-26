@@ -16,35 +16,35 @@ type MarshalCodec struct {
 	CryptoRegistry *gcrypto.Registry
 }
 
-func (c MarshalCodec) MarshalBlock(b tmconsensus.Block) ([]byte, error) {
-	jb := toJSONBlock(b, c.CryptoRegistry)
-	return json.Marshal(jb)
+func (c MarshalCodec) MarshalHeader(b tmconsensus.Header) ([]byte, error) {
+	jh := toJSONHeader(b, c.CryptoRegistry)
+	return json.Marshal(jh)
 }
 
-func (c MarshalCodec) UnmarshalBlock(b []byte, block *tmconsensus.Block) error {
-	var jb jsonBlock
-	err := json.Unmarshal(b, &jb)
+func (c MarshalCodec) UnmarshalHeader(b []byte, header *tmconsensus.Header) error {
+	var jh jsonHeader
+	err := json.Unmarshal(b, &jh)
 	if err != nil {
 		return err
 	}
 
-	*block, err = jb.ToBlock(c.CryptoRegistry)
+	*header, err = jh.ToHeader(c.CryptoRegistry)
 	return err
 }
 
-func (c MarshalCodec) MarshalProposedBlock(pb tmconsensus.ProposedBlock) ([]byte, error) {
-	jpb := toJSONProposedBlock(pb, c.CryptoRegistry)
-	return json.Marshal(jpb)
+func (c MarshalCodec) MarshalProposedHeader(ph tmconsensus.ProposedHeader) ([]byte, error) {
+	jph := toJSONProposedHeader(ph, c.CryptoRegistry)
+	return json.Marshal(jph)
 }
 
-func (c MarshalCodec) UnmarshalProposedBlock(b []byte, pb *tmconsensus.ProposedBlock) error {
-	var jpb jsonProposedBlock
+func (c MarshalCodec) UnmarshalProposedHeader(b []byte, ph *tmconsensus.ProposedHeader) error {
+	var jpb jsonProposedHeader
 	err := json.Unmarshal(b, &jpb)
 	if err != nil {
 		return err
 	}
 
-	*pb, err = jpb.ToProposedBlock(
+	*ph, err = jpb.ToProposedHeader(
 		c.CryptoRegistry,
 	)
 	return err
@@ -155,18 +155,18 @@ func (c MarshalCodec) UnmarshalPrecommitProof(b []byte, p *tmconsensus.Precommit
 }
 
 type jsonConsensusMessage struct {
-	ProposedBlock, PrevoteProof, PrecommitProof json.RawMessage `json:",omitempty"`
+	ProposedHeader, PrevoteProof, PrecommitProof json.RawMessage `json:",omitempty"`
 }
 
 func (c MarshalCodec) MarshalConsensusMessage(m tmcodec.ConsensusMessage) ([]byte, error) {
 	var jcm jsonConsensusMessage
 	switch {
-	case m.ProposedBlock != nil:
-		b, err := c.MarshalProposedBlock(*m.ProposedBlock)
+	case m.ProposedHeader != nil:
+		b, err := c.MarshalProposedHeader(*m.ProposedHeader)
 		if err != nil {
 			return nil, err
 		}
-		jcm.ProposedBlock = json.RawMessage(b)
+		jcm.ProposedHeader = json.RawMessage(b)
 	case m.PrevoteProof != nil:
 		b, err := c.MarshalPrevoteProof(*m.PrevoteProof)
 		if err != nil {
@@ -191,12 +191,12 @@ func (c MarshalCodec) UnmarshalConsensusMessage(b []byte, m *tmcodec.ConsensusMe
 	}
 
 	switch {
-	case jcm.ProposedBlock != nil:
-		var pb tmconsensus.ProposedBlock
-		if err := c.UnmarshalProposedBlock(jcm.ProposedBlock, &pb); err != nil {
+	case jcm.ProposedHeader != nil:
+		var ph tmconsensus.ProposedHeader
+		if err := c.UnmarshalProposedHeader(jcm.ProposedHeader, &ph); err != nil {
 			return err
 		}
-		m.ProposedBlock = &pb
+		m.ProposedHeader = &ph
 	case jcm.PrevoteProof != nil:
 		var proof tmconsensus.PrevoteSparseProof
 		if err := c.UnmarshalPrevoteProof(jcm.PrevoteProof, &proof); err != nil {

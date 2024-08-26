@@ -14,7 +14,7 @@ import (
 // there are gracious 5-second timeouts associated with the channels.
 // If a channel is blocked sending for that duration, ChannelBroadcaster panics.
 type ChannelBroadcaster struct {
-	pbInCh, pbOutCh chan tmconsensus.ProposedBlock
+	phInCh, phOutCh chan tmconsensus.ProposedHeader
 
 	prevoteInCh, prevoteOutCh chan tmconsensus.PrevoteSparseProof
 
@@ -23,8 +23,8 @@ type ChannelBroadcaster struct {
 
 func NewChannelBroadcaster(ctx context.Context) *ChannelBroadcaster {
 	cb := &ChannelBroadcaster{
-		pbInCh:  make(chan tmconsensus.ProposedBlock, 1),
-		pbOutCh: make(chan tmconsensus.ProposedBlock),
+		phInCh:  make(chan tmconsensus.ProposedHeader, 1),
+		phOutCh: make(chan tmconsensus.ProposedHeader),
 
 		prevoteInCh:  make(chan tmconsensus.PrevoteSparseProof, 1),
 		prevoteOutCh: make(chan tmconsensus.PrevoteSparseProof),
@@ -42,8 +42,8 @@ func (cb *ChannelBroadcaster) background(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case pb := <-cb.pbInCh:
-			sendOrPanic(ctx, cb.pbOutCh, pb)
+		case ph := <-cb.phInCh:
+			sendOrPanic(ctx, cb.phOutCh, ph)
 		case proof := <-cb.prevoteInCh:
 			sendOrPanic(ctx, cb.prevoteOutCh, proof)
 		case proof := <-cb.precommitInCh:
@@ -52,14 +52,14 @@ func (cb *ChannelBroadcaster) background(ctx context.Context) {
 	}
 }
 
-func (cb *ChannelBroadcaster) OutgoingProposedBlocks() chan<- tmconsensus.ProposedBlock {
-	return cb.pbInCh
+func (cb *ChannelBroadcaster) OutgoingProposedHeaders() chan<- tmconsensus.ProposedHeader {
+	return cb.phInCh
 }
 
 // ProposedBlocks is the channel for the test to read,
 // to inspect proposed blocks that have been broadcast.
-func (cb *ChannelBroadcaster) ProposedBlocks() <-chan tmconsensus.ProposedBlock {
-	return cb.pbOutCh
+func (cb *ChannelBroadcaster) ProposedBlocks() <-chan tmconsensus.ProposedHeader {
+	return cb.phOutCh
 }
 
 func (cb *ChannelBroadcaster) OutgoingPrevoteProofs() chan<- tmconsensus.PrevoteSparseProof {

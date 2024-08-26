@@ -85,12 +85,12 @@ func (a *echoApp) background(
 
 		case req := <-finalizeBlockRequests:
 			resp := tmdriver.FinalizeBlockResponse{
-				Height:    req.Block.Height,
+				Height:    req.Header.Height,
 				Round:     req.Round,
-				BlockHash: req.Block.Hash,
+				BlockHash: req.Header.Hash,
 
 				// We never change validators.
-				Validators: req.Block.NextValidatorSet.Validators,
+				Validators: req.Header.NextValidatorSet.Validators,
 			}
 
 			blockData := fmt.Sprintf("Height: %d; Round: %d", resp.Height, resp.Round)
@@ -100,8 +100,8 @@ func (a *echoApp) background(
 
 			a.log.Info(
 				"Finalizing block",
-				"block_hash", glog.Hex(req.Block.Hash),
-				"height", req.Block.Height,
+				"block_hash", glog.Hex(req.Header.Hash),
+				"height", req.Header.Height,
 			)
 
 			select {
@@ -157,14 +157,14 @@ func (s *echoConsensusStrategy) EnterRound(ctx context.Context, rv tmconsensus.R
 
 func (s *echoConsensusStrategy) ConsiderProposedBlocks(
 	ctx context.Context,
-	pbs []tmconsensus.ProposedBlock,
+	phs []tmconsensus.ProposedHeader,
 	_ tmconsensus.ConsiderProposedBlocksReason,
 ) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	for _, pb := range pbs {
-		if !s.expProposerPubKey.Equal(pb.ProposerPubKey) {
+	for _, ph := range phs {
+		if !s.expProposerPubKey.Equal(ph.ProposerPubKey) {
 			continue
 		}
 
@@ -172,30 +172,30 @@ func (s *echoConsensusStrategy) ConsiderProposedBlocks(
 		expBlockData := fmt.Sprintf("Height: %d; Round: %d", s.curH, s.curR)
 		expDataHash := sha256.Sum256([]byte(expBlockData))
 
-		if !bytes.Equal(pb.Block.DataID, expDataHash[:]) {
+		if !bytes.Equal(ph.Header.DataID, expDataHash[:]) {
 			s.Log.Info("Rejecting proposed block from expected proposer",
 				"exp_id", glog.Hex(expDataHash[:]),
-				"got_id", glog.Hex(pb.Block.DataID),
+				"got_id", glog.Hex(ph.Header.DataID),
 			)
 			return "", nil
 		}
 
-		if s.PubKey != nil && s.PubKey.Equal(pb.ProposerPubKey) {
+		if s.PubKey != nil && s.PubKey.Equal(ph.ProposerPubKey) {
 			s.Log.Info("Voting on a block that we proposed",
 				"h", s.curH, "r", s.curR,
-				"block_hash", glog.Hex(pb.Block.Hash),
+				"block_hash", glog.Hex(ph.Header.Hash),
 			)
 		}
-		return string(pb.Block.Hash), nil
+		return string(ph.Header.Hash), nil
 	}
 
 	// Didn't see a proposed block from the expected proposer.
 	return "", tmconsensus.ErrProposedBlockChoiceNotReady
 }
 
-func (s *echoConsensusStrategy) ChooseProposedBlock(ctx context.Context, pbs []tmconsensus.ProposedBlock) (string, error) {
+func (s *echoConsensusStrategy) ChooseProposedBlock(ctx context.Context, phs []tmconsensus.ProposedHeader) (string, error) {
 	// Follow the ConsiderProposedBlocks logic...
-	hash, err := s.ConsiderProposedBlocks(ctx, pbs, tmconsensus.ConsiderProposedBlocksReason{})
+	hash, err := s.ConsiderProposedBlocks(ctx, phs, tmconsensus.ConsiderProposedBlocksReason{})
 	if err == tmconsensus.ErrProposedBlockChoiceNotReady {
 		// ... and if there is no choice ready, then vote nil.
 		return "", nil

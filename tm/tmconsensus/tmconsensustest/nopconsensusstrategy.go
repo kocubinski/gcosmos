@@ -18,13 +18,13 @@ func (NopConsensusStrategy) EnterRound(context.Context, tmconsensus.RoundView, c
 
 func (NopConsensusStrategy) ConsiderProposedBlocks(
 	ctx context.Context,
-	pbs []tmconsensus.ProposedBlock,
+	phs []tmconsensus.ProposedHeader,
 	reason tmconsensus.ConsiderProposedBlocksReason,
 ) (string, error) {
 	return "", nil
 }
 
-func (NopConsensusStrategy) ChooseProposedBlock(ctx context.Context, pbs []tmconsensus.ProposedBlock) (string, error) {
+func (NopConsensusStrategy) ChooseProposedBlock(ctx context.Context, phs []tmconsensus.ProposedHeader) (string, error) {
 	return "", nil
 }
 

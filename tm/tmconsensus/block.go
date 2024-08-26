@@ -2,11 +2,11 @@ package tmconsensus
 
 import "github.com/rollchains/gordian/gcrypto"
 
-// Block is the logical representation of a full block.
-// The block may go through transformations,
+// Header is the logical representation of a block header.
+// The header may go through transformations,
 // such as storing only hashes of validator sets rather than the longhand raw validator data,
 // before writing to disk or sending across the network.
-type Block struct {
+type Header struct {
 	// Determined based on all the other fields.
 	// Derived through a [HashScheme] method.
 	Hash []byte
@@ -67,18 +67,18 @@ type CommitProof struct {
 	Proofs map[string][]gcrypto.SparseSignature
 }
 
-// CommittedBlock is a block and the proof that it was committed.
-type CommittedBlock struct {
-	Block Block
-	Proof CommitProof
+// CommittedHeader is a header and the proof that it was committed.
+type CommittedHeader struct {
+	Header Header
+	Proof  CommitProof
 }
 
 // ProposedBlock is the data sent by a proposer at the beginning of a round.
 // This is the logical representation within the engine,
 // not necessarily an exact representation of the data sent across the network.
-type ProposedBlock struct {
-	// The block to consider committing.
-	Block Block
+type ProposedHeader struct {
+	// The header of the block to consider committing.
+	Header Header
 
 	// The round in which this block was proposed.
 	Round uint32

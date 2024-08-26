@@ -19,17 +19,17 @@ type kState struct {
 	NextRound tmconsensus.VersionedRoundView
 
 	// The kernel makes a fetch request if a block reaches >1/3
-	// prevotes or precommits, and we don't have the actual proposed block.
+	// prevotes or precommits, and we don't have the actual proposed header.
 	// If a request is outstanding and we switch views,
 	// we need to cancel those outstanding requests.
-	InFlightFetchPBs map[string]context.CancelFunc
+	InFlightFetchPHs map[string]context.CancelFunc
 
 	// Certain operations on the Voting view require knowledge
-	// of which block in the Committing view, is being committed.
-	// The block will be the zero value if the mirror does not yet have a Committing view.
-	// This is a simplified accessor compared to manually finding the committing block
-	// by searching through the proposed blocks in the committing view.
-	CommittingBlock tmconsensus.Block
+	// of which header in the Committing view, is being committed.
+	// The header will be the zero value if the mirror does not yet have a Committing view.
+	// This is a simplified accessor compared to manually finding the committing header
+	// by searching through the proposed headers in the committing view.
+	CommittingHeader tmconsensus.Header
 
 	// Dedicated manager for the views to send to the state machine.
 	// While the state machine primarily is interested in the voting view,
@@ -149,7 +149,7 @@ func (s *kState) MarkViewUpdated(id ViewID) {
 type nextHeightDetails struct {
 	ValidatorSet tmconsensus.ValidatorSet
 
-	VotedBlock tmconsensus.Block
+	VotedHeader tmconsensus.Header
 
 	Round0NilPrevote, Round0NilPrecommit,
 	Round1NilPrevote, Round1NilPrecommit gcrypto.CommonMessageSignatureProof
@@ -203,7 +203,7 @@ func (s *kState) ShiftVotingToCommitting(nhd nextHeightDetails) {
 
 	s.MarkNextRoundViewUpdated()
 
-	s.CommittingBlock = nhd.VotedBlock
+	s.CommittingHeader = nhd.VotedHeader
 }
 
 func (s *kState) AdvanceVotingRound(

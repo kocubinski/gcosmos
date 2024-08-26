@@ -13,8 +13,8 @@ import (
 type RoundStore struct {
 	mu sync.RWMutex
 
-	// Height -> Round -> Hash -> Block.
-	pbs map[uint64]map[uint32]map[string]tmconsensus.ProposedBlock
+	// Height -> Round -> Hash -> Header.
+	phs map[uint64]map[uint32]map[string]tmconsensus.ProposedHeader
 
 	// Height -> Round -> Hash -> signature proofs.
 	prevotes, precommits map[uint64]map[uint32]map[string]gcrypto.CommonMessageSignatureProof
@@ -22,37 +22,37 @@ type RoundStore struct {
 
 func NewRoundStore() *RoundStore {
 	return &RoundStore{
-		pbs: make(map[uint64]map[uint32]map[string]tmconsensus.ProposedBlock),
+		phs: make(map[uint64]map[uint32]map[string]tmconsensus.ProposedHeader),
 
 		prevotes:   make(map[uint64]map[uint32]map[string]gcrypto.CommonMessageSignatureProof),
 		precommits: make(map[uint64]map[uint32]map[string]gcrypto.CommonMessageSignatureProof),
 	}
 }
 
-func (s *RoundStore) SaveProposedBlock(ctx context.Context, pb tmconsensus.ProposedBlock) error {
+func (s *RoundStore) SaveProposedHeader(ctx context.Context, ph tmconsensus.ProposedHeader) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	byRound, ok := s.pbs[pb.Block.Height]
+	byRound, ok := s.phs[ph.Header.Height]
 	if !ok {
-		byRound = make(map[uint32]map[string]tmconsensus.ProposedBlock)
-		s.pbs[pb.Block.Height] = byRound
+		byRound = make(map[uint32]map[string]tmconsensus.ProposedHeader)
+		s.phs[ph.Header.Height] = byRound
 	}
 
-	byHash, ok := byRound[pb.Round]
+	byHash, ok := byRound[ph.Round]
 	if !ok {
-		byHash = make(map[string]tmconsensus.ProposedBlock)
-		byRound[pb.Round] = byHash
+		byHash = make(map[string]tmconsensus.ProposedHeader)
+		byRound[ph.Round] = byHash
 	}
 
-	if _, ok := byHash[string(pb.Block.Hash)]; ok {
+	if _, ok := byHash[string(ph.Header.Hash)]; ok {
 		return tmstore.OverwriteError{
 			Field: "hash",
-			Value: fmt.Sprintf("%x", pb.Block.Hash),
+			Value: fmt.Sprintf("%x", ph.Header.Hash),
 		}
 	}
 
-	byHash[string(pb.Block.Hash)] = pb
+	byHash[string(ph.Header.Hash)] = ph
 
 	return nil
 }
@@ -96,18 +96,18 @@ func (s *RoundStore) OverwritePrecommitProofs(
 }
 
 func (s *RoundStore) LoadRoundState(ctx context.Context, height uint64, round uint32) (
-	pbs []tmconsensus.ProposedBlock,
+	phs []tmconsensus.ProposedHeader,
 	prevotes, precommits map[string]gcrypto.CommonMessageSignatureProof,
 	err error,
 ) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	if roundMap, ok := s.pbs[height]; ok {
+	if roundMap, ok := s.phs[height]; ok {
 		if hashMap, ok := roundMap[round]; ok && len(hashMap) > 0 {
-			pbs = make([]tmconsensus.ProposedBlock, 0, len(hashMap))
-			for _, pb := range hashMap {
-				pbs = append(pbs, pb)
+			phs = make([]tmconsensus.ProposedHeader, 0, len(hashMap))
+			for _, ph := range hashMap {
+				phs = append(phs, ph)
 			}
 		}
 	}
@@ -120,9 +120,9 @@ func (s *RoundStore) LoadRoundState(ctx context.Context, height uint64, round ui
 		precommits = precommitHeightMap[round]
 	}
 
-	if pbs == nil && prevotes == nil && precommits == nil {
+	if phs == nil && prevotes == nil && precommits == nil {
 		return nil, nil, nil, tmconsensus.RoundUnknownError{WantHeight: height, WantRound: round}
 	}
 
-	return pbs, prevotes, precommits, nil
+	return phs, prevotes, precommits, nil
 }

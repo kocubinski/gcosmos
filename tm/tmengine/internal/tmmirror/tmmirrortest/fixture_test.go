@@ -33,16 +33,16 @@ func TestFixture_CommitInitialHeight(t *testing.T) {
 			)
 
 			// Now assert that the stores have the expected content.
-			pbs, _, precommits, err := mfx.Cfg.RoundStore.LoadRoundState(ctx, 1, 0)
+			phs, _, precommits, err := mfx.Cfg.RoundStore.LoadRoundState(ctx, 1, 0)
 			require.NoError(t, err)
 
-			require.Len(t, pbs, 1)
+			require.Len(t, phs, 1)
 
-			pb := pbs[0]
-			require.Equal(t, []byte("initial_height"), pb.Block.DataID)
+			ph := phs[0]
+			require.Equal(t, []byte("initial_height"), ph.Header.DataID)
 
 			require.Len(t, precommits, 1)
-			precommitProof := precommits[string(pb.Block.Hash)]
+			precommitProof := precommits[string(ph.Header.Hash)]
 			require.NotNil(t, precommitProof)
 
 			require.Equal(t, uint(nVals), precommitProof.SignatureBitSet().Count())
@@ -59,10 +59,10 @@ func TestFixture_CommitInitialHeight(t *testing.T) {
 			}, nhr)
 
 			// And if we generate another proposed block, it is at the right height.
-			nextPB := mfx.Fx.NextProposedBlock([]byte("x"), 0)
+			nextPH := mfx.Fx.NextProposedHeader([]byte("x"), 0)
 
-			require.Equal(t, uint64(2), nextPB.Block.Height)
-			require.Zero(t, nextPB.Round)
+			require.Equal(t, uint64(2), nextPH.Header.Height)
+			require.Zero(t, nextPH.Round)
 		})
 	}
 }

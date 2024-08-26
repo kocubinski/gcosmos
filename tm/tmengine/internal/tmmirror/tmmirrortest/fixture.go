@@ -67,7 +67,7 @@ func NewFixture(ctx context.Context, t *testing.T, nVals int) *Fixture {
 
 		Cfg: tmmirror.MirrorConfig{
 			Store:          tmmemstore.NewMirrorStore(),
-			BlockStore:     tmmemstore.NewBlockStore(),
+			HeaderStore:    tmmemstore.NewHeaderStore(),
 			RoundStore:     tmmemstore.NewRoundStore(),
 			ValidatorStore: tmmemstore.NewValidatorStore(fx.HashScheme),
 
@@ -81,7 +81,7 @@ func NewFixture(ctx context.Context, t *testing.T, nVals int) *Fixture {
 			// Default the fetcher to a pair of blocking channels.
 			// The caller can override f.Cfg.ProposedBlockFetcher
 			// in tests that need control over, or inspection of, these channels.
-			ProposedBlockFetcher: tmelinktest.NewPBFetcher(0, 0).ProposedBlockFetcher(),
+			ProposedHeaderFetcher: tmelinktest.NewPHFetcher(0, 0).ProposedHeaderFetcher(),
 
 			GossipStrategyOut: gso,
 
@@ -148,15 +148,15 @@ func (f *Fixture) CommitInitialHeight(
 ) {
 	// First, store the proposed block.
 	// Sign it so it is valid.
-	pb := f.Fx.NextProposedBlock(initialAppStateHash, initialProposerIndex)
+	pb := f.Fx.NextProposedHeader(initialAppStateHash, initialProposerIndex)
 	f.Fx.SignProposal(ctx, &pb, initialProposerIndex)
-	if err := f.Cfg.RoundStore.SaveProposedBlock(ctx, pb); err != nil {
+	if err := f.Cfg.RoundStore.SaveProposedHeader(ctx, pb); err != nil {
 		panic(fmt.Errorf("failed to save proposed block: %w", err))
 	}
 
 	// Now build the precommit for that round.
 	voteMap := map[string][]int{
-		string(pb.Block.Hash): committerIdxs,
+		string(pb.Header.Hash): committerIdxs,
 	}
 	precommitProofs := f.Fx.PrecommitProofMap(ctx, f.Cfg.InitialHeight, 0, voteMap)
 
@@ -176,7 +176,7 @@ func (f *Fixture) CommitInitialHeight(
 	}
 
 	// Finally, update the fixture to reflect the committed block.
-	f.Fx.CommitBlock(pb.Block, []byte("app_state_height_1"), 0, precommitProofs)
+	f.Fx.CommitBlock(pb.Header, []byte("app_state_height_1"), 0, precommitProofs)
 }
 
 // Prevoter returns a [Voter] for prevotes.

@@ -333,9 +333,9 @@ func (m *StateMachine) beginRoundLive(
 	switch curStep {
 	case tsi.StepAwaitingProposal:
 		// Only send the filtered proposed blocks.
-		if okPBs := m.rejectMismatchedProposedBlocks(initVRV.ProposedBlocks, rlc); len(okPBs) > 0 {
+		if okPHs := m.rejectMismatchedProposedHeaders(initVRV.ProposedHeaders, rlc); len(okPHs) > 0 {
 			req := tsi.ConsiderProposedBlocksRequest{
-				PBs:    okPBs,
+				PHs:    okPHs,
 				Result: rlc.PrevoteHashCh,
 			}
 			req.MarkReasonNewHashes(rlc)
@@ -473,7 +473,7 @@ func (m *StateMachine) sendInitialActionSet(ctx context.Context) (
 		// For now, set the previous block hash as the genesis pseudo-block's hash.
 		// But maybe it would be better if the mirror generated this
 		// and sent it as part of the state update.
-		b, err := m.genesis.Block(m.hashScheme)
+		b, err := m.genesis.Header(m.hashScheme)
 		if err != nil {
 			panic(fmt.Errorf(
 				"FATAL: failed to generate genesis block hash: %w", err,
@@ -486,8 +486,8 @@ func (m *StateMachine) sendInitialActionSet(ctx context.Context) (
 
 		// Overwrite the proposed blocks we present to the consensus strategy,
 		// to exclude any known invalid blocks according to the genesis we just parsed.
-		rer.VRV.RoundView.ProposedBlocks = m.rejectMismatchedProposedBlocks(
-			rer.VRV.RoundView.ProposedBlocks, &rlc,
+		rer.VRV.RoundView.ProposedHeaders = m.rejectMismatchedProposedHeaders(
+			rer.VRV.RoundView.ProposedHeaders, &rlc,
 		)
 
 		// We have to synchronously enter the round,
@@ -522,8 +522,8 @@ func (m *StateMachine) sendInitialActionSet(ctx context.Context) (
 
 		// This is a replay, so we can just tell the driver to finalize it.
 		finReq := tmdriver.FinalizeBlockRequest{
-			Block: rer.CB.Block,
-			Round: rer.CB.Proof.Round,
+			Header: rer.CH.Header,
+			Round:  rer.CH.Proof.Round,
 
 			Resp: rlc.FinalizeRespCh,
 		}
@@ -718,7 +718,7 @@ func (m *StateMachine) handleProposalViewUpdate(
 
 		// And we are making a request to choose or consider in either case too.
 		req := tsi.ChooseProposedBlockRequest{
-			PBs: m.rejectMismatchedProposedBlocks(vrv.ProposedBlocks, rlc),
+			PHs: m.rejectMismatchedProposedHeaders(vrv.ProposedHeaders, rlc),
 
 			Result: rlc.PrevoteHashCh,
 		}
@@ -756,11 +756,11 @@ func (m *StateMachine) handleProposalViewUpdate(
 		rlc.S = tsi.StepPrevoteDelay
 		rlc.StepTimer, rlc.CancelTimer = m.rt.PrevoteDelayTimer(ctx, rlc.H, rlc.R)
 
-		if len(req.PBs) > 0 {
+		if len(req.PHs) > 0 {
 			// If we filtered out invalid proposed blocks,
 			// don't send the request.
 			req := tsi.ConsiderProposedBlocksRequest{
-				PBs:    req.PBs, // Outer declaration of req as a choose request.
+				PHs:    req.PHs, // Outer declaration of req as a choose request.
 				Result: rlc.PrevoteHashCh,
 			}
 			req.MarkReasonNewHashes(rlc)
@@ -785,7 +785,7 @@ func (m *StateMachine) handleProposalViewUpdate(
 
 	// If we have only exceeded minority prevote power, we will continue waiting for proposed blocks.
 
-	if len(vrv.ProposedBlocks) > len(rlc.PrevVRV.ProposedBlocks) {
+	if len(vrv.ProposedHeaders) > len(rlc.PrevVRV.ProposedHeaders) {
 		// At least one new proposed block.
 		// We are going to inform the consensus strategy (by way of the consensus manager)
 		// of the new proposed blocks,
@@ -801,8 +801,8 @@ func (m *StateMachine) handleProposalViewUpdate(
 		//
 		// Operate on clones to avoid mutating either of the canonical slices.
 
-		incoming := m.rejectMismatchedProposedBlocks(vrv.ProposedBlocks, rlc)
-		have := m.rejectMismatchedProposedBlocks(rlc.PrevVRV.ProposedBlocks, rlc)
+		incoming := m.rejectMismatchedProposedHeaders(vrv.ProposedHeaders, rlc)
+		have := m.rejectMismatchedProposedHeaders(rlc.PrevVRV.ProposedHeaders, rlc)
 		// TODO: we could be more efficient than building up the have slice
 		// only to check its length.
 		if len(incoming) <= len(have) {
@@ -813,7 +813,7 @@ func (m *StateMachine) handleProposalViewUpdate(
 
 		// The timer hasn't elapsed yet so it is only a Consider call at this point.
 		req := tsi.ConsiderProposedBlocksRequest{
-			PBs: incoming,
+			PHs: incoming,
 
 			Result: rlc.PrevoteHashCh,
 		}
@@ -1075,8 +1075,8 @@ func (m *StateMachine) handleCommitWaitViewUpdate(
 		return
 	}
 
-	pbIdx := slices.IndexFunc(rlc.PrevVRV.ProposedBlocks, func(pb tmconsensus.ProposedBlock) bool {
-		return string(pb.Block.Hash) == rlc.PrevVRV.VoteSummary.MostVotedPrecommitHash
+	pbIdx := slices.IndexFunc(rlc.PrevVRV.ProposedHeaders, func(ph tmconsensus.ProposedHeader) bool {
+		return string(ph.Header.Hash) == rlc.PrevVRV.VoteSummary.MostVotedPrecommitHash
 	})
 	if pbIdx >= 0 {
 		// The previous VRV already had the proposed block,
@@ -1085,8 +1085,8 @@ func (m *StateMachine) handleCommitWaitViewUpdate(
 	}
 
 	// Now does the new VRV have the proposed block?
-	pbIdx = slices.IndexFunc(vrv.ProposedBlocks, func(pb tmconsensus.ProposedBlock) bool {
-		return string(pb.Block.Hash) == vrv.VoteSummary.MostVotedPrecommitHash
+	pbIdx = slices.IndexFunc(vrv.ProposedHeaders, func(ph tmconsensus.ProposedHeader) bool {
+		return string(ph.Header.Hash) == vrv.VoteSummary.MostVotedPrecommitHash
 	})
 	if pbIdx < 0 {
 		// Not there yet, so don't do anything.
@@ -1097,8 +1097,8 @@ func (m *StateMachine) handleCommitWaitViewUpdate(
 	_ = gchan.SendC(
 		ctx, m.log,
 		m.finalizeBlockRequestCh, tmdriver.FinalizeBlockRequest{
-			Block: vrv.ProposedBlocks[pbIdx].Block,
-			Round: vrv.Round,
+			Header: vrv.ProposedHeaders[pbIdx].Header,
+			Round:  vrv.Round,
 
 			Resp: rlc.FinalizeRespCh,
 		},
@@ -1113,8 +1113,8 @@ func (m *StateMachine) recordProposedBlock(
 ) (ok bool) {
 	h, r := rlc.H, rlc.R
 
-	pb := tmconsensus.ProposedBlock{
-		Block: tmconsensus.Block{
+	ph := tmconsensus.ProposedHeader{
+		Header: tmconsensus.Header{
 			PrevBlockHash: []byte(rlc.PrevBlockHash),
 
 			Height: h,
@@ -1138,26 +1138,26 @@ func (m *StateMachine) recordProposedBlock(
 		Annotations: p.ProposalAnnotations,
 	}
 
-	hash, err := m.hashScheme.Block(pb.Block)
+	hash, err := m.hashScheme.Block(ph.Header)
 	if err != nil {
 		glog.HRE(m.log, h, r, err).Error("Failed to calculate hash for proposed block")
 		return false
 	}
-	pb.Block.Hash = hash
+	ph.Header.Hash = hash
 
-	if err := m.signer.SignProposedBlock(ctx, &pb); err != nil {
+	if err := m.signer.SignProposedHeader(ctx, &ph); err != nil {
 		glog.HRE(m.log, h, r, err).Error("Failed to sign proposed block")
 		return false
 	}
 
-	if err := m.aStore.SaveProposedBlock(ctx, pb); err != nil {
+	if err := m.aStore.SaveProposedHeader(ctx, ph); err != nil {
 		glog.HRE(m.log, h, r, err).Error("Failed to save proposed block to action store")
 		return false
 	}
 
 	// The OutgoingActionsCh is 3-buffered so we assume this will never block.
 	rlc.OutgoingActionsCh <- tmeil.StateMachineRoundAction{
-		PB: pb,
+		PH: ph,
 	}
 
 	return true
@@ -1174,8 +1174,8 @@ func (m *StateMachine) beginCommit(
 	rlc.S = tsi.StepCommitWait
 	rlc.StepTimer, rlc.CancelTimer = m.rt.CommitWaitTimer(ctx, rlc.H, rlc.R)
 
-	idx := slices.IndexFunc(vrv.ProposedBlocks, func(pb tmconsensus.ProposedBlock) bool {
-		return string(pb.Block.Hash) == vrv.VoteSummary.MostVotedPrecommitHash
+	idx := slices.IndexFunc(vrv.ProposedHeaders, func(ph tmconsensus.ProposedHeader) bool {
+		return string(ph.Header.Hash) == vrv.VoteSummary.MostVotedPrecommitHash
 	})
 	if idx < 0 {
 		m.log.Warn(
@@ -1190,8 +1190,8 @@ func (m *StateMachine) beginCommit(
 	return gchan.SendC(
 		ctx, m.log,
 		m.finalizeBlockRequestCh, tmdriver.FinalizeBlockRequest{
-			Block: vrv.ProposedBlocks[idx].Block,
-			Round: vrv.Round,
+			Header: vrv.ProposedHeaders[idx].Header,
+			Round:  vrv.Round,
 
 			Resp: rlc.FinalizeRespCh,
 		},
@@ -1263,7 +1263,7 @@ func (m *StateMachine) handleTimerElapsed(ctx context.Context, rlc *tsi.RoundLif
 			ctx, m.log,
 			m.cm.ChooseProposedBlockRequests, tsi.ChooseProposedBlockRequest{
 				// Exclude invalid proposed blocks.
-				PBs:    m.rejectMismatchedProposedBlocks(rlc.PrevVRV.ProposedBlocks, rlc),
+				PHs:    m.rejectMismatchedProposedHeaders(rlc.PrevVRV.ProposedHeaders, rlc),
 				Result: rlc.PrevoteHashCh, // Is it ever possible this channel is nil?
 			},
 			"choosing proposed block following proposal timeout",
@@ -1361,13 +1361,13 @@ func (m *StateMachine) handleBlockDataArrival(ctx context.Context, rlc *tsi.Roun
 
 	// The height and round match, and we are able to prevote,
 	// so now we need to construct the consider block request.
-	okPBs := m.rejectMismatchedProposedBlocks(rlc.PrevVRV.ProposedBlocks, rlc)
-	if len(okPBs) == 0 {
+	okPHs := m.rejectMismatchedProposedHeaders(rlc.PrevVRV.ProposedHeaders, rlc)
+	if len(okPHs) == 0 {
 		return true
 	}
 
 	req := tsi.ConsiderProposedBlocksRequest{
-		PBs:    okPBs,
+		PHs:    okPHs,
 		Result: rlc.PrevoteHashCh,
 	}
 
@@ -1400,14 +1400,14 @@ GATHER_ARRIVALS:
 
 	// We have a list of data IDs that have arrived.
 	// Exclude any that do not map to the proposed blocks we are re-checking.
-	req.Reason.UpdatedBlockDataIDs = make([]string, 0, max(len(req.PBs), len(dataIDMap)))
-	for _, pb := range req.PBs {
-		_, dataArrived := dataIDMap[string(pb.Block.DataID)]
+	req.Reason.UpdatedBlockDataIDs = make([]string, 0, max(len(req.PHs), len(dataIDMap)))
+	for _, ph := range req.PHs {
+		_, dataArrived := dataIDMap[string(ph.Header.DataID)]
 		if !dataArrived {
 			continue
 		}
 
-		req.Reason.UpdatedBlockDataIDs = append(req.Reason.UpdatedBlockDataIDs, string(pb.Block.DataID))
+		req.Reason.UpdatedBlockDataIDs = append(req.Reason.UpdatedBlockDataIDs, string(ph.Header.DataID))
 	}
 
 	if len(req.Reason.UpdatedBlockDataIDs) == 0 {
@@ -1523,8 +1523,8 @@ func (m *StateMachine) advance(
 
 		// In replay, we just directly make a finalize block request.
 		finReq := tmdriver.FinalizeBlockRequest{
-			Block: rer.CB.Block,
-			Round: rer.CB.Proof.Round,
+			Header: rer.CH.Header,
+			Round:  rer.CH.Proof.Round,
 
 			Resp: rlc.FinalizeRespCh,
 		}
@@ -1570,31 +1570,31 @@ func (m *StateMachine) handleJumpAhead(
 	)
 }
 
-// rejectMismatchedProposedBlocks returns a copy of the input slice,
+// rejectMismatchedProposedHeaders returns a copy of the input slice,
 // excluding any proposed blocks that do not match
 // the expected previous app state hash or current validators.
-func (m *StateMachine) rejectMismatchedProposedBlocks(
-	in []tmconsensus.ProposedBlock, rlc *tsi.RoundLifecycle,
-) []tmconsensus.ProposedBlock {
+func (m *StateMachine) rejectMismatchedProposedHeaders(
+	in []tmconsensus.ProposedHeader, rlc *tsi.RoundLifecycle,
+) []tmconsensus.ProposedHeader {
 	if in == nil {
 		// Special case; don't bother allocating an empty slice here.
 		return nil
 	}
 
-	out := make([]tmconsensus.ProposedBlock, 0, len(in))
-	for _, pb := range in {
-		if string(pb.Block.PrevAppStateHash) != rlc.PrevFinAppStateHash {
+	out := make([]tmconsensus.ProposedHeader, 0, len(in))
+	for _, ph := range in {
+		if string(ph.Header.PrevAppStateHash) != rlc.PrevFinAppStateHash {
 			continue
 		}
 
-		if !pb.Block.ValidatorSet.Equal(rlc.CurValSet) {
+		if !ph.Header.ValidatorSet.Equal(rlc.CurValSet) {
 			continue
 		}
-		if !pb.Block.NextValidatorSet.Equal(rlc.PrevFinNextValSet) {
+		if !ph.Header.NextValidatorSet.Equal(rlc.PrevFinNextValSet) {
 			continue
 		}
 
-		out = append(out, pb)
+		out = append(out, ph)
 	}
 
 	return slices.Clip(out)

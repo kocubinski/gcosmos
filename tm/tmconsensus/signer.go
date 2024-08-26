@@ -22,9 +22,9 @@ type Signer interface {
 	Prevote(ctx context.Context, vt VoteTarget) (signContent, signature []byte, err error)
 	Precommit(ctx context.Context, vt VoteTarget) (signContent, signature []byte, err error)
 
-	// SignProposedBlock sets the Signature field on the proposed block.
-	// All other fields on pb must already be populated.
-	SignProposedBlock(ctx context.Context, pb *ProposedBlock) error
+	// SignProposedHeader sets the Signature field on the proposed block header.
+	// All other fields on ph must already be populated.
+	SignProposedHeader(ctx context.Context, ph *ProposedHeader) error
 
 	// PubKey returns the public key of the signer.
 	PubKey() gcrypto.PubKey
@@ -71,17 +71,17 @@ func (s PassthroughSigner) Precommit(ctx context.Context, vt VoteTarget) (
 	return signContent, signature, nil
 }
 
-func (s PassthroughSigner) SignProposedBlock(ctx context.Context, pb *ProposedBlock) error {
-	signContent, err := ProposalSignBytes(pb.Block, pb.Round, pb.Annotations, s.SignatureScheme)
+func (s PassthroughSigner) SignProposedHeader(ctx context.Context, ph *ProposedHeader) error {
+	signContent, err := ProposalSignBytes(ph.Header, ph.Round, ph.Annotations, s.SignatureScheme)
 	if err != nil {
-		return fmt.Errorf("PassthroughSigner.SignProposedBlock failed to generate sign bytes: %w", err)
+		return fmt.Errorf("PassthroughSigner.SignProposedHeader failed to generate sign bytes: %w", err)
 	}
 	sig, err := s.Signer.Sign(ctx, signContent)
 	if err != nil {
-		return fmt.Errorf("PassthroughSigner.SignProposedBlock failed to sign proposal: %w", err)
+		return fmt.Errorf("PassthroughSigner.SignProposedHeader failed to sign proposal: %w", err)
 	}
 
-	pb.Signature = sig
+	ph.Signature = sig
 	return nil
 }
 

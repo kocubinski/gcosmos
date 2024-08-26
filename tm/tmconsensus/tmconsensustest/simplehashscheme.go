@@ -13,7 +13,7 @@ import (
 
 type SimpleHashScheme struct{}
 
-func (SimpleHashScheme) Block(b tmconsensus.Block) ([]byte, error) {
+func (SimpleHashScheme) Block(h tmconsensus.Header) ([]byte, error) {
 	hasher, err := blake2b.New(32, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create new blake2b hasher: %w", err)
@@ -23,13 +23,13 @@ func (SimpleHashScheme) Block(b tmconsensus.Block) ([]byte, error) {
 
 	// Serialize the previous commit proof.
 	// First iterate over the voted blocks in order.
-	prevCommitBlocks := make([]string, 0, len(b.PrevCommitProof.Proofs))
-	for h := range b.PrevCommitProof.Proofs {
+	prevCommitBlocks := make([]string, 0, len(h.PrevCommitProof.Proofs))
+	for bh := range h.PrevCommitProof.Proofs {
 		var blockKey string
-		if h == "" {
+		if bh == "" {
 			blockKey = "<nil>"
 		} else {
-			blockKey = fmt.Sprintf("%x", h)
+			blockKey = fmt.Sprintf("%x", bh)
 		}
 		prevCommitBlocks = append(prevCommitBlocks, blockKey)
 	}
@@ -41,7 +41,7 @@ func (SimpleHashScheme) Block(b tmconsensus.Block) ([]byte, error) {
 		}
 		buf.WriteString(blockHash)
 		buf.WriteString(" => (")
-		sigs := b.PrevCommitProof.Proofs[blockHash]
+		sigs := h.PrevCommitProof.Proofs[blockHash]
 
 		sigStrings := make([]string, len(sigs))
 		for j, sig := range sigs {
@@ -71,22 +71,22 @@ NextValidatorSet: %x.%x
 DataID: %x
 PrevAppStateHash: %x
 `,
-		b.PrevBlockHash,
-		b.Height,
-		b.PrevCommitProof.Round,
-		b.PrevCommitProof.PubKeyHash,
+		h.PrevBlockHash,
+		h.Height,
+		h.PrevCommitProof.Round,
+		h.PrevCommitProof.PubKeyHash,
 		prevCommitSignatures,
-		b.ValidatorSet.PubKeyHash, b.ValidatorSet.VotePowerHash,
-		b.NextValidatorSet.PubKeyHash, b.NextValidatorSet.VotePowerHash,
-		b.DataID,
-		b.PrevAppStateHash,
+		h.ValidatorSet.PubKeyHash, h.ValidatorSet.VotePowerHash,
+		h.NextValidatorSet.PubKeyHash, h.NextValidatorSet.VotePowerHash,
+		h.DataID,
+		h.PrevAppStateHash,
 	)
 
-	if b.Annotations.User != nil {
-		fmt.Fprintf(hasher, "UserAnnotation: %x\n", b.Annotations.User)
+	if h.Annotations.User != nil {
+		fmt.Fprintf(hasher, "UserAnnotation: %x\n", h.Annotations.User)
 	}
-	if b.Annotations.Driver != nil {
-		fmt.Fprintf(hasher, "DriverAnnotation: %x\n", b.Annotations.Driver)
+	if h.Annotations.Driver != nil {
+		fmt.Fprintf(hasher, "DriverAnnotation: %x\n", h.Annotations.Driver)
 	}
 
 	return hasher.Sum(nil), nil

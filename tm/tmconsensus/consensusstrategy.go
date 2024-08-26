@@ -51,9 +51,14 @@ type ConsensusStrategy interface {
 	// the state machine will compose that information into a proposed block.
 	EnterRound(ctx context.Context, rv RoundView, proposalOut chan<- Proposal) error
 
-	// ConsiderProposedBlocks is called when new proposed blocks arrive,
-	// or when new app data has arrived,
+	// ConsiderProposedBlocks is called when new proposed headers arrive,
+	// or when new block data has arrived,
 	// so long as the proposed block timeout has not yet elapsed.
+	//
+	// While most of the rest of the tm package refers to proposed headers,
+	// this method includes the words "proposed blocks" because it is assumed that
+	// the consensus strategy cannot decide whether to vote for the header
+	// until it has the actual block data to go with it.
 	//
 	// The reason argument is a hint to the consensus strategy
 	// about which information is new in this call,
@@ -67,12 +72,12 @@ type ConsensusStrategy interface {
 	// Any other error is fatal.
 	ConsiderProposedBlocks(
 		ctx context.Context,
-		pbs []ProposedBlock,
+		phs []ProposedHeader,
 		reason ConsiderProposedBlocksReason,
 	) (string, error)
 
 	// ChooseProposedBlock is called when the state machine's proposal delay has elapsed.
-	// The pbs slice may be empty.
+	// The phs slice may be empty.
 	//
 	// ChooseProposedBlock must return the hash of the block to vote for.
 	// Under certain circumstances (like Proof of Lock),
@@ -81,7 +86,7 @@ type ConsensusStrategy interface {
 	// The state machine calls this in a background goroutine,
 	// so the method may block as long as necessary.
 	// Nonetheless, the method must respect context cancellation.
-	ChooseProposedBlock(ctx context.Context, pbs []ProposedBlock) (string, error)
+	ChooseProposedBlock(ctx context.Context, phs []ProposedHeader) (string, error)
 
 	// DecidePrecommit is called when prevoting is finished
 	// and the state machine needs to submit a precommit.

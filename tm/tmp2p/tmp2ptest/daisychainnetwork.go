@@ -143,7 +143,7 @@ func (n *DaisyChainNetwork) newConn(ctx context.Context, idx uint64) *DaisyChain
 		pairRightRequests:  make(chan dcPairRightRequest),
 
 		// Arbitrarily sizing with dcMessageBufSize.
-		outgoingPBs:        make(chan tmconsensus.ProposedBlock, dcMessageBufSize),
+		outgoingPHs:        make(chan tmconsensus.ProposedHeader, dcMessageBufSize),
 		outgoingPrevotes:   make(chan tmconsensus.PrevoteSparseProof, dcMessageBufSize),
 		outgoingPrecommits: make(chan tmconsensus.PrecommitSparseProof, dcMessageBufSize),
 
@@ -164,7 +164,7 @@ type DaisyChainConnection struct {
 	setHandlerRequests chan dcSetHandlerRequest
 	pairRightRequests  chan dcPairRightRequest
 
-	outgoingPBs        chan tmconsensus.ProposedBlock
+	outgoingPHs        chan tmconsensus.ProposedHeader
 	outgoingPrevotes   chan tmconsensus.PrevoteSparseProof
 	outgoingPrecommits chan tmconsensus.PrecommitSparseProof
 
@@ -183,8 +183,8 @@ type dccbWrapper struct {
 	c *DaisyChainConnection
 }
 
-func (w dccbWrapper) OutgoingProposedBlocks() chan<- tmconsensus.ProposedBlock {
-	return w.c.outgoingPBs
+func (w dccbWrapper) OutgoingProposedHeaders() chan<- tmconsensus.ProposedHeader {
+	return w.c.outgoingPHs
 }
 func (w dccbWrapper) OutgoingPrevoteProofs() chan<- tmconsensus.PrevoteSparseProof {
 	return w.c.outgoingPrevotes
@@ -230,7 +230,7 @@ type dcMessage struct {
 	srcIdx uint64
 
 	// Exactly one of the following fields should be set.
-	PB        *tmconsensus.ProposedBlock
+	PH        *tmconsensus.ProposedHeader
 	Prevote   *tmconsensus.PrevoteSparseProof
 	Precommit *tmconsensus.PrecommitSparseProof
 }
@@ -364,11 +364,11 @@ func (c *DaisyChainConnection) background(ctx context.Context) {
 			// but we could potentially push this to a worker goroutine.
 			c.handleMessage(ctx, msg, h, c.toLeft, "left")
 
-		case pb := <-c.outgoingPBs:
+		case ph := <-c.outgoingPHs:
 			msg := dcMessage{
 				srcIdx: c.idx,
 
-				PB: &pb,
+				PH: &ph,
 			}
 			if !c.propagateMessage(ctx, msg, c.toLeft, toRight) {
 				return
@@ -411,8 +411,8 @@ func (c *DaisyChainConnection) handleMessage(
 ) {
 	// Assume h is non-nil if this method is being called.
 	switch {
-	case msg.PB != nil:
-		if h.HandleProposedBlock(ctx, *msg.PB) != gexchange.FeedbackAccepted {
+	case msg.PH != nil:
+		if h.HandleProposedHeader(ctx, *msg.PH) != gexchange.FeedbackAccepted {
 			return
 		}
 	case msg.Prevote != nil:

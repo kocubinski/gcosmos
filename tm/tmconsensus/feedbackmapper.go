@@ -14,26 +14,26 @@ type AcceptAllValidFeedbackMapper struct {
 	Handler FineGrainedConsensusHandler
 }
 
-func (m AcceptAllValidFeedbackMapper) HandleProposedBlock(
-	ctx context.Context, pb ProposedBlock,
+func (m AcceptAllValidFeedbackMapper) HandleProposedHeader(
+	ctx context.Context, ph ProposedHeader,
 ) gexchange.Feedback {
-	f := m.Handler.HandleProposedBlock(ctx, pb)
+	f := m.Handler.HandleProposedHeader(ctx, ph)
 	switch f {
-	case HandleProposedBlockAccepted,
-		HandleProposedBlockAlreadyStored:
+	case HandleProposedHeaderAccepted,
+		HandleProposedHeaderAlreadyStored:
 		return gexchange.FeedbackAccepted
 
-	case HandleProposedBlockRoundTooOld,
-		HandleProposedBlockInternalError:
+	case HandleProposedHeaderRoundTooOld,
+		HandleProposedHeaderInternalError:
 		return gexchange.FeedbackIgnored
 
-	case HandleProposedBlockSignerUnrecognized,
-		HandleProposedBlockBadSignature,
-		HandleProposedBlockBadBlockHash:
+	case HandleProposedHeaderSignerUnrecognized,
+		HandleProposedHeaderBadSignature,
+		HandleProposedHeaderBadBlockHash:
 		return gexchange.FeedbackRejected
 
 	default:
-		panic(fmt.Errorf("BUG: no HandleProposedBlockResult mapping set for %s", f))
+		panic(fmt.Errorf("BUG: no HandleProposedHeaderResult mapping set for %s", f))
 	}
 }
 
@@ -79,26 +79,26 @@ type DropDuplicateFeedbackMapper struct {
 	Handler FineGrainedConsensusHandler
 }
 
-func (m DropDuplicateFeedbackMapper) HandleProposedBlock(
-	ctx context.Context, pb ProposedBlock,
+func (m DropDuplicateFeedbackMapper) HandleProposedHeader(
+	ctx context.Context, ph ProposedHeader,
 ) gexchange.Feedback {
-	f := m.Handler.HandleProposedBlock(ctx, pb)
+	f := m.Handler.HandleProposedHeader(ctx, ph)
 	switch f {
-	case HandleProposedBlockAccepted:
+	case HandleProposedHeaderAccepted:
 		return gexchange.FeedbackAccepted
 
-	case HandleProposedBlockRoundTooOld,
-		HandleProposedBlockInternalError,
-		HandleProposedBlockAlreadyStored:
+	case HandleProposedHeaderRoundTooOld,
+		HandleProposedHeaderInternalError,
+		HandleProposedHeaderAlreadyStored:
 		return gexchange.FeedbackIgnored
 
-	case HandleProposedBlockSignerUnrecognized,
-		HandleProposedBlockBadSignature,
-		HandleProposedBlockBadBlockHash:
+	case HandleProposedHeaderSignerUnrecognized,
+		HandleProposedHeaderBadSignature,
+		HandleProposedHeaderBadBlockHash:
 		return gexchange.FeedbackRejected
 
 	default:
-		panic(fmt.Errorf("BUG: no HandleProposedBlockResult mapping set for %s", f))
+		panic(fmt.Errorf("BUG: no HandleProposedHeaderResult mapping set for %s", f))
 	}
 }
 

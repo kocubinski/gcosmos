@@ -20,7 +20,7 @@ type RoundView struct {
 
 	ValidatorSet ValidatorSet
 
-	ProposedBlocks []ProposedBlock
+	ProposedHeaders []ProposedHeader
 
 	PrevoteProofs, PrecommitProofs map[string]gcrypto.CommonMessageSignatureProof
 
@@ -52,7 +52,7 @@ func (v *RoundView) Clone() RoundView {
 
 		ValidatorSet: v.ValidatorSet,
 
-		ProposedBlocks: slices.Clone(v.ProposedBlocks),
+		ProposedHeaders: slices.Clone(v.ProposedHeaders),
 
 		PrevoteProofs:   prevoteClone,
 		PrecommitProofs: precommitClone,
@@ -81,8 +81,8 @@ func (v *RoundView) Reset() {
 func (v *RoundView) ResetForSameHeight() {
 	v.Round = 0
 
-	clear(v.ProposedBlocks)
-	v.ProposedBlocks = v.ProposedBlocks[:0]
+	clear(v.ProposedHeaders)
+	v.ProposedHeaders = v.ProposedHeaders[:0]
 
 	clear(v.PrevoteProofs)
 	clear(v.PrecommitProofs)
@@ -107,9 +107,9 @@ func (v RoundView) LogValue() slog.Value {
 		}
 	}
 
-	pbHashes := make([]string, len(v.ProposedBlocks))
-	for i, pb := range v.ProposedBlocks {
-		pbHashes[i] = fmt.Sprintf("%x", pb)
+	pbHashes := make([]string, len(v.ProposedHeaders))
+	for i, ph := range v.ProposedHeaders {
+		pbHashes[i] = fmt.Sprintf("%x", ph)
 	}
 
 	prevoteAttrs := make([]slog.Attr, 0, len(v.PrevoteProofs))
@@ -166,8 +166,8 @@ type VersionedRoundView struct {
 	// would get anywhere close to 2^32 versions.
 	Version uint32
 
-	// There is no associated version for proposed blocks;
-	// the length of the ProposedBlocks slice is effectively the version.
+	// There is no associated version for proposed headers;
+	// the length of the ProposedHeaders slice is effectively the version.
 
 	// The overall version of the particular vote.
 	// It seems very unlikely that a view of a single height/round

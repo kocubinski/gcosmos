@@ -92,14 +92,14 @@ func (a *identityApp) kernel(
 
 		case req := <-finalizeBlockRequests:
 			resp := tmdriver.FinalizeBlockResponse{
-				Height:    req.Block.Height,
+				Height:    req.Header.Height,
 				Round:     req.Round,
-				BlockHash: req.Block.Hash,
+				BlockHash: req.Header.Hash,
 
 				Validators: vals,
 
 				// TODO: this would be more meaningful if it were a more properly calculated hash.
-				AppStateHash: req.Block.DataID,
+				AppStateHash: req.Header.DataID,
 			}
 
 			// The response channel is guaranteed to be 1-buffered.
@@ -163,24 +163,24 @@ func (s *identityConsensusStrategy) EnterRound(ctx context.Context, rv tmconsens
 
 func (s *identityConsensusStrategy) ConsiderProposedBlocks(
 	ctx context.Context,
-	pbs []tmconsensus.ProposedBlock,
+	phs []tmconsensus.ProposedHeader,
 	_ tmconsensus.ConsiderProposedBlocksReason,
 ) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	for _, pb := range pbs {
-		if !s.expProposerPubKey.Equal(pb.ProposerPubKey) {
+	for _, ph := range phs {
+		if !s.expProposerPubKey.Equal(ph.ProposerPubKey) {
 			continue
 		}
 
 		expPA := strconv.AppendInt([]byte("p"), int64(s.expProposerIndex), 10)
-		if !bytes.Equal(pb.Annotations.Driver, expPA) {
+		if !bytes.Equal(ph.Annotations.Driver, expPA) {
 			return "", nil
 		}
 
 		expBA := strconv.AppendInt([]byte("b"), int64(s.expProposerIndex), 10)
-		if !bytes.Equal(pb.Block.Annotations.Driver, expBA) {
+		if !bytes.Equal(ph.Header.Annotations.Driver, expBA) {
 			return "", nil
 		}
 
@@ -188,20 +188,20 @@ func (s *identityConsensusStrategy) ConsiderProposedBlocks(
 		expBlockData := fmt.Sprintf("Height: %d; Round: %d", s.curH, s.curR)
 		expDataID := sha256.Sum256([]byte(expBlockData))
 
-		if !bytes.Equal(pb.Block.DataID, expDataID[:]) {
+		if !bytes.Equal(ph.Header.DataID, expDataID[:]) {
 			return "", nil
 		}
 
-		return string(pb.Block.Hash), nil
+		return string(ph.Header.Hash), nil
 	}
 
 	// Didn't see a proposed block from the expected proposer.
 	return "", tmconsensus.ErrProposedBlockChoiceNotReady
 }
 
-func (s *identityConsensusStrategy) ChooseProposedBlock(ctx context.Context, pbs []tmconsensus.ProposedBlock) (string, error) {
+func (s *identityConsensusStrategy) ChooseProposedBlock(ctx context.Context, phs []tmconsensus.ProposedHeader) (string, error) {
 	// Follow the ConsiderProposedBlocks logic...
-	hash, err := s.ConsiderProposedBlocks(ctx, pbs, tmconsensus.ConsiderProposedBlocksReason{})
+	hash, err := s.ConsiderProposedBlocks(ctx, phs, tmconsensus.ConsiderProposedBlocksReason{})
 	if err == tmconsensus.ErrProposedBlockChoiceNotReady {
 		// ... and if there is no choice ready, then vote nil.
 		return "", nil

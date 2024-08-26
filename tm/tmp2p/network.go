@@ -38,7 +38,7 @@ type Connection interface {
 
 // ConsensusBroadcaster is the set of methods to publish consensus messages to the network.
 type ConsensusBroadcaster interface {
-	OutgoingProposedBlocks() chan<- tmconsensus.ProposedBlock
+	OutgoingProposedHeaders() chan<- tmconsensus.ProposedHeader
 
 	OutgoingPrevoteProofs() chan<- tmconsensus.PrevoteSparseProof
 	OutgoingPrecommitProofs() chan<- tmconsensus.PrecommitSparseProof

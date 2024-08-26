@@ -113,25 +113,25 @@ func (a *valShuffleApp) kernel(
 
 		case req := <-finalizeBlockRequests:
 			// TODO: should we trust these from somewhere instead?
-			keyHash, powHash, err := validatorHashes(req.Block.ValidatorSet.Validators, a.hs)
+			keyHash, powHash, err := validatorHashes(req.Header.ValidatorSet.Validators, a.hs)
 			if err != nil {
 				panic(fmt.Errorf("failed to calculate validator hashes at finalization: %w", err))
 			}
 
 			var nextVals []tmconsensus.Validator
-			pcg.Seed(req.Block.Height+2, 0)
+			pcg.Seed(req.Header.Height+2, 0)
 			for _, origIdx := range rng.Perm(len(initVals))[:a.pickN] {
 				nextVals = append(nextVals, initVals[origIdx])
 			}
 
 			resp := tmdriver.FinalizeBlockResponse{
-				Height:    req.Block.Height,
+				Height:    req.Header.Height,
 				Round:     req.Round,
-				BlockHash: req.Block.Hash,
+				BlockHash: req.Header.Hash,
 
 				Validators: nextVals,
 
-				AppStateHash: a.stateHash(req.Block.Height, keyHash, powHash),
+				AppStateHash: a.stateHash(req.Header.Height, keyHash, powHash),
 			}
 
 			// The response channel is guaranteed to be 1-buffered.
@@ -233,18 +233,18 @@ func (s *valShuffleConsensusStrategy) EnterRound(ctx context.Context, rv tmconse
 
 func (s *valShuffleConsensusStrategy) ConsiderProposedBlocks(
 	ctx context.Context,
-	pbs []tmconsensus.ProposedBlock,
+	phs []tmconsensus.ProposedHeader,
 	_ tmconsensus.ConsiderProposedBlocksReason,
 ) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	for _, pb := range pbs {
-		if !s.expProposerPubKey.Equal(pb.ProposerPubKey) {
+	for _, ph := range phs {
+		if !s.expProposerPubKey.Equal(ph.ProposerPubKey) {
 			continue
 		}
 
-		keyHash, powHash, err := validatorHashes(pb.Block.ValidatorSet.Validators, s.HashScheme)
+		keyHash, powHash, err := validatorHashes(ph.Header.ValidatorSet.Validators, s.HashScheme)
 		if err != nil {
 			return "", err
 		}
@@ -253,12 +253,12 @@ func (s *valShuffleConsensusStrategy) ConsiderProposedBlocks(
 		expDataID = append(expDataID, keyHash...)
 		expDataID = append(expDataID, powHash...)
 
-		if !bytes.Equal(pb.Block.DataID, expDataID[:]) {
+		if !bytes.Equal(ph.Header.DataID, expDataID[:]) {
 			return "", nil
 		}
 
-		s.Log.Info("Prevote in favor of block", "hash", glog.Hex(pb.Block.Hash), "height", s.curH)
-		return string(pb.Block.Hash), nil
+		s.Log.Info("Prevote in favor of block", "hash", glog.Hex(ph.Header.Hash), "height", s.curH)
+		return string(ph.Header.Hash), nil
 	}
 
 	// Didn't see a proposed block from the expected proposer.
@@ -266,9 +266,9 @@ func (s *valShuffleConsensusStrategy) ConsiderProposedBlocks(
 	return "", tmconsensus.ErrProposedBlockChoiceNotReady
 }
 
-func (s *valShuffleConsensusStrategy) ChooseProposedBlock(ctx context.Context, pbs []tmconsensus.ProposedBlock) (string, error) {
+func (s *valShuffleConsensusStrategy) ChooseProposedBlock(ctx context.Context, phs []tmconsensus.ProposedHeader) (string, error) {
 	// Follow the ConsiderProposedBlocks logic...
-	hash, err := s.ConsiderProposedBlocks(ctx, pbs, tmconsensus.ConsiderProposedBlocksReason{})
+	hash, err := s.ConsiderProposedBlocks(ctx, phs, tmconsensus.ConsiderProposedBlocksReason{})
 	if err == tmconsensus.ErrProposedBlockChoiceNotReady {
 		// ... and if there is no choice ready, then vote nil.
 		return "", nil

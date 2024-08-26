@@ -41,18 +41,18 @@ func TestKernel_votesBeforeVotingRound(t *testing.T) {
 			defer k.Wait()
 			defer cancel()
 
-			// Proposed block at height 1.
-			pb1 := kfx.Fx.NextProposedBlock([]byte("app_data_1"), 0)
-			kfx.Fx.SignProposal(ctx, &pb1, 0)
+			// Proposed header at height 1.
+			ph1 := kfx.Fx.NextProposedHeader([]byte("app_data_1"), 0)
+			kfx.Fx.SignProposal(ctx, &ph1, 0)
 
-			// Proposed blocks are sent directly.
+			// Proposed headers are sent directly.
 			_ = gtest.ReceiveSoon(t, kfx.GossipStrategyOut)
-			gtest.SendSoon(t, kfx.AddPBRequests, pb1)
+			gtest.SendSoon(t, kfx.AddPHRequests, ph1)
 			_ = gtest.ReceiveSoon(t, kfx.GossipStrategyOut)
 
 			commitProof1 := kfx.Fx.PrecommitSignatureProof(
 				ctx,
-				tmconsensus.VoteTarget{Height: 1, Round: 0, BlockHash: string(pb1.Block.Hash)},
+				tmconsensus.VoteTarget{Height: 1, Round: 0, BlockHash: string(ph1.Header.Hash)},
 				nil,
 				[]int{0, 1},
 			)
@@ -62,7 +62,7 @@ func TestKernel_votesBeforeVotingRound(t *testing.T) {
 				R: 0,
 
 				PrecommitUpdates: map[string]tmi.VoteUpdate{
-					string(pb1.Block.Hash): {
+					string(ph1.Header.Hash): {
 						PrevVersion: 0, // First precommit for the given block: zero means it didn't exist before.
 						Proof:       commitProof1,
 					},
@@ -82,18 +82,18 @@ func TestKernel_votesBeforeVotingRound(t *testing.T) {
 			require.Equal(t, uint64(2), votingVRV.Height)
 
 			// Update the fixture and go through the next height.
-			kfx.Fx.CommitBlock(pb1.Block, []byte("app_state_1"), 0, map[string]gcrypto.CommonMessageSignatureProof{
-				string(pb1.Block.Hash): commitProof1,
+			kfx.Fx.CommitBlock(ph1.Header, []byte("app_state_1"), 0, map[string]gcrypto.CommonMessageSignatureProof{
+				string(ph1.Header.Hash): commitProof1,
 			})
 
-			pb2 := kfx.Fx.NextProposedBlock([]byte("app_data_2"), 0)
+			pb2 := kfx.Fx.NextProposedHeader([]byte("app_data_2"), 0)
 			kfx.Fx.SignProposal(ctx, &pb2, 0)
-			gtest.SendSoon(t, kfx.AddPBRequests, pb2)
+			gtest.SendSoon(t, kfx.AddPHRequests, pb2)
 			_ = gtest.ReceiveSoon(t, kfx.GossipStrategyOut)
 
 			commitProof2 := kfx.Fx.PrecommitSignatureProof(
 				ctx,
-				tmconsensus.VoteTarget{Height: 2, Round: 0, BlockHash: string(pb2.Block.Hash)},
+				tmconsensus.VoteTarget{Height: 2, Round: 0, BlockHash: string(pb2.Header.Hash)},
 				nil,
 				[]int{0, 1},
 			)
@@ -103,7 +103,7 @@ func TestKernel_votesBeforeVotingRound(t *testing.T) {
 				R: 0,
 
 				PrecommitUpdates: map[string]tmi.VoteUpdate{
-					string(pb2.Block.Hash): {
+					string(pb2.Header.Hash): {
 						PrevVersion: 0, // First precommit for the given block: zero means it didn't exist before.
 						Proof:       commitProof2,
 					},
@@ -163,7 +163,7 @@ func TestKernel_votesBeforeVotingRound(t *testing.T) {
 				targetBlockHash = ""
 			case tmi.ViewBeforeCommitting:
 				targetHeight = 1
-				targetBlockHash = string(pb1.Block.Hash)
+				targetBlockHash = string(ph1.Header.Hash)
 			default:
 				t.Fatalf("BUG: unhandled view status %s", tc.viewStatus)
 			}
@@ -256,29 +256,29 @@ func TestKernel_initialStateUpdateToStateMachineUsesVRVClone(t *testing.T) {
 	rer := gtest.ReceiveSoon(t, re.Response)
 
 	// Now we will do three modifications to be extra sure this is a clone.
-	// Change the version, add a proposed block directly, and modify the vote summary directly.
+	// Change the version, add a proposed header directly, and modify the vote summary directly.
 	// None of these are likely to happen in practice,
 	// but they are simple checks to ensure we have a clone, not a reference.
-	pb3 := kfx.Fx.NextProposedBlock([]byte("val3"), 3)
+	ph3 := kfx.Fx.NextProposedHeader([]byte("val3"), 3)
 	origVersion := rer.VRV.Version
 	rer.VRV.Version = 12345
-	rer.VRV.ProposedBlocks = append(rer.VRV.ProposedBlocks, pb3)
+	rer.VRV.ProposedHeaders = append(rer.VRV.ProposedHeaders, ph3)
 	rer.VRV.VoteSummary.PrevoteBlockPower["not_a_block"] = 1
 
 	// If those fields were modified on the kernel's copy of the VRV,
-	// those would be included in the next update we force by sending a different proposed block.
-	pb1 := kfx.Fx.NextProposedBlock([]byte("app_data_1"), 0)
-	kfx.Fx.SignProposal(ctx, &pb1, 0)
+	// those would be included in the next update we force by sending a different proposed header.
+	ph1 := kfx.Fx.NextProposedHeader([]byte("app_data_1"), 0)
+	kfx.Fx.SignProposal(ctx, &ph1, 0)
 
-	gtest.SendSoon(t, kfx.AddPBRequests, pb1)
+	gtest.SendSoon(t, kfx.AddPHRequests, ph1)
 
 	vrv := gtest.ReceiveSoon(t, kfx.StateMachineRoundViewOut).VRV
 
 	// It didn't keep our version change.
 	require.Equal(t, origVersion+1, vrv.Version)
-	// It only has the proposed block we simulated from the network.
+	// It only has the proposed header we simulated from the network.
 	// (Dubious test since the VRV slice may have been nil.)
-	require.Equal(t, []tmconsensus.ProposedBlock{pb1}, vrv.ProposedBlocks)
+	require.Equal(t, []tmconsensus.ProposedHeader{ph1}, vrv.ProposedHeaders)
 	// And it doesn't have the bogus change we added to our copy of the vote summary.
 	require.Empty(t, vrv.VoteSummary.PrevoteBlockPower)
 }

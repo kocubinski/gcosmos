@@ -40,7 +40,7 @@ type EnterRoundRequest struct {
 // ConsiderProposedBlocksRequest is the request type sent by the state machine
 // requesting a call to [tmconsensus.ConsensusStrategy.ConsiderProposedBlocks].
 type ConsiderProposedBlocksRequest struct {
-	PBs    []tmconsensus.ProposedBlock
+	PHs    []tmconsensus.ProposedHeader
 	Reason tmconsensus.ConsiderProposedBlocksReason
 	Result chan HashSelection
 }
@@ -49,13 +49,13 @@ type ConsiderProposedBlocksRequest struct {
 // Any blocks that are not in rlc.PrevConsideredHashes are noted in r.Reason.NewProposedBlocks,
 // and marked on rlc.PrevConsideredHashes.
 func (r *ConsiderProposedBlocksRequest) MarkReasonNewHashes(rlc *RoundLifecycle) {
-	for _, pb := range r.PBs {
+	for _, ph := range r.PHs {
 		// Casting a byte slice to a string in a map access,
 		// as a memory optimization, seems to still be relevant in Go 1.22.
-		if _, ok := rlc.PrevConsideredHashes[string(pb.Block.Hash)]; ok {
+		if _, ok := rlc.PrevConsideredHashes[string(ph.Header.Hash)]; ok {
 			continue
 		}
-		h := string(pb.Block.Hash)
+		h := string(ph.Header.Hash)
 		r.Reason.NewProposedBlocks = append(r.Reason.NewProposedBlocks, h)
 		rlc.PrevConsideredHashes[h] = struct{}{}
 	}
@@ -64,7 +64,7 @@ func (r *ConsiderProposedBlocksRequest) MarkReasonNewHashes(rlc *RoundLifecycle)
 // ChooseProposedBlockRequest is the request type sent by the state machine
 // requesting a call to [tmconsensus.ConsensusStrategy.ChooseProposedBlock].
 type ChooseProposedBlockRequest struct {
-	PBs    []tmconsensus.ProposedBlock
+	PHs    []tmconsensus.ProposedHeader
 	Result chan HashSelection
 }
 
@@ -161,7 +161,7 @@ func (m *ConsensusManager) handleEnterRound(ctx context.Context, req EnterRoundR
 func (m *ConsensusManager) handleConsiderPBs(ctx context.Context, req ConsiderProposedBlocksRequest) {
 	defer trace.StartRegion(ctx, "handleConsiderPBs").End()
 
-	hash, err := m.strat.ConsiderProposedBlocks(ctx, req.PBs, req.Reason)
+	hash, err := m.strat.ConsiderProposedBlocks(ctx, req.PHs, req.Reason)
 	if err == tmconsensus.ErrProposedBlockChoiceNotReady {
 		// Don't bother with a send if we aren't choosing yet.
 		return
@@ -177,7 +177,7 @@ func (m *ConsensusManager) handleConsiderPBs(ctx context.Context, req ConsiderPr
 func (m *ConsensusManager) handleChoosePB(ctx context.Context, req ChooseProposedBlockRequest) {
 	defer trace.StartRegion(ctx, "handleChoosePB").End()
 
-	hash, err := m.strat.ChooseProposedBlock(ctx, req.PBs)
+	hash, err := m.strat.ChooseProposedBlock(ctx, req.PHs)
 	_ = gchan.SendC(
 		ctx, m.log,
 		req.Result, HashSelection{Hash: hash, Err: err},

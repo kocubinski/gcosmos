@@ -7,12 +7,12 @@ import (
 	"github.com/rollchains/gordian/tm/tmconsensus"
 )
 
-// RoundStore stores and retrieves the proposed blocks, prevotes, and precommits
+// RoundStore stores and retrieves the proposed headers, prevotes, and precommits
 // observed during each round.
 type RoundStore interface {
-	// SaveProposedBlock saves the given proposed block
-	// as a candidate proposed block in the given height and round.
-	SaveProposedBlock(ctx context.Context, pb tmconsensus.ProposedBlock) error
+	// SaveProposedHeader saves the given proposed block header
+	// as a candidate proposed header in the given height and round.
+	SaveProposedHeader(ctx context.Context, ph tmconsensus.ProposedHeader) error
 
 	// The overwrite proofs methods overwrite existing entries
 	// for the corresponding proof at the given height and round.
@@ -39,7 +39,7 @@ type RoundStore interface {
 	// If at least one proposed block, prevote, or precommit exists at the height and round,
 	// a nil error is returned.
 	LoadRoundState(ctx context.Context, height uint64, round uint32) (
-		pbs []tmconsensus.ProposedBlock,
+		phs []tmconsensus.ProposedHeader,
 		prevotes, precommits map[string]gcrypto.CommonMessageSignatureProof,
 		err error,
 	)

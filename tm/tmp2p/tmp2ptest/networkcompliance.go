@@ -156,13 +156,13 @@ func TestNetworkCompliance(t *testing.T, newNet NetworkConstructor) {
 		require.NoError(t, net.Stabilize(ctx))
 
 		fx := tmconsensustest.NewStandardFixture(3)
-		b := fx.NextProposedBlock([]byte("app_data"), 0)
-		fx.SignProposal(ctx, &b, 0)
+		h := fx.NextProposedHeader([]byte("app_data"), 0)
+		fx.SignProposal(ctx, &h, 0)
 
-		conn1.ConsensusBroadcaster().OutgoingProposedBlocks() <- b
+		conn1.ConsensusBroadcaster().OutgoingProposedHeaders() <- h
 
 		got := gtest.ReceiveOrTimeout(t, handler2.IncomingProposals(), gtest.ScaleMs(1000))
-		require.Equal(t, b, got, "incoming proposal differed from outgoing")
+		require.Equal(t, h, got, "incoming proposal differed from outgoing")
 
 		select {
 		case got := <-handler1.IncomingProposals():
@@ -204,31 +204,31 @@ func TestNetworkCompliance(t *testing.T, newNet NetworkConstructor) {
 		// Use a fixture so we populate all relevant fields.
 		fx := tmconsensustest.NewStandardFixture(3)
 
-		pb1 := fx.NextProposedBlock([]byte("app_data"), 0)
-		fx.SignProposal(ctx, &pb1, 0)
+		ph1 := fx.NextProposedHeader([]byte("app_data"), 0)
+		fx.SignProposal(ctx, &ph1, 0)
 
 		// Outgoing proposal is seen on other channels.
-		conn1.ConsensusBroadcaster().OutgoingProposedBlocks() <- pb1
+		conn1.ConsensusBroadcaster().OutgoingProposedHeaders() <- ph1
 
 		got := gtest.ReceiveSoon(t, handler2.IncomingProposals())
-		require.Equal(t, pb1, got, "incoming proposal differed from outgoing")
+		require.Equal(t, ph1, got, "incoming proposal differed from outgoing")
 
 		got = gtest.ReceiveSoon(t, handler3.IncomingProposals())
-		require.Equal(t, pb1, got, "incoming proposal differed from outgoing")
+		require.Equal(t, ph1, got, "incoming proposal differed from outgoing")
 
 		// Disconnect one channel, send a new proposal.
 		conn3.Disconnect()
 
-		pb2 := fx.NextProposedBlock([]byte("app_data_2"), 1)
-		pb2.Block.Height = 2
-		fx.RecalculateHash(&pb2.Block)
-		fx.SignProposal(ctx, &pb2, 1)
+		ph2 := fx.NextProposedHeader([]byte("app_data_2"), 1)
+		ph2.Header.Height = 2
+		fx.RecalculateHash(&ph2.Header)
+		fx.SignProposal(ctx, &ph2, 1)
 
-		gtest.SendSoon(t, conn2.ConsensusBroadcaster().OutgoingProposedBlocks(), pb2)
+		gtest.SendSoon(t, conn2.ConsensusBroadcaster().OutgoingProposedHeaders(), ph2)
 
 		// New proposal visible on still-connected channel.
 		got = gtest.ReceiveSoon(t, handler1.IncomingProposals())
-		require.Equal(t, pb2, got, "incoming proposal differed from outgoing")
+		require.Equal(t, ph2, got, "incoming proposal differed from outgoing")
 
 		// Disconnected handler didn't receive anything.
 		select {
@@ -267,11 +267,11 @@ func TestNetworkCompliance(t *testing.T, newNet NetworkConstructor) {
 
 		require.NoError(t, net.Stabilize(ctx))
 
-		pb := fx.NextProposedBlock([]byte("block_hash"), 0)
+		ph := fx.NextProposedHeader([]byte("block_hash"), 0)
 		vt := tmconsensus.VoteTarget{
 			Height:    1,
 			Round:     0,
-			BlockHash: string(pb.Block.Hash),
+			BlockHash: string(ph.Header.Hash),
 		}
 		nilVT := tmconsensus.VoteTarget{
 			Height:    1,
@@ -282,8 +282,8 @@ func TestNetworkCompliance(t *testing.T, newNet NetworkConstructor) {
 			Height: 1,
 			Round:  0,
 			Proofs: map[string]gcrypto.CommonMessageSignatureProof{
-				string(pb.Block.Hash): fx.PrevoteSignatureProof(ctx, vt, nil, []int{0}),
-				"":                    fx.PrevoteSignatureProof(ctx, nilVT, nil, []int{1}),
+				string(ph.Header.Hash): fx.PrevoteSignatureProof(ctx, vt, nil, []int{0}),
+				"":                     fx.PrevoteSignatureProof(ctx, nilVT, nil, []int{1}),
 			},
 		}.AsSparse()
 		require.NoError(t, err)
@@ -328,12 +328,12 @@ func TestNetworkCompliance(t *testing.T, newNet NetworkConstructor) {
 
 		require.NoError(t, net.Stabilize(ctx))
 
-		pb := fx.NextProposedBlock([]byte("block_hash"), 0)
+		ph := fx.NextProposedHeader([]byte("block_hash"), 0)
 
 		vt := tmconsensus.VoteTarget{
 			Height:    1,
 			Round:     0,
-			BlockHash: string(pb.Block.Hash),
+			BlockHash: string(ph.Header.Hash),
 		}
 		nilVT := tmconsensus.VoteTarget{
 			Height:    1,
@@ -344,8 +344,8 @@ func TestNetworkCompliance(t *testing.T, newNet NetworkConstructor) {
 			Height: 1,
 			Round:  0,
 			Proofs: map[string]gcrypto.CommonMessageSignatureProof{
-				string(pb.Block.Hash): fx.PrecommitSignatureProof(ctx, vt, nil, []int{0}),
-				"":                    fx.PrecommitSignatureProof(ctx, nilVT, nil, []int{1}),
+				string(ph.Header.Hash): fx.PrecommitSignatureProof(ctx, vt, nil, []int{0}),
+				"":                     fx.PrecommitSignatureProof(ctx, nilVT, nil, []int{1}),
 			},
 		}.AsSparse()
 		require.NoError(t, err)

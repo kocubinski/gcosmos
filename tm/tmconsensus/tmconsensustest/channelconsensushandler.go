@@ -15,7 +15,7 @@ import (
 // and you want to observe messages sent to the network,
 // without interfering with any individual engine.
 type ChannelConsensusHandler struct {
-	incomingProposals chan tmconsensus.ProposedBlock
+	incomingProposals chan tmconsensus.ProposedHeader
 
 	incomingPrevoteProofs   chan tmconsensus.PrevoteSparseProof
 	incomingPrecommitProofs chan tmconsensus.PrecommitSparseProof
@@ -27,17 +27,17 @@ type ChannelConsensusHandler struct {
 // whose channels are all sized according to bufSize.
 func NewChannelConsensusHandler(bufSize int) *ChannelConsensusHandler {
 	return &ChannelConsensusHandler{
-		incomingProposals: make(chan tmconsensus.ProposedBlock, bufSize),
+		incomingProposals: make(chan tmconsensus.ProposedHeader, bufSize),
 
 		incomingPrevoteProofs:   make(chan tmconsensus.PrevoteSparseProof, bufSize),
 		incomingPrecommitProofs: make(chan tmconsensus.PrecommitSparseProof, bufSize),
 	}
 }
 
-// HandleProposedBlock implements [tmconsensus.ConsensusHandler].
-func (h *ChannelConsensusHandler) HandleProposedBlock(ctx context.Context, pb tmconsensus.ProposedBlock) gexchange.Feedback {
+// HandleProposedProposedHeader implements [tmconsensus.ConsensusHandler].
+func (h *ChannelConsensusHandler) HandleProposedHeader(ctx context.Context, ph tmconsensus.ProposedHeader) gexchange.Feedback {
 	select {
-	case h.incomingProposals <- pb:
+	case h.incomingProposals <- ph:
 		return gexchange.FeedbackAccepted
 	case <-ctx.Done():
 		return gexchange.FeedbackIgnored
@@ -62,8 +62,8 @@ func (h *ChannelConsensusHandler) HandlePrecommitProofs(ctx context.Context, p t
 	}
 }
 
-// IncomingProposals returns a channel of the values that were passed to HandleProposedBlock.
-func (h *ChannelConsensusHandler) IncomingProposals() <-chan tmconsensus.ProposedBlock {
+// IncomingProposals returns a channel of the values that were passed to HandleProposedHeader.
+func (h *ChannelConsensusHandler) IncomingProposals() <-chan tmconsensus.ProposedHeader {
 	return h.incomingProposals
 }
 

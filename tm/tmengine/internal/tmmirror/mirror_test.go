@@ -208,8 +208,8 @@ func TestMirror_Initialization(t *testing.T) {
 			require.Equal(t, keyHash, string(v.ValidatorSet.PubKeyHash))
 			require.Equal(t, powHash, string(v.ValidatorSet.VotePowerHash))
 
-			// Proposed blocks are empty, and nil proofs are ready.
-			require.Empty(t, v.ProposedBlocks)
+			// Proposed headers are empty, and nil proofs are ready.
+			require.Empty(t, v.ProposedHeaders)
 			require.Empty(t, v.PrevoteProofs, 1)
 			require.Empty(t, v.PrecommitProofs, 1)
 
@@ -239,8 +239,8 @@ func TestMirror_Initialization(t *testing.T) {
 			require.Equal(t, keyHash, string(v.ValidatorSet.PubKeyHash))
 			require.Equal(t, powHash, string(v.ValidatorSet.VotePowerHash))
 
-			// Proposed blocks are empty, and nil proofs are ready.
-			require.Empty(t, v.ProposedBlocks)
+			// Proposed headers are empty, and nil proofs are ready.
+			require.Empty(t, v.ProposedHeaders)
 			require.Empty(t, v.PrevoteProofs, 1)
 			require.Empty(t, v.PrecommitProofs, 1)
 
@@ -324,13 +324,13 @@ func TestMirror_Outputs(t *testing.T) {
 		// Drain initial gossip strategy output.
 		_ = gtest.ReceiveSoon(t, mfx.GossipStrategyOut)
 
-		pb1 := mfx.Fx.NextProposedBlock([]byte("app_data_1"), 0)
-		mfx.Fx.SignProposal(ctx, &pb1, 0)
-		require.Equal(t, tmconsensus.HandleProposedBlockAccepted, m.HandleProposedBlock(ctx, pb1))
+		ph1 := mfx.Fx.NextProposedHeader([]byte("app_data_1"), 0)
+		mfx.Fx.SignProposal(ctx, &ph1, 0)
+		require.Equal(t, tmconsensus.HandleProposedHeaderAccepted, m.HandleProposedHeader(ctx, ph1))
 		keyHash, powHash := mfx.Fx.ValidatorHashes()
 
 		voteMap := map[string][]int{
-			string(pb1.Block.Hash): {0, 1, 2, 3},
+			string(ph1.Header.Hash): {0, 1, 2, 3},
 		}
 		precommitProof := tmconsensus.PrecommitSparseProof{
 			Height:     1,
@@ -353,8 +353,8 @@ func TestMirror_Outputs(t *testing.T) {
 	})
 }
 
-func TestMirror_HandleProposedBlock(t *testing.T) {
-	t.Run("adds valid proposed block in voting round to gossip strategy output and round store", func(t *testing.T) {
+func TestMirror_HandleProposedHeader(t *testing.T) {
+	t.Run("adds valid proposed header in voting round to gossip strategy output and round store", func(t *testing.T) {
 		t.Parallel()
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -369,19 +369,19 @@ func TestMirror_HandleProposedBlock(t *testing.T) {
 		// Drain the gossip strategy output.
 		_ = gtest.ReceiveSoon(t, mfx.GossipStrategyOut)
 
-		// Sign proposed block, because the mirror actually validates this.
-		pb1 := mfx.Fx.NextProposedBlock([]byte("app_data_1"), 0)
-		mfx.Fx.SignProposal(ctx, &pb1, 0)
+		// Sign proposed header, because the mirror actually validates this.
+		ph1 := mfx.Fx.NextProposedHeader([]byte("app_data_1"), 0)
+		mfx.Fx.SignProposal(ctx, &ph1, 0)
 
-		require.Equal(t, tmconsensus.HandleProposedBlockAccepted, m.HandleProposedBlock(ctx, pb1))
+		require.Equal(t, tmconsensus.HandleProposedHeaderAccepted, m.HandleProposedHeader(ctx, ph1))
 
-		// The proposed block is added in the background while HandleProposedBlock returns,
+		// The proposed header is added in the background while HandleProposedHeader returns,
 		// so synchronize on the voting view update before inspecting the store.
 		gso := gtest.ReceiveSoon(t, mfx.GossipStrategyOut)
-		// Version should be bumped to 2, because we can be sure the additional proposed block
+		// Version should be bumped to 2, because we can be sure the additional proposed header
 		// was a single update operation.
 		require.Equal(t, uint32(2), gso.Voting.Version)
-		require.Equal(t, []tmconsensus.ProposedBlock{pb1}, gso.Voting.ProposedBlocks)
+		require.Equal(t, []tmconsensus.ProposedHeader{ph1}, gso.Voting.ProposedHeaders)
 
 		// Present in the network view inspection.
 		var vnv tmconsensus.VersionedRoundView
@@ -408,7 +408,7 @@ func TestMirror_HandleProposedBlock(t *testing.T) {
 				Round:        0,
 				ValidatorSet: mfx.Fx.ValSet(),
 
-				ProposedBlocks: []tmconsensus.ProposedBlock{pb1},
+				ProposedHeaders: []tmconsensus.ProposedHeader{ph1},
 
 				VoteSummary: vs,
 			},
@@ -416,12 +416,12 @@ func TestMirror_HandleProposedBlock(t *testing.T) {
 		}, vnv)
 
 		// And present in the round store.
-		pbs, _, _, err := mfx.Cfg.RoundStore.LoadRoundState(ctx, 1, 0)
+		phs, _, _, err := mfx.Cfg.RoundStore.LoadRoundState(ctx, 1, 0)
 		require.NoError(t, err)
-		require.Equal(t, []tmconsensus.ProposedBlock{pb1}, pbs)
+		require.Equal(t, []tmconsensus.ProposedHeader{ph1}, phs)
 	})
 
-	t.Run("only latest proposed block update sent on Voting output channel", func(t *testing.T) {
+	t.Run("only latest proposed header update sent on Voting output channel", func(t *testing.T) {
 		t.Parallel()
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -435,26 +435,26 @@ func TestMirror_HandleProposedBlock(t *testing.T) {
 
 		initGSO := gtest.ReceiveSoon(t, mfx.GossipStrategyOut)
 		require.Equal(t, uint32(1), initGSO.Voting.Version)
-		require.Empty(t, initGSO.Voting.ProposedBlocks)
+		require.Empty(t, initGSO.Voting.ProposedHeaders)
 
-		pb1 := mfx.Fx.NextProposedBlock([]byte("app_data_1"), 0)
-		mfx.Fx.SignProposal(ctx, &pb1, 0)
-		require.Equal(t, tmconsensus.HandleProposedBlockAccepted, m.HandleProposedBlock(ctx, pb1))
+		ph1 := mfx.Fx.NextProposedHeader([]byte("app_data_1"), 0)
+		mfx.Fx.SignProposal(ctx, &ph1, 0)
+		require.Equal(t, tmconsensus.HandleProposedHeaderAccepted, m.HandleProposedHeader(ctx, ph1))
 
-		pb2 := mfx.Fx.NextProposedBlock([]byte("app_data_2"), 1)
-		mfx.Fx.SignProposal(ctx, &pb2, 1)
-		require.Equal(t, tmconsensus.HandleProposedBlockAccepted, m.HandleProposedBlock(ctx, pb2))
+		ph2 := mfx.Fx.NextProposedHeader([]byte("app_data_2"), 1)
+		mfx.Fx.SignProposal(ctx, &ph2, 1)
+		require.Equal(t, tmconsensus.HandleProposedHeaderAccepted, m.HandleProposedHeader(ctx, ph2))
 
 		gso := gtest.ReceiveSoon(t, mfx.GossipStrategyOut)
 		// Not asserting the explicit version here -- 3 makes more sense than 2,
 		// but we don't need to enforce that,
 		// in case we condense those two updates into one in the future for some reason.
 		require.Greater(t, gso.Voting.Version, initGSO.Voting.Version)
-		require.Equal(t, []tmconsensus.ProposedBlock{pb1, pb2}, gso.Voting.ProposedBlocks)
+		require.Equal(t, []tmconsensus.ProposedHeader{ph1, ph2}, gso.Voting.ProposedHeaders)
 	})
 
-	t.Run("accepts proposed block to committing view", func(t *testing.T) {
-		// If one validator is running slightly behind and proposes a block that reaches the committing view,
+	t.Run("accepts proposed header to committing view", func(t *testing.T) {
+		// If one validator is running slightly behind and proposes a header that reaches the committing view,
 		// it should still be included in updates.
 		t.Parallel()
 
@@ -463,8 +463,8 @@ func TestMirror_HandleProposedBlock(t *testing.T) {
 
 		mfx := tmmirrortest.NewFixture(ctx, t, 4)
 
-		pb03 := mfx.Fx.NextProposedBlock([]byte("app_data_0_3"), 3)
-		mfx.Fx.SignProposal(ctx, &pb03, 3)
+		ph03 := mfx.Fx.NextProposedHeader([]byte("app_data_0_3"), 3)
+		mfx.Fx.SignProposal(ctx, &ph03, 3)
 
 		mfx.CommitInitialHeight(ctx, []byte("app_data_1"), 0, []int{0, 1, 2, 3})
 
@@ -479,7 +479,7 @@ func TestMirror_HandleProposedBlock(t *testing.T) {
 
 		before := gso.Committing.Clone()
 
-		require.Equal(t, tmconsensus.HandleProposedBlockAccepted, m.HandleProposedBlock(ctx, pb03))
+		require.Equal(t, tmconsensus.HandleProposedHeaderAccepted, m.HandleProposedHeader(ctx, ph03))
 
 		gso = gtest.ReceiveSoon(t, mfx.GossipStrategyOut)
 		require.NotNil(t, gso.Committing)
@@ -489,12 +489,12 @@ func TestMirror_HandleProposedBlock(t *testing.T) {
 		after := gso.Committing.Clone()
 
 		require.Greater(t, after.Version, before.Version)
-		require.Subset(t, after.ProposedBlocks, before.ProposedBlocks)
-		require.Contains(t, after.ProposedBlocks, pb03)
+		require.Subset(t, after.ProposedHeaders, before.ProposedHeaders)
+		require.Contains(t, after.ProposedHeaders, ph03)
 	})
 
-	t.Run("proposed block for next height backfills commit into voting round", func(t *testing.T) {
-		t.Run("when the voting view already has a proposed block matching", func(t *testing.T) {
+	t.Run("proposed header for next height backfills commit into voting round", func(t *testing.T) {
+		t.Run("when the voting view already has a proposed header matching", func(t *testing.T) {
 			t.Parallel()
 
 			ctx, cancel := context.WithCancel(context.Background())
@@ -502,18 +502,18 @@ func TestMirror_HandleProposedBlock(t *testing.T) {
 
 			mfx := tmmirrortest.NewFixture(ctx, t, 4)
 
-			pb1 := mfx.Fx.NextProposedBlock([]byte("app_data_1"), 1)
-			mfx.Fx.SignProposal(ctx, &pb1, 1)
+			ph1 := mfx.Fx.NextProposedHeader([]byte("app_data_1"), 1)
+			mfx.Fx.SignProposal(ctx, &ph1, 1)
 
 			m := mfx.NewMirror()
 			defer m.Wait()
 			defer cancel()
 
-			require.Equal(t, tmconsensus.HandleProposedBlockAccepted, m.HandleProposedBlock(ctx, pb1))
+			require.Equal(t, tmconsensus.HandleProposedHeaderAccepted, m.HandleProposedHeader(ctx, ph1))
 
 			keyHash, _ := mfx.Fx.ValidatorHashes()
 			voteMap := map[string][]int{
-				string(pb1.Block.Hash): {0, 1, 2, 3},
+				string(ph1.Header.Hash): {0, 1, 2, 3},
 			}
 			sparsePrevoteProofMap := mfx.Fx.SparsePrevoteProofMap(ctx, 1, 0, voteMap)
 			prevoteProof := tmconsensus.PrevoteSparseProof{
@@ -528,20 +528,20 @@ func TestMirror_HandleProposedBlock(t *testing.T) {
 
 			// Then generate the precommits and only advance the fixture.
 			precommitProofs1 := mfx.Fx.PrecommitProofMap(ctx, 1, 0, voteMap)
-			mfx.Fx.CommitBlock(pb1.Block, []byte("app_state_height_1"), 0, precommitProofs1)
+			mfx.Fx.CommitBlock(ph1.Header, []byte("app_state_height_1"), 0, precommitProofs1)
 
-			// Now the fixture can produce the proposed block for height 2.
-			pb2 := mfx.Fx.NextProposedBlock([]byte("app_data_2"), 1)
-			mfx.Fx.SignProposal(ctx, &pb2, 1)
+			// Now the fixture can produce the proposed header for height 2.
+			ph2 := mfx.Fx.NextProposedHeader([]byte("app_data_2"), 1)
+			mfx.Fx.SignProposal(ctx, &ph2, 1)
 
-			// Drain the gossip strategy output before applying the proposed block.
+			// Drain the gossip strategy output before applying the proposed header.
 			before := gtest.ReceiveSoon(t, mfx.GossipStrategyOut)
 			require.Nil(t, before.Committing) // No committing view yet.
 			require.NotNil(t, before.Voting)
 
-			require.Equal(t, tmconsensus.HandleProposedBlockAccepted, m.HandleProposedBlock(ctx, pb2))
+			require.Equal(t, tmconsensus.HandleProposedHeaderAccepted, m.HandleProposedHeader(ctx, ph2))
 
-			// Height 1 should be in the committing view, and the voting view should have the new proposed block.
+			// Height 1 should be in the committing view, and the voting view should have the new proposed header.
 			after := gtest.ReceiveSoon(t, mfx.GossipStrategyOut)
 			require.NotNil(t, after.Committing)
 			require.Equal(t, uint64(1), after.Committing.Height)
@@ -550,11 +550,11 @@ func TestMirror_HandleProposedBlock(t *testing.T) {
 			require.NotNil(t, after.Voting)
 			require.Equal(t, uint64(2), after.Voting.Height)
 			require.Zero(t, after.Voting.Round)
-			require.Equal(t, []tmconsensus.ProposedBlock{pb2}, after.Voting.ProposedBlocks)
+			require.Equal(t, []tmconsensus.ProposedHeader{ph2}, after.Voting.ProposedHeaders)
 		})
 	})
 
-	t.Run("ignored when proposed block round is too old", func(t *testing.T) {
+	t.Run("ignored when proposed header round is too old", func(t *testing.T) {
 		t.Parallel()
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -566,13 +566,13 @@ func TestMirror_HandleProposedBlock(t *testing.T) {
 		defer m.Wait()
 		defer cancel()
 
-		// Proposed block and full precommits at height 1.
-		pb1 := mfx.Fx.NextProposedBlock([]byte("app_data_1"), 0)
-		mfx.Fx.SignProposal(ctx, &pb1, 0)
-		require.Equal(t, tmconsensus.HandleProposedBlockAccepted, m.HandleProposedBlock(ctx, pb1))
+		// Proposed header and full precommits at height 1.
+		ph1 := mfx.Fx.NextProposedHeader([]byte("app_data_1"), 0)
+		mfx.Fx.SignProposal(ctx, &ph1, 0)
+		require.Equal(t, tmconsensus.HandleProposedHeaderAccepted, m.HandleProposedHeader(ctx, ph1))
 		keyHash, _ := mfx.Fx.ValidatorHashes()
 		voteMap := map[string][]int{
-			string(pb1.Block.Hash): {0, 1, 2, 3},
+			string(ph1.Header.Hash): {0, 1, 2, 3},
 		}
 		precommitProof := tmconsensus.PrecommitSparseProof{
 			Height:     1,
@@ -585,7 +585,7 @@ func TestMirror_HandleProposedBlock(t *testing.T) {
 		// Next for height 2.
 		// Adjust the fixture first, but we are going to make Height 2 advance to Round 1.
 		mfx.Fx.CommitBlock(
-			pb1.Block, []byte("app_state_height_1"), 0,
+			ph1.Header, []byte("app_state_height_1"), 0,
 			mfx.Fx.PrecommitProofMap(ctx, 1, 0, voteMap),
 		)
 
@@ -601,22 +601,22 @@ func TestMirror_HandleProposedBlock(t *testing.T) {
 		}
 		require.Equal(t, tmconsensus.HandleVoteProofsAccepted, m.HandlePrecommitProofs(ctx, precommitProof))
 
-		// Now we are on round 1, so a new proposed block at round 0 should be too old.
+		// Now we are on round 1, so a new proposed header at round 0 should be too old.
 		t.Run("older round within voting height", func(t *testing.T) {
-			pb2 := mfx.Fx.NextProposedBlock([]byte("app_data_2"), 0)
-			mfx.Fx.SignProposal(ctx, &pb2, 0)
-			require.Equal(t, uint64(2), pb2.Block.Height)
-			require.Zero(t, pb2.Round)
-			require.Equal(t, tmconsensus.HandleProposedBlockRoundTooOld, m.HandleProposedBlock(ctx, pb2))
+			ph2 := mfx.Fx.NextProposedHeader([]byte("app_data_2"), 0)
+			mfx.Fx.SignProposal(ctx, &ph2, 0)
+			require.Equal(t, uint64(2), ph2.Header.Height)
+			require.Zero(t, ph2.Round)
+			require.Equal(t, tmconsensus.HandleProposedHeaderRoundTooOld, m.HandleProposedHeader(ctx, ph2))
 		})
 
-		pb2 := mfx.Fx.NextProposedBlock([]byte("app_data_2"), 0)
-		pb2.Round = 1
-		mfx.Fx.SignProposal(ctx, &pb2, 0)
+		ph2 := mfx.Fx.NextProposedHeader([]byte("app_data_2"), 0)
+		ph2.Round = 1
+		mfx.Fx.SignProposal(ctx, &ph2, 0)
 
-		require.Equal(t, tmconsensus.HandleProposedBlockAccepted, m.HandleProposedBlock(ctx, pb2))
+		require.Equal(t, tmconsensus.HandleProposedHeaderAccepted, m.HandleProposedHeader(ctx, ph2))
 		voteMap = map[string][]int{
-			string(pb2.Block.Hash): {0, 1, 2, 3},
+			string(ph2.Header.Hash): {0, 1, 2, 3},
 		}
 		precommitProof = tmconsensus.PrecommitSparseProof{
 			Height:     2,
@@ -628,22 +628,22 @@ func TestMirror_HandleProposedBlock(t *testing.T) {
 
 		// And now height 3, to push height 2 into committing and height 1 out of view.
 		mfx.Fx.CommitBlock(
-			pb2.Block, []byte("app_state_height_1"), 0,
+			ph2.Header, []byte("app_state_height_1"), 0,
 			mfx.Fx.PrecommitProofMap(ctx, 2, 0, voteMap),
 		)
-		pb3 := mfx.Fx.NextProposedBlock([]byte("app_data_3"), 0)
-		mfx.Fx.SignProposal(ctx, &pb3, 0)
+		ph3 := mfx.Fx.NextProposedHeader([]byte("app_data_3"), 0)
+		mfx.Fx.SignProposal(ctx, &ph3, 0)
 
 		t.Run("older round within committing height", func(t *testing.T) {
-			// Just reuse the existing pb2, overwriting its round to zero.
-			pb2.Round = 0
-			mfx.Fx.SignProposal(ctx, &pb2, 0)
-			require.Equal(t, tmconsensus.HandleProposedBlockRoundTooOld, m.HandleProposedBlock(ctx, pb2))
+			// Just reuse the existing ph2, overwriting its round to zero.
+			ph2.Round = 0
+			mfx.Fx.SignProposal(ctx, &ph2, 0)
+			require.Equal(t, tmconsensus.HandleProposedHeaderRoundTooOld, m.HandleProposedHeader(ctx, ph2))
 		})
 
-		require.Equal(t, tmconsensus.HandleProposedBlockAccepted, m.HandleProposedBlock(ctx, pb3))
+		require.Equal(t, tmconsensus.HandleProposedHeaderAccepted, m.HandleProposedHeader(ctx, ph3))
 		voteMap = map[string][]int{
-			string(pb3.Block.Hash): {0, 1, 2, 3},
+			string(ph3.Header.Hash): {0, 1, 2, 3},
 		}
 		precommitProof = tmconsensus.PrecommitSparseProof{
 			Height:     3,
@@ -654,7 +654,7 @@ func TestMirror_HandleProposedBlock(t *testing.T) {
 		require.Equal(t, tmconsensus.HandleVoteProofsAccepted, m.HandlePrecommitProofs(ctx, precommitProof))
 
 		t.Run("height that is no longer in view", func(t *testing.T) {
-			require.Equal(t, tmconsensus.HandleProposedBlockRoundTooOld, m.HandleProposedBlock(ctx, pb1))
+			require.Equal(t, tmconsensus.HandleProposedHeaderRoundTooOld, m.HandleProposedHeader(ctx, ph1))
 		})
 	})
 }
@@ -672,18 +672,18 @@ func TestMirror_HandlePrevoteProofs(t *testing.T) {
 		defer m.Wait()
 		defer cancel()
 
-		// Sign proposed block, because the mirror actually validates this.
-		pb1 := mfx.Fx.NextProposedBlock([]byte("app_data_1"), 0)
-		mfx.Fx.SignProposal(ctx, &pb1, 0)
+		// Sign proposed header, because the mirror actually validates this.
+		ph1 := mfx.Fx.NextProposedHeader([]byte("app_data_1"), 0)
+		mfx.Fx.SignProposal(ctx, &ph1, 0)
 
-		require.Equal(t, tmconsensus.HandleProposedBlockAccepted, m.HandleProposedBlock(ctx, pb1))
+		require.Equal(t, tmconsensus.HandleProposedHeaderAccepted, m.HandleProposedHeader(ctx, ph1))
 
 		keyHash, _ := mfx.Fx.ValidatorHashes()
 
 		// One active and one nil prevote.
 		voteMap := map[string][]int{
-			string(pb1.Block.Hash): {0},
-			"":                     {1},
+			string(ph1.Header.Hash): {0},
+			"":                      {1},
 		}
 		sparsePrevoteProofMap := mfx.Fx.SparsePrevoteProofMap(ctx, 1, 0, voteMap)
 		prevoteProof := tmconsensus.PrevoteSparseProof{
@@ -709,7 +709,7 @@ func TestMirror_HandlePrevoteProofs(t *testing.T) {
 				Round:        0,
 				ValidatorSet: mfx.Fx.ValSet(),
 
-				ProposedBlocks: []tmconsensus.ProposedBlock{pb1},
+				ProposedHeaders: []tmconsensus.ProposedHeader{ph1},
 
 				PrevoteProofs: fullPrevoteProofMap,
 				PrecommitProofs: mfx.Fx.PrecommitProofMap(ctx, 1, 0, map[string][]int{
@@ -717,10 +717,10 @@ func TestMirror_HandlePrevoteProofs(t *testing.T) {
 				}),
 				VoteSummary: vs,
 			},
-			Version: 3, // Started at 1, added a proposed block (2), then bulk added prevotes (3).
+			Version: 3, // Started at 1, added a proposed header (2), then bulk added prevotes (3).
 			PrevoteBlockVersions: map[string]uint32{
-				"":                     1,
-				string(pb1.Block.Hash): 1,
+				"":                      1,
+				string(ph1.Header.Hash): 1,
 			},
 		}, vnv)
 
@@ -741,11 +741,11 @@ func TestMirror_HandlePrevoteProofs(t *testing.T) {
 		defer m.Wait()
 		defer cancel()
 
-		// Sign proposed block, because the mirror actually validates this.
-		pb1 := mfx.Fx.NextProposedBlock([]byte("app_data_1"), 0)
-		mfx.Fx.SignProposal(ctx, &pb1, 0)
+		// Sign proposed header, because the mirror actually validates this.
+		ph1 := mfx.Fx.NextProposedHeader([]byte("app_data_1"), 0)
+		mfx.Fx.SignProposal(ctx, &ph1, 0)
 
-		require.Equal(t, tmconsensus.HandleProposedBlockAccepted, m.HandleProposedBlock(ctx, pb1))
+		require.Equal(t, tmconsensus.HandleProposedHeaderAccepted, m.HandleProposedHeader(ctx, ph1))
 
 		keyHash, _ := mfx.Fx.ValidatorHashes()
 
@@ -755,7 +755,7 @@ func TestMirror_HandlePrevoteProofs(t *testing.T) {
 		for i := 0; i < 10; i++ {
 			go func(i int) {
 				voteMap := map[string][]int{
-					string(pb1.Block.Hash): {i},
+					string(ph1.Header.Hash): {i},
 				}
 				sparsePrevoteProofMap := mfx.Fx.SparsePrevoteProofMap(ctx, 1, 0, voteMap)
 				prevoteProof := tmconsensus.PrevoteSparseProof{
@@ -774,8 +774,8 @@ func TestMirror_HandlePrevoteProofs(t *testing.T) {
 
 		// Build the full prevote map for later assertion.
 		fullVoteMap := map[string][]int{
-			string(pb1.Block.Hash): {0, 1, 2, 3, 4, 5, 6, 7, 8, 9},
-			"":                     {}, // Empty proof always present.
+			string(ph1.Header.Hash): {0, 1, 2, 3, 4, 5, 6, 7, 8, 9},
+			"":                      {}, // Empty proof always present.
 		}
 		fullPrevoteProofMap := mfx.Fx.PrevoteProofMap(ctx, 1, 0, fullVoteMap)
 
@@ -791,7 +791,7 @@ func TestMirror_HandlePrevoteProofs(t *testing.T) {
 			Round:        0,
 			ValidatorSet: mfx.Fx.ValSet(),
 
-			ProposedBlocks: []tmconsensus.ProposedBlock{pb1},
+			ProposedHeaders: []tmconsensus.ProposedHeader{ph1},
 
 			PrevoteProofs: fullPrevoteProofMap,
 			PrecommitProofs: mfx.Fx.PrecommitProofMap(ctx, 1, 0, map[string][]int{
@@ -836,19 +836,19 @@ func TestMirror_HandlePrecommitProofs(t *testing.T) {
 		defer m.Wait()
 		defer cancel()
 
-		// Sign proposed block, because the mirror actually validates this.
-		pb1 := mfx.Fx.NextProposedBlock([]byte("app_data_1"), 0)
-		mfx.Fx.SignProposal(ctx, &pb1, 0)
+		// Sign proposed header, because the mirror actually validates this.
+		ph1 := mfx.Fx.NextProposedHeader([]byte("app_data_1"), 0)
+		mfx.Fx.SignProposal(ctx, &ph1, 0)
 
-		require.Equal(t, tmconsensus.HandleProposedBlockAccepted, m.HandleProposedBlock(ctx, pb1))
+		require.Equal(t, tmconsensus.HandleProposedHeaderAccepted, m.HandleProposedHeader(ctx, ph1))
 
 		keyHash, _ := mfx.Fx.ValidatorHashes()
 
 		// One active and one nil precommit.
 		// Still below 2/3 voting power present.
 		voteMap := map[string][]int{
-			string(pb1.Block.Hash): {0},
-			"":                     {1},
+			string(ph1.Header.Hash): {0},
+			"":                      {1},
 		}
 		sparsePrecommitProofMap := mfx.Fx.SparsePrecommitProofMap(ctx, 1, 0, voteMap)
 		precommitProof := tmconsensus.PrecommitSparseProof{
@@ -874,7 +874,7 @@ func TestMirror_HandlePrecommitProofs(t *testing.T) {
 				Round:        0,
 				ValidatorSet: mfx.Fx.ValSet(),
 
-				ProposedBlocks: []tmconsensus.ProposedBlock{pb1},
+				ProposedHeaders: []tmconsensus.ProposedHeader{ph1},
 
 				PrevoteProofs: mfx.Fx.PrevoteProofMap(ctx, 1, 0, map[string][]int{
 					"": {},
@@ -882,10 +882,10 @@ func TestMirror_HandlePrecommitProofs(t *testing.T) {
 				PrecommitProofs: fullPrecommitProofMap,
 				VoteSummary:     vs,
 			},
-			Version: 3, // Started at 1, added a proposed block (2), then bulk added precommits (3).
+			Version: 3, // Started at 1, added a proposed header (2), then bulk added precommits (3).
 			PrecommitBlockVersions: map[string]uint32{
-				"":                     1,
-				string(pb1.Block.Hash): 1,
+				"":                      1,
+				string(ph1.Header.Hash): 1,
 			},
 		}, vnv)
 
@@ -898,13 +898,13 @@ func TestMirror_HandlePrecommitProofs(t *testing.T) {
 func TestMirror_FullRound(t *testing.T) {
 	for _, tc := range []struct {
 		targetName string
-		blockHash  func(tmconsensus.ProposedBlock) string
+		blockHash  func(tmconsensus.ProposedHeader) string
 		wantNHR    tmmirror.NetworkHeightRound
 	}{
 		{
 			targetName: "block",
-			blockHash: func(pb tmconsensus.ProposedBlock) string {
-				return string(pb.Block.Hash)
+			blockHash: func(ph tmconsensus.ProposedHeader) string {
+				return string(ph.Header.Hash)
 			},
 			wantNHR: tmmirror.NetworkHeightRound{
 				VotingHeight:     2,
@@ -915,7 +915,7 @@ func TestMirror_FullRound(t *testing.T) {
 		},
 		{
 			targetName: "nil",
-			blockHash: func(tmconsensus.ProposedBlock) string {
+			blockHash: func(tmconsensus.ProposedHeader) string {
 				return ""
 			},
 			wantNHR: tmmirror.NetworkHeightRound{
@@ -939,18 +939,18 @@ func TestMirror_FullRound(t *testing.T) {
 			defer m.Wait()
 			defer cancel()
 
-			// Sign proposed block, because the mirror actually validates this.
-			pb1 := mfx.Fx.NextProposedBlock([]byte("app_data_1"), 0)
-			mfx.Fx.SignProposal(ctx, &pb1, 0)
+			// Sign proposed header, because the mirror actually validates this.
+			ph1 := mfx.Fx.NextProposedHeader([]byte("app_data_1"), 0)
+			mfx.Fx.SignProposal(ctx, &ph1, 0)
 
-			require.Equal(t, tmconsensus.HandleProposedBlockAccepted, m.HandleProposedBlock(ctx, pb1))
+			require.Equal(t, tmconsensus.HandleProposedHeaderAccepted, m.HandleProposedHeader(ctx, ph1))
 
 			keyHash, _ := mfx.Fx.ValidatorHashes()
 
 			// Skipping prevotes as they aren't strictly required here.
 
 			// Half the votes arrive.
-			targetHash := tc.blockHash(pb1)
+			targetHash := tc.blockHash(ph1)
 			voteMapFirst := map[string][]int{
 				targetHash: {0, 1},
 			}
@@ -1025,10 +1025,10 @@ func TestMirror_pastInitialHeight(t *testing.T) {
 		require.Zero(t, vv.Round)
 
 		// Haven't seen anything in the voting round yet,
-		// so we should have no proposed blocks,
+		// so we should have no proposed headers,
 		// and we should have empty proofs for nil votes.
 		require.True(t, tmconsensus.ValidatorSlicesEqual(mfx.Cfg.InitialValidators, vv.ValidatorSet.Validators))
-		require.Empty(t, vv.ProposedBlocks)
+		require.Empty(t, vv.ProposedHeaders)
 		require.Len(t, vv.PrevoteProofs, 1)
 		np := vv.PrevoteProofs[""]
 		require.Zero(t, np.SignatureBitSet().Count())
@@ -1042,19 +1042,19 @@ func TestMirror_pastInitialHeight(t *testing.T) {
 		require.Equal(t, uint64(1), vv.Height)
 		require.Zero(t, vv.Round)
 
-		require.Len(t, vv.ProposedBlocks, 1)
-		pb := vv.ProposedBlocks[0]
+		require.Len(t, vv.ProposedHeaders, 1)
+		ph := vv.ProposedHeaders[0]
 
 		// We didn't store any prevote proofs, but the nil proof should still be present.
 		require.Len(t, vv.PrevoteProofs, 1)
 		np = vv.PrevoteProofs[""]
 		require.Zero(t, np.SignatureBitSet().Count())
 
-		// And we should have all 4 signatures for the proposed block in precommit.
+		// And we should have all 4 signatures for the proposed header in precommit.
 		require.Len(t, vv.PrecommitProofs, 2)
 		np = vv.PrevoteProofs[""]
 		require.Zero(t, np.SignatureBitSet().Count())
-		np = vv.PrecommitProofs[string(pb.Block.Hash)]
+		np = vv.PrecommitProofs[string(ph.Header.Hash)]
 		require.Equal(t, uint(4), np.SignatureBitSet().Count())
 	})
 
@@ -1087,28 +1087,28 @@ func TestMirror_pastInitialHeight(t *testing.T) {
 			_ = gtest.ReceiveSoon(t, mfx.GossipStrategyOut)
 
 			// Get the first block's hash through the round store.
-			pbs, _, _, err := mfx.Cfg.RoundStore.LoadRoundState(ctx, 1, 0)
+			phs, _, _, err := mfx.Cfg.RoundStore.LoadRoundState(ctx, 1, 0)
 			require.NoError(t, err)
-			require.Len(t, pbs, 1)
-			pb1Hash := string(pbs[0].Block.Hash)
+			require.Len(t, phs, 1)
+			ph1 := string(phs[0].Header.Hash)
 
 			voter := vt.VoterFunc(mfx, m)
-			res := voter.HandleProofs(ctx, 1, 0, map[string][]int{pb1Hash: {3}})
+			res := voter.HandleProofs(ctx, 1, 0, map[string][]int{ph1: {3}})
 			require.Equal(t, tmconsensus.HandleVoteProofsAccepted, res)
 
 			// New Committing view sent on output channel.
 			cv := gtest.ReceiveSoon(t, mfx.GossipStrategyOut).Committing
-			require.Equal(t, expVoteCount, voter.ProofsFromView(cv.RoundView)[pb1Hash].SignatureBitSet().Count())
+			require.Equal(t, expVoteCount, voter.ProofsFromView(cv.RoundView)[ph1].SignatureBitSet().Count())
 
 			// Round store matches too.
 			_, prevotes, precommits, err := mfx.Cfg.RoundStore.LoadRoundState(ctx, 1, 0)
 			require.NoError(t, err)
 			votes := voter.ProofsFromRoundStateMaps(prevotes, precommits)
-			require.Equal(t, expVoteCount, votes[pb1Hash].SignatureBitSet().Count())
+			require.Equal(t, expVoteCount, votes[ph1].SignatureBitSet().Count())
 		})
 	}
 
-	t.Run("proposed block with new commit info is backfilled into committing view", func(t *testing.T) {
+	t.Run("proposed header with new commit info is backfilled into committing view", func(t *testing.T) {
 		t.Parallel()
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -1126,38 +1126,38 @@ func TestMirror_pastInitialHeight(t *testing.T) {
 		// Drain the initial value from the committing view channel.
 		initCV := gtest.ReceiveSoon(t, mfx.GossipStrategyOut).Committing
 
-		// Get the proposed block from the committing view.
+		// Get the proposed header from the committing view.
 		var vv tmconsensus.VersionedRoundView
 		require.NoError(t, m.CommittingView(ctx, &vv))
 
-		pb1Hash := vv.ProposedBlocks[0].Block.Hash
+		ph1Hash := vv.ProposedHeaders[0].Header.Hash
 
-		// Make a new PB that contains the precommit from the last validator.
-		pb2 := mfx.Fx.NextProposedBlock([]byte("app_data_2"), 0)
+		// Make a new PH that contains the precommit from the last validator.
+		ph2 := mfx.Fx.NextProposedHeader([]byte("app_data_2"), 0)
 		precommitProofs := mfx.Fx.SparsePrecommitProofMap(ctx, 1, 0, map[string][]int{
-			string(pb1Hash): {0, 1, 3}, // Missing val 2, has val 3.
+			string(ph1Hash): {0, 1, 3}, // Missing val 2, has val 3.
 		})
 
-		pb2.Block.PrevCommitProof.Proofs = precommitProofs
-		mfx.Fx.RecalculateHash(&pb2.Block)
-		mfx.Fx.SignProposal(ctx, &pb2, 0)
+		ph2.Header.PrevCommitProof.Proofs = precommitProofs
+		mfx.Fx.RecalculateHash(&ph2.Header)
+		mfx.Fx.SignProposal(ctx, &ph2, 0)
 
-		// Handling the proposed block should cause the new precommit
+		// Handling the proposed header should cause the new precommit
 		// to backfill into the committing view.
-		require.Equal(t, tmconsensus.HandleProposedBlockAccepted, m.HandleProposedBlock(ctx, pb2))
+		require.Equal(t, tmconsensus.HandleProposedHeaderAccepted, m.HandleProposedHeader(ctx, ph2))
 
 		// Reload the committing view.
 		require.NoError(t, m.CommittingView(ctx, &vv))
 
 		// The precommits in the commit view, at height 1, now have all 4 signatures.
-		commitProof := vv.PrecommitProofs[string(pb1Hash)]
+		commitProof := vv.PrecommitProofs[string(ph1Hash)]
 		require.Equal(t, uint(4), commitProof.SignatureBitSet().Count())
 
 		// And the update is available on the commit view channel.
 		cv := gtest.ReceiveSoon(t, mfx.GossipStrategyOut).Committing
 		require.Greater(t, cv.Version, initCV.Version)
-		require.Equal(t, uint(4), cv.PrecommitProofs[string(pb1Hash)].SignatureBitSet().Count())
-		require.Equal(t, uint(3), initCV.PrecommitProofs[string(pb1Hash)].SignatureBitSet().Count())
+		require.Equal(t, uint(4), cv.PrecommitProofs[string(ph1Hash)].SignatureBitSet().Count())
+		require.Equal(t, uint(3), initCV.PrecommitProofs[string(ph1Hash)].SignatureBitSet().Count())
 	})
 }
 
@@ -1174,17 +1174,17 @@ func TestMirror_CommitToBlockStore(t *testing.T) {
 	defer m.Wait()
 	defer cancel()
 
-	pb1 := mfx.Fx.NextProposedBlock([]byte("app_data_1"), 0)
-	mfx.Fx.SignProposal(ctx, &pb1, 0)
+	ph1 := mfx.Fx.NextProposedHeader([]byte("app_data_1"), 0)
+	mfx.Fx.SignProposal(ctx, &ph1, 0)
 
-	require.Equal(t, tmconsensus.HandleProposedBlockAccepted, m.HandleProposedBlock(ctx, pb1))
+	require.Equal(t, tmconsensus.HandleProposedHeaderAccepted, m.HandleProposedHeader(ctx, ph1))
 
 	// Now advance the fixture with a full set of precommits.
 	voteMap1 := map[string][]int{
-		string(pb1.Block.Hash): {0, 1, 2, 3},
+		string(ph1.Header.Hash): {0, 1, 2, 3},
 	}
 	precommitProofs1 := mfx.Fx.PrecommitProofMap(ctx, 1, 0, voteMap1)
-	mfx.Fx.CommitBlock(pb1.Block, []byte("app_state_height_1"), 0, precommitProofs1)
+	mfx.Fx.CommitBlock(ph1.Header, []byte("app_state_height_1"), 0, precommitProofs1)
 
 	// And advance the mirror by submitting a full set of precommits.
 	keyHash, _ := mfx.Fx.ValidatorHashes()
@@ -1198,25 +1198,25 @@ func TestMirror_CommitToBlockStore(t *testing.T) {
 	}))
 
 	// Now on height 2, we have a committing view at height 1.
-	// Nothing should be in the block store yet.
-	_, err := mfx.Cfg.BlockStore.LoadBlock(ctx, 1)
+	// Nothing should be in the header store yet.
+	_, err := mfx.Cfg.HeaderStore.LoadHeader(ctx, 1)
 	require.ErrorIs(t, err, tmconsensus.HeightUnknownError{Want: 1})
 
 	// Now propose and commit height 2.
-	pb2 := mfx.Fx.NextProposedBlock([]byte("app_data_2"), 0)
-	mfx.Fx.SignProposal(ctx, &pb2, 0)
+	ph2 := mfx.Fx.NextProposedHeader([]byte("app_data_2"), 0)
+	mfx.Fx.SignProposal(ctx, &ph2, 0)
 
-	require.Equal(t, tmconsensus.HandleProposedBlockAccepted, m.HandleProposedBlock(ctx, pb2))
+	require.Equal(t, tmconsensus.HandleProposedHeaderAccepted, m.HandleProposedHeader(ctx, ph2))
 
 	// Drain metrics.
 	_ = gtest.ReceiveSoon(t, mCh)
 
 	// Update the fixture for height 2.
 	voteMap2 := map[string][]int{
-		string(pb2.Block.Hash): {0, 1, 2, 3},
+		string(ph2.Header.Hash): {0, 1, 2, 3},
 	}
 	precommitProofs2 := mfx.Fx.PrecommitProofMap(ctx, 2, 0, voteMap2)
-	mfx.Fx.CommitBlock(pb1.Block, []byte("app_state_height_2"), 0, precommitProofs2)
+	mfx.Fx.CommitBlock(ph1.Header, []byte("app_state_height_2"), 0, precommitProofs2)
 
 	require.Equal(t, tmconsensus.HandleVoteProofsAccepted, m.HandlePrecommitProofs(ctx, tmconsensus.PrecommitSparseProof{
 		Height: 2,
@@ -1242,14 +1242,14 @@ func TestMirror_CommitToBlockStore(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, wantNHR, nhr)
 
-	// This means height 1 must be in the block store.
-	cb1, err := mfx.Cfg.BlockStore.LoadBlock(ctx, 1)
+	// This means height 1 must be in the header store.
+	cb1, err := mfx.Cfg.HeaderStore.LoadHeader(ctx, 1)
 	require.NoError(t, err)
-	require.Equal(t, pb1.Block, cb1.Block)
-	require.Equal(t, pb2.Block.PrevCommitProof, cb1.Proof)
-	require.Equal(t, tmconsensus.CommittedBlock{
-		Block: pb1.Block,
-		Proof: pb2.Block.PrevCommitProof,
+	require.Equal(t, ph1.Header, cb1.Header)
+	require.Equal(t, ph2.Header.PrevCommitProof, cb1.Proof)
+	require.Equal(t, tmconsensus.CommittedHeader{
+		Header: ph1.Header,
+		Proof:  ph2.Header.PrevCommitProof,
 	}, cb1)
 }
 
@@ -1322,15 +1322,15 @@ func TestMirror_advanceRoundOnMixedPrecommit(t *testing.T) {
 		defer m.Wait()
 		defer cancel()
 
-		pb1 := mfx.Fx.NextProposedBlock([]byte("app_data_1"), 0)
-		mfx.Fx.SignProposal(ctx, &pb1, 0)
+		ph1 := mfx.Fx.NextProposedHeader([]byte("app_data_1"), 0)
+		mfx.Fx.SignProposal(ctx, &ph1, 0)
 
-		require.Equal(t, tmconsensus.HandleProposedBlockAccepted, m.HandleProposedBlock(ctx, pb1))
+		require.Equal(t, tmconsensus.HandleProposedHeaderAccepted, m.HandleProposedHeader(ctx, ph1))
 
 		// Half of the precommits are for the block, the other half are for nil.
 		voteMap1 := map[string][]int{
-			string(pb1.Block.Hash): {0, 1},
-			"":                     {2, 3},
+			string(ph1.Header.Hash): {0, 1},
+			"":                      {2, 3},
 		}
 		keyHash, _ := mfx.Fx.ValidatorHashes()
 		require.Equal(t, tmconsensus.HandleVoteProofsAccepted, m.HandlePrecommitProofs(ctx, tmconsensus.PrecommitSparseProof{
@@ -1347,14 +1347,14 @@ func TestMirror_advanceRoundOnMixedPrecommit(t *testing.T) {
 		vv := gso.Voting
 
 		// It may seem like this should be Version 1 since the entire voting view is empty at this point:
-		// it doesn't have any proposed blocks or votes.
+		// it doesn't have any proposed headers or votes.
 		// But it was a NextRound value which started at Version 1,
 		// and we increment the version again when the otherwise-unchanged view
 		// gets shifted from NextRound to Voting.
 		require.Equal(t, uint32(2), vv.Version)
 		require.Equal(t, uint64(1), vv.Height)
 		require.Equal(t, uint32(1), vv.Round)
-		require.Empty(t, vv.ProposedBlocks)
+		require.Empty(t, vv.ProposedHeaders)
 
 		// The nil prevote and precommit are present but empty.
 		require.Empty(t, vv.PrevoteProofs)
@@ -1365,7 +1365,7 @@ func TestMirror_advanceRoundOnMixedPrecommit(t *testing.T) {
 	})
 }
 
-// The proposed block is too old or too far in the future.
+// The proposed header is too old or too far in the future.
 func TestMirror_proposedBlockOutOfBounds(t *testing.T) {
 	t.Parallel()
 
@@ -1378,10 +1378,10 @@ func TestMirror_proposedBlockOutOfBounds(t *testing.T) {
 	defer m.Wait()
 	defer cancel()
 
-	// Hold on to a pb1 for the committing round.
+	// Hold on to a ph1 for the committing round.
 	// (We will never send this although it will be otherwise valid.)
-	pb10 := mfx.Fx.NextProposedBlock([]byte("missed"), 1)
-	mfx.Fx.SignProposal(ctx, &pb10, 1)
+	ph10 := mfx.Fx.NextProposedHeader([]byte("missed"), 1)
+	mfx.Fx.SignProposal(ctx, &ph10, 1)
 
 	// Full nil precommit for 1/0.
 	keyHash, _ := mfx.Fx.ValidatorHashes()
@@ -1398,15 +1398,15 @@ func TestMirror_proposedBlockOutOfBounds(t *testing.T) {
 	}))
 
 	// Now we must be voting on 1/1.
-	pb11 := mfx.Fx.NextProposedBlock([]byte("app_data_1"), 0)
-	pb11.Round = 1
-	mfx.Fx.SignProposal(ctx, &pb11, 0)
+	ph11 := mfx.Fx.NextProposedHeader([]byte("app_data_1"), 0)
+	ph11.Round = 1
+	mfx.Fx.SignProposal(ctx, &ph11, 0)
 
-	require.Equal(t, tmconsensus.HandleProposedBlockAccepted, m.HandleProposedBlock(ctx, pb11))
+	require.Equal(t, tmconsensus.HandleProposedHeaderAccepted, m.HandleProposedHeader(ctx, ph11))
 
 	// Now fully precommit 1/1, so we get to voting on height 2.
 	voteMap11 := map[string][]int{
-		string(pb11.Block.Hash): {0, 1},
+		string(ph11.Header.Hash): {0, 1},
 	}
 	require.Equal(t, tmconsensus.HandleVoteProofsAccepted, m.HandlePrecommitProofs(ctx, tmconsensus.PrecommitSparseProof{
 		Height: 1,
@@ -1417,33 +1417,33 @@ func TestMirror_proposedBlockOutOfBounds(t *testing.T) {
 		Proofs: mfx.Fx.SparsePrecommitProofMap(ctx, 1, 1, voteMap11),
 	}))
 
-	// Now if the proposed block for 1/0 arrives, it's a "too old" result.
+	// Now if the proposed header for 1/0 arrives, it's a "too old" result.
 	// Arguably we could check or save it for detecting a double-propose,
 	// but at this point we will just drop it.
-	require.Equal(t, tmconsensus.HandleProposedBlockRoundTooOld, m.HandleProposedBlock(ctx, pb10))
+	require.Equal(t, tmconsensus.HandleProposedHeaderRoundTooOld, m.HandleProposedHeader(ctx, ph10))
 
-	// And now let's make a fake proposed block multiple heights in the future,
+	// And now let's make a fake proposed header multiple heights in the future,
 	// from a different fixture altogether so the voting hashes and validators differ.
 	ffx := tmconsensustest.NewStandardFixture(5)
 	for i := 0; i < 10; i++ {
-		pb := ffx.NextProposedBlock([]byte("ignore"), 4)
+		ph := ffx.NextProposedHeader([]byte("ignore"), 4)
 
-		ffx.CommitBlock(pb.Block, []byte(fmt.Sprintf("height_%d", i+1)), 0, map[string]gcrypto.CommonMessageSignatureProof{
-			string(pb.Block.Hash): ffx.PrecommitSignatureProof(
+		ffx.CommitBlock(ph.Header, []byte(fmt.Sprintf("height_%d", i+1)), 0, map[string]gcrypto.CommonMessageSignatureProof{
+			string(ph.Header.Hash): ffx.PrecommitSignatureProof(
 				ctx,
 				tmconsensus.VoteTarget{
 					Height:    uint64(i) + 1,
 					Round:     0,
-					BlockHash: string(pb.Block.Hash),
+					BlockHash: string(ph.Header.Hash),
 				}, nil, []int{0, 1, 2, 3, 4},
 			),
 		})
 	}
 
-	futurePB := ffx.NextProposedBlock([]byte("far_future"), 4)
-	ffx.SignProposal(ctx, &futurePB, 4)
+	futurePH := ffx.NextProposedHeader([]byte("far_future"), 4)
+	ffx.SignProposal(ctx, &futurePH, 4)
 
-	require.Equal(t, tmconsensus.HandleProposedBlockRoundTooFarInFuture, m.HandleProposedBlock(ctx, futurePB))
+	require.Equal(t, tmconsensus.HandleProposedHeaderRoundTooFarInFuture, m.HandleProposedHeader(ctx, futurePH))
 }
 
 func TestMirror_votesBeforeVotingRound(t *testing.T) {
@@ -1467,18 +1467,18 @@ func TestMirror_votesBeforeVotingRound(t *testing.T) {
 				defer m.Wait()
 				defer cancel()
 
-				// Propose block at height 2.
-				pb2 := mfx.Fx.NextProposedBlock([]byte("app_data_2"), 0)
-				mfx.Fx.SignProposal(ctx, &pb2, 0)
+				// Propose header at height 2.
+				ph2 := mfx.Fx.NextProposedHeader([]byte("app_data_2"), 0)
+				mfx.Fx.SignProposal(ctx, &ph2, 0)
 
-				require.Equal(t, tmconsensus.HandleProposedBlockAccepted, m.HandleProposedBlock(ctx, pb2))
+				require.Equal(t, tmconsensus.HandleProposedHeaderAccepted, m.HandleProposedHeader(ctx, ph2))
 
 				// Drain the metrics before handling the precommit proofs.
 				_ = gtest.ReceiveSoon(t, mCh)
 
-				// Full precommit for pb2.
+				// Full precommit for ph2.
 				voteMap2 := map[string][]int{
-					string(pb2.Block.Hash): {0, 1},
+					string(ph2.Header.Hash): {0, 1},
 				}
 				keyHash, _ := mfx.Fx.ValidatorHashes()
 				require.Equal(t, tmconsensus.HandleVoteProofsAccepted, m.HandlePrecommitProofs(ctx, tmconsensus.PrecommitSparseProof{
@@ -1515,7 +1515,7 @@ func TestMirror_votesBeforeVotingRound(t *testing.T) {
 				// Synchronize on a metrics update before inspecting the store.
 				_ = gtest.ReceiveSoon(t, mCh)
 
-				// Now block 2 is in committing.
+				// Now header 2 is in committing.
 				nhr, err := tmi.NetworkHeightRoundFromStore(mfx.Store().NetworkHeightRound(ctx))
 				require.NoError(t, err)
 				require.Equal(t, tmmirror.NetworkHeightRound{
@@ -1533,10 +1533,10 @@ func TestMirror_votesBeforeVotingRound(t *testing.T) {
 					targetHeight = 3
 					targetBlockHash = ""
 				case tmi.ViewBeforeCommitting:
-					// Vote for the first proposed block,
+					// Vote for the first proposed header,
 					// which we don't have directly because it was scoped inside the mfx.CommitInitialHeight call.
 					targetHeight = 1
-					targetBlockHash = string(pb2.Block.PrevBlockHash)
+					targetBlockHash = string(ph2.Header.PrevBlockHash)
 				default:
 					t.Fatalf("BUG: unhandled view status %s", viewStatus)
 				}
@@ -1560,8 +1560,8 @@ func TestMirror_fetchProposedBlock(t *testing.T) {
 
 			mfx := tmmirrortest.NewFixture(ctx, t, 4)
 
-			pbf := tmelinktest.NewPBFetcher(1, 1)
-			mfx.Cfg.ProposedBlockFetcher = pbf.ProposedBlockFetcher()
+			phf := tmelinktest.NewPHFetcher(1, 1)
+			mfx.Cfg.ProposedHeaderFetcher = phf.ProposedHeaderFetcher()
 
 			m := mfx.NewMirror()
 			defer m.Wait()
@@ -1569,56 +1569,56 @@ func TestMirror_fetchProposedBlock(t *testing.T) {
 
 			voter := vt.VoterFunc(mfx, m)
 
-			// Make the proposed block but don't give it to the mirror.
-			pb1 := mfx.Fx.NextProposedBlock([]byte("app_data_1"), 0)
-			mfx.Fx.SignProposal(ctx, &pb1, 0)
+			// Make the proposed header but don't give it to the mirror.
+			ph1 := mfx.Fx.NextProposedHeader([]byte("app_data_1"), 0)
+			mfx.Fx.SignProposal(ctx, &ph1, 0)
 
 			// With one ote there is no fetch request.
 			voteMap := map[string][]int{
-				string(pb1.Block.Hash): {0},
+				string(ph1.Header.Hash): {0},
 			}
 
 			res := voter.HandleProofs(ctx, 1, 0, voteMap)
 			require.Equal(t, tmconsensus.HandleVoteProofsAccepted, res)
 
-			gtest.NotSending(t, pbf.ReqCh)
+			gtest.NotSending(t, phf.ReqCh)
 
 			// With a second vote, we have exceeded minority power, so there must be a fetch request.
-			voteMap[string(pb1.Block.Hash)] = []int{1}
+			voteMap[string(ph1.Header.Hash)] = []int{1}
 			res = voter.HandleProofs(ctx, 1, 0, voteMap)
 			require.Equal(t, tmconsensus.HandleVoteProofsAccepted, res)
 
-			req := gtest.ReceiveSoon(t, pbf.ReqCh)
+			req := gtest.ReceiveSoon(t, phf.ReqCh)
 			require.Equal(t, uint64(1), req.Height)
-			require.Equal(t, string(pb1.Block.Hash), req.BlockHash)
+			require.Equal(t, string(ph1.Header.Hash), req.BlockHash)
 			require.NoError(t, req.Ctx.Err()) // Context is non-nil and has not been canceled.
 
 			// And with a third vote, there is no new request.
-			voteMap[string(pb1.Block.Hash)] = []int{2}
+			voteMap[string(ph1.Header.Hash)] = []int{2}
 			res = voter.HandleProofs(ctx, 1, 0, voteMap)
 			require.Equal(t, tmconsensus.HandleVoteProofsAccepted, res)
 
-			gtest.NotSending(t, pbf.ReqCh)
+			gtest.NotSending(t, phf.ReqCh)
 
-			// Drain the voting view before we send the proposed block via the fetch channel.
+			// Drain the voting view before we send the proposed header via the fetch channel.
 			vrv := gtest.ReceiveSoon(t, mfx.GossipStrategyOut).Voting
-			require.Empty(t, vrv.ProposedBlocks) // Sanity check.
+			require.Empty(t, vrv.ProposedHeaders) // Sanity check.
 
-			gtest.SendSoon(t, pbf.FetchedCh, pb1)
+			gtest.SendSoon(t, phf.FetchedCh, ph1)
 
 			if vt.Name == "prevote" {
-				// The arrival of the fetched block should be reflected in the voting view.
+				// The arrival of the fetched header should be reflected in the voting view.
 				vrv = gtest.ReceiveSoon(t, mfx.GossipStrategyOut).Voting
-				require.Equal(t, []tmconsensus.ProposedBlock{pb1}, vrv.ProposedBlocks)
+				require.Equal(t, []tmconsensus.ProposedHeader{ph1}, vrv.ProposedHeaders)
 
 				// And its arrival should have canceled the context, as a matter of cleanup.
 				require.Error(t, req.Ctx.Err())
 			} else if vt.Name == "precommit" {
-				// The arrival of the fetched block should advance the voting view to the next height.
+				// The arrival of the fetched header should advance the voting view to the next height.
 				vrv = gtest.ReceiveSoon(t, mfx.GossipStrategyOut).Voting
 				require.Equal(t, uint64(2), vrv.Height)
 				require.Zero(t, vrv.Round)
-				require.Empty(t, vrv.ProposedBlocks)
+				require.Empty(t, vrv.ProposedHeaders)
 
 				// And its arrival should have canceled the context, as a matter of cleanup.
 				require.Error(t, req.Ctx.Err())
@@ -1628,7 +1628,7 @@ func TestMirror_fetchProposedBlock(t *testing.T) {
 		})
 	}
 
-	t.Run("initiated fetch cancelled when proposed block arrives from network", func(t *testing.T) {
+	t.Run("initiated fetch cancelled when proposed header arrives from network", func(t *testing.T) {
 		t.Parallel()
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -1636,20 +1636,20 @@ func TestMirror_fetchProposedBlock(t *testing.T) {
 
 		mfx := tmmirrortest.NewFixture(ctx, t, 4)
 
-		pbf := tmelinktest.NewPBFetcher(1, 1)
-		mfx.Cfg.ProposedBlockFetcher = pbf.ProposedBlockFetcher()
+		phf := tmelinktest.NewPHFetcher(1, 1)
+		mfx.Cfg.ProposedHeaderFetcher = phf.ProposedHeaderFetcher()
 
 		m := mfx.NewMirror()
 		defer m.Wait()
 		defer cancel()
 
-		// Make the proposed block but don't give it to the mirror.
-		pb1 := mfx.Fx.NextProposedBlock([]byte("app_data_1"), 0)
-		mfx.Fx.SignProposal(ctx, &pb1, 0)
+		// Make the proposed header but don't give it to the mirror.
+		ph1 := mfx.Fx.NextProposedHeader([]byte("app_data_1"), 0)
+		mfx.Fx.SignProposal(ctx, &ph1, 0)
 
 		// With two prevotes, there is a fetch request.
 		voteMap := map[string][]int{
-			string(pb1.Block.Hash): {0, 1},
+			string(ph1.Header.Hash): {0, 1},
 		}
 
 		keyHash, _ := mfx.Fx.ValidatorHashes()
@@ -1663,17 +1663,17 @@ func TestMirror_fetchProposedBlock(t *testing.T) {
 		})
 		require.Equal(t, tmconsensus.HandleVoteProofsAccepted, res)
 
-		req := gtest.ReceiveSoon(t, pbf.ReqCh)
+		req := gtest.ReceiveSoon(t, phf.ReqCh)
 		require.Equal(t, uint64(1), req.Height)
-		require.Equal(t, string(pb1.Block.Hash), req.BlockHash)
+		require.Equal(t, string(ph1.Header.Hash), req.BlockHash)
 		require.NoError(t, req.Ctx.Err()) // Context is non-nil and has not been canceled.
 
-		// Sending the proposed block through the normal channel, is accepted as usual.
-		require.Equal(t, tmconsensus.HandleProposedBlockAccepted, m.HandleProposedBlock(ctx, pb1))
+		// Sending the proposed header through the normal channel, is accepted as usual.
+		require.Equal(t, tmconsensus.HandleProposedHeaderAccepted, m.HandleProposedHeader(ctx, ph1))
 
-		// The proposed block is reflected in the voting view.
+		// The proposed header is reflected in the voting view.
 		vrv := gtest.ReceiveSoon(t, mfx.GossipStrategyOut).Voting
-		require.Equal(t, []tmconsensus.ProposedBlock{pb1}, vrv.ProposedBlocks)
+		require.Equal(t, []tmconsensus.ProposedHeader{ph1}, vrv.ProposedHeaders)
 
 		// And its arrival should have canceled the context, as a matter of cleanup.
 		require.Error(t, req.Ctx.Err())
@@ -1681,7 +1681,7 @@ func TestMirror_fetchProposedBlock(t *testing.T) {
 }
 
 func TestMirror_nextRound(t *testing.T) {
-	t.Run("proposed block", func(t *testing.T) {
+	t.Run("proposed header", func(t *testing.T) {
 		t.Parallel()
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -1689,11 +1689,11 @@ func TestMirror_nextRound(t *testing.T) {
 
 		mfx := tmmirrortest.NewFixture(ctx, t, 4)
 
-		// We are at 1/0, so a received proposed block at 1/1 must be saved to the NextRound view.
-		pb11 := mfx.Fx.NextProposedBlock([]byte("app_data_1"), 0)
-		pb11.Round = 1
-		mfx.Fx.RecalculateHash(&pb11.Block)
-		mfx.Fx.SignProposal(ctx, &pb11, 0)
+		// We are at 1/0, so a received proposed header at 1/1 must be saved to the NextRound view.
+		ph11 := mfx.Fx.NextProposedHeader([]byte("app_data_1"), 0)
+		ph11.Round = 1
+		mfx.Fx.RecalculateHash(&ph11.Header)
+		mfx.Fx.SignProposal(ctx, &ph11, 0)
 
 		m := mfx.NewMirror()
 		defer m.Wait()
@@ -1702,19 +1702,19 @@ func TestMirror_nextRound(t *testing.T) {
 		// Drain the voting view and next round outputs first.
 		_ = gtest.ReceiveSoon(t, mfx.GossipStrategyOut)
 
-		// Proposed block for 1/1 is accepted.
-		require.Equal(t, tmconsensus.HandleProposedBlockAccepted, m.HandleProposedBlock(ctx, pb11))
+		// Proposed header for 1/1 is accepted.
+		require.Equal(t, tmconsensus.HandleProposedHeaderAccepted, m.HandleProposedHeader(ctx, ph11))
 
-		// Just a proposed block is not sufficient to advance the round.
+		// Just a proposed header is not sufficient to advance the round.
 		// The voting view hasn't changed.
 		gso := gtest.ReceiveSoon(t, mfx.GossipStrategyOut)
 		require.Nil(t, gso.Voting)
 
-		// But the next round view has the proposed block.
+		// But the next round view has the proposed header.
 		nrrv := gso.NextRound
 		require.Equal(t, uint64(1), nrrv.Height)
 		require.Equal(t, uint32(1), nrrv.Round)
-		require.Equal(t, []tmconsensus.ProposedBlock{pb11}, nrrv.ProposedBlocks)
+		require.Equal(t, []tmconsensus.ProposedHeader{ph11}, nrrv.ProposedHeaders)
 
 		// Then if we get a full set of nil precommits to advance the round from 0 to 1...
 		voteMapNil := map[string][]int{
@@ -1730,19 +1730,19 @@ func TestMirror_nextRound(t *testing.T) {
 			Proofs: mfx.Fx.SparsePrecommitProofMap(ctx, 1, 0, voteMapNil),
 		}))
 
-		// The voting view shows the proposed block, and the next round doesn't.
+		// The voting view shows the proposed header, and the next round doesn't.
 		gso = gtest.ReceiveSoon(t, mfx.GossipStrategyOut)
 		vrv := gso.Voting
 		require.Equal(t, uint64(1), vrv.Height)
 		require.Equal(t, uint32(1), vrv.Round)
-		require.Equal(t, []tmconsensus.ProposedBlock{pb11}, vrv.ProposedBlocks)
+		require.Equal(t, []tmconsensus.ProposedHeader{ph11}, vrv.ProposedHeaders)
 		require.Equal(t, keyHash, string(vrv.ValidatorSet.PubKeyHash))
 		require.Equal(t, powHash, string(vrv.ValidatorSet.VotePowerHash))
 
 		nrrv = gso.NextRound
 		require.Equal(t, uint64(1), nrrv.Height)
 		require.Equal(t, uint32(2), nrrv.Round)
-		require.Empty(t, nrrv.ProposedBlocks)
+		require.Empty(t, nrrv.ProposedHeaders)
 	})
 
 	for _, vt := range voteTypes {
@@ -1755,15 +1755,15 @@ func TestMirror_nextRound(t *testing.T) {
 
 			mfx := tmmirrortest.NewFixture(ctx, t, 4)
 
-			// We will be fetching a missed PB later in the test.
-			pbf := tmelinktest.NewPBFetcher(1, 1)
-			mfx.Cfg.ProposedBlockFetcher = pbf.ProposedBlockFetcher()
+			// We will be fetching a missed PH later in the test.
+			phf := tmelinktest.NewPHFetcher(1, 1)
+			mfx.Cfg.ProposedHeaderFetcher = phf.ProposedHeaderFetcher()
 
-			// We are at 1/0, and we are going to vote on a proposed block for 1/1.
-			pb11 := mfx.Fx.NextProposedBlock([]byte("app_data_1"), 0)
-			pb11.Round = 1
-			mfx.Fx.RecalculateHash(&pb11.Block)
-			mfx.Fx.SignProposal(ctx, &pb11, 0)
+			// We are at 1/0, and we are going to vote on a proposed header for 1/1.
+			ph11 := mfx.Fx.NextProposedHeader([]byte("app_data_1"), 0)
+			ph11.Round = 1
+			mfx.Fx.RecalculateHash(&ph11.Header)
+			mfx.Fx.SignProposal(ctx, &ph11, 0)
 
 			m := mfx.NewMirror()
 			defer m.Wait()
@@ -1774,7 +1774,7 @@ func TestMirror_nextRound(t *testing.T) {
 
 			// Vote for 1/1 is accepted.
 			voter := vt.VoterFunc(mfx, m)
-			res := voter.HandleProofs(ctx, 1, 1, map[string][]int{string(pb11.Block.Hash): {0}})
+			res := voter.HandleProofs(ctx, 1, 1, map[string][]int{string(ph11.Header.Hash): {0}})
 			require.Equal(t, tmconsensus.HandleVoteProofsAccepted, res)
 
 			// The Next Round View has the votes.
@@ -1782,29 +1782,29 @@ func TestMirror_nextRound(t *testing.T) {
 			require.Equal(t, uint64(1), nrrv.Height)
 			require.Equal(t, uint32(1), nrrv.Round)
 			proofs := voter.ProofsFromView(nrrv.RoundView)
-			require.Equal(t, uint(1), proofs[string(pb11.Block.Hash)].SignatureBitSet().Count())
+			require.Equal(t, uint(1), proofs[string(ph11.Header.Hash)].SignatureBitSet().Count())
 
 			// And so does the round store.
 			_, prevotes, precommits, err := mfx.Cfg.RoundStore.LoadRoundState(ctx, 1, 1)
 			require.NoError(t, err)
 			votes := voter.ProofsFromRoundStateMaps(prevotes, precommits)
-			require.Equal(t, uint(1), votes[string(pb11.Block.Hash)].SignatureBitSet().Count())
+			require.Equal(t, uint(1), votes[string(ph11.Header.Hash)].SignatureBitSet().Count())
 
-			// Now if we exceed the minority vote for that block on 1/1...
-			res = voter.HandleProofs(ctx, 1, 1, map[string][]int{string(pb11.Block.Hash): {0, 1}}) // 2/4 validators.
+			// Now if we exceed the minority vote for that header on 1/1...
+			res = voter.HandleProofs(ctx, 1, 1, map[string][]int{string(ph11.Header.Hash): {0, 1}}) // 2/4 validators.
 			require.Equal(t, tmconsensus.HandleVoteProofsAccepted, res)
 
 			// The voting round is now 1/1,
-			// even if the vote was precommit, because we didn't get the proposed block yet.
+			// even if the vote was precommit, because we didn't get the proposed header yet.
 			vrv := gtest.ReceiveSoon(t, mfx.GossipStrategyOut).Voting
 			require.Equal(t, uint64(1), vrv.Height)
 			require.Equal(t, uint32(1), vrv.Round)
 
 			// And because we crossed the minority threshold,
-			// there was a request for the block we missed.
-			req := gtest.ReceiveSoon(t, pbf.ReqCh)
+			// there was a request for the header we missed.
+			req := gtest.ReceiveSoon(t, phf.ReqCh)
 			require.Equal(t, uint64(1), req.Height)
-			require.Equal(t, string(pb11.Block.Hash), req.BlockHash)
+			require.Equal(t, string(ph11.Header.Hash), req.BlockHash)
 			require.NoError(t, req.Ctx.Err()) // Context is non-nil and has not been canceled.
 		})
 	}
@@ -1826,9 +1826,9 @@ func TestMirror_stateMachineActions(t *testing.T) {
 		// Drain the voting view.
 		_ = gtest.ReceiveSoon(t, mfx.GossipStrategyOut)
 
-		// Proposed block from state machine accepted.
-		pb := mfx.Fx.NextProposedBlock([]byte("app_data_1"), 0)
-		mfx.Fx.SignProposal(ctx, &pb, 0)
+		// Proposed header from state machine accepted.
+		ph := mfx.Fx.NextProposedHeader([]byte("app_data_1"), 0)
+		mfx.Fx.SignProposal(ctx, &ph, 0)
 
 		actionCh := make(chan tmeil.StateMachineRoundAction, 3)
 		re := tmeil.StateMachineRoundEntrance{
@@ -1842,35 +1842,35 @@ func TestMirror_stateMachineActions(t *testing.T) {
 
 		// This is the initial height so the mirror only populates the round view.
 		rer := gtest.ReceiveSoon(t, re.Response)
-		require.Empty(t, rer.CB.Block.Hash)
-		require.Empty(t, rer.CB.Proof.Proofs)
+		require.Empty(t, rer.CH.Header.Hash)
+		require.Empty(t, rer.CH.Proof.Proofs)
 
 		require.Equal(t, uint64(1), rer.VRV.Height)
-		require.Empty(t, rer.VRV.ProposedBlocks)
+		require.Empty(t, rer.VRV.ProposedHeaders)
 		require.Len(t, rer.VRV.PrevoteProofs, 1)   // Empty nil proof.
 		require.Len(t, rer.VRV.PrecommitProofs, 1) // Empty nil proof.
 
-		t.Run("proposed block", func(t *testing.T) {
+		t.Run("proposed header", func(t *testing.T) {
 			// Buffered channel so we can just send without select.
-			actionCh <- tmeil.StateMachineRoundAction{PB: pb}
+			actionCh <- tmeil.StateMachineRoundAction{PH: ph}
 
 			vrv := gtest.ReceiveSoon(t, mfx.GossipStrategyOut).Voting
-			require.Equal(t, []tmconsensus.ProposedBlock{pb}, vrv.ProposedBlocks)
+			require.Equal(t, []tmconsensus.ProposedHeader{ph}, vrv.ProposedHeaders)
 		})
 
-		pbHash := string(pb.Block.Hash)
+		phHash := string(ph.Header.Hash)
 
 		t.Run("prevote", func(t *testing.T) {
 			vt := tmconsensus.VoteTarget{
 				Height: 1, Round: 0,
-				BlockHash: pbHash,
+				BlockHash: phHash,
 			}
 			signContent, err := tmconsensus.PrevoteSignBytes(vt, mfx.Fx.SignatureScheme)
 			require.NoError(t, err)
 			// Buffered channel so we can just send without select.
 			actionCh <- tmeil.StateMachineRoundAction{
 				Prevote: tmeil.ScopedSignature{
-					TargetHash:  pbHash,
+					TargetHash:  phHash,
 					SignContent: signContent,
 					Sig:         mfx.Fx.PrevoteSignature(ctx, vt, 0),
 				},
@@ -1880,21 +1880,21 @@ func TestMirror_stateMachineActions(t *testing.T) {
 			// Nil block is always populated, just clear it for a simpler assertion here.
 			delete(vrv.PrevoteProofs, "")
 			require.Equal(t, map[string]gcrypto.CommonMessageSignatureProof{
-				pbHash: mfx.Fx.PrevoteSignatureProof(ctx, vt, nil, []int{0}),
+				phHash: mfx.Fx.PrevoteSignatureProof(ctx, vt, nil, []int{0}),
 			}, vrv.PrevoteProofs)
 		})
 
 		t.Run("precommit", func(t *testing.T) {
 			vt := tmconsensus.VoteTarget{
 				Height: 1, Round: 0,
-				BlockHash: pbHash,
+				BlockHash: phHash,
 			}
 			signContent, err := tmconsensus.PrecommitSignBytes(vt, mfx.Fx.SignatureScheme)
 			require.NoError(t, err)
 			// Buffered channel so we can just send without select.
 			actionCh <- tmeil.StateMachineRoundAction{
 				Precommit: tmeil.ScopedSignature{
-					TargetHash:  pbHash,
+					TargetHash:  phHash,
 					SignContent: signContent,
 					Sig:         mfx.Fx.PrecommitSignature(ctx, vt, 0),
 				},
@@ -1904,7 +1904,7 @@ func TestMirror_stateMachineActions(t *testing.T) {
 			// Nil block is always populated, just clear it for a simpler assertion here.
 			delete(vrv.PrecommitProofs, "")
 			require.Equal(t, map[string]gcrypto.CommonMessageSignatureProof{
-				pbHash: mfx.Fx.PrecommitSignatureProof(ctx, vt, nil, []int{0}),
+				phHash: mfx.Fx.PrecommitSignatureProof(ctx, vt, nil, []int{0}),
 			}, vrv.PrecommitProofs)
 		})
 	})
@@ -1936,24 +1936,24 @@ func TestMirror_stateMachineActions(t *testing.T) {
 		gtest.SendSoon(t, mfx.StateMachineRoundEntranceIn, re)
 
 		rer := gtest.ReceiveSoon(t, re.Response)
-		// A committing block is not the same as a committed block.
+		// A committing header is not the same as a committed header.
 		// We have sufficient info to commit,
 		// but we don't know the canonical commits that will be persisted to chain.
-		require.Empty(t, rer.CB.Block.Hash)
-		require.Empty(t, rer.CB.Proof.Proofs)
+		require.Empty(t, rer.CH.Header.Hash)
+		require.Empty(t, rer.CH.Proof.Proofs)
 
-		pbs, _, _, err := mfx.Cfg.RoundStore.LoadRoundState(ctx, 1, 0)
+		phs, _, _, err := mfx.Cfg.RoundStore.LoadRoundState(ctx, 1, 0)
 		require.NoError(t, err)
-		require.Len(t, pbs, 1)
+		require.Len(t, phs, 1)
 
 		require.Equal(t, uint64(1), rer.VRV.Height)
 		require.Zero(t, rer.VRV.Round)
-		require.Equal(t, pbs, rer.VRV.ProposedBlocks)
+		require.Equal(t, phs, rer.VRV.ProposedHeaders)
 		require.Len(t, rer.VRV.PrevoteProofs, 1)   // No prevotes were stored, that's fine.
 		require.Len(t, rer.VRV.PrecommitProofs, 2) // Empty nil proof and proof for the block.
 	})
 
-	t.Run("historic block sent as CommittedBlock", func(t *testing.T) {
+	t.Run("historic header sent as CommittedHeader", func(t *testing.T) {
 		t.Parallel()
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -1970,15 +1970,15 @@ func TestMirror_stateMachineActions(t *testing.T) {
 
 		// Move through height 2 before state machine does anything.
 
-		// Propose block at height 2.
-		pb2 := mfx.Fx.NextProposedBlock([]byte("app_data_2"), 0)
-		mfx.Fx.SignProposal(ctx, &pb2, 0)
+		// Propose header at height 2.
+		ph2 := mfx.Fx.NextProposedHeader([]byte("app_data_2"), 0)
+		mfx.Fx.SignProposal(ctx, &ph2, 0)
 
-		require.Equal(t, tmconsensus.HandleProposedBlockAccepted, m.HandleProposedBlock(ctx, pb2))
+		require.Equal(t, tmconsensus.HandleProposedHeaderAccepted, m.HandleProposedHeader(ctx, ph2))
 
-		// Full precommit for pb2.
+		// Full precommit for ph2.
 		voteMap2 := map[string][]int{
-			string(pb2.Block.Hash): {0, 1, 2, 3},
+			string(ph2.Header.Hash): {0, 1, 2, 3},
 		}
 		keyHash, _ := mfx.Fx.ValidatorHashes()
 		require.Equal(t, tmconsensus.HandleVoteProofsAccepted, m.HandlePrecommitProofs(ctx, tmconsensus.PrecommitSparseProof{
@@ -1999,7 +1999,7 @@ func TestMirror_stateMachineActions(t *testing.T) {
 		require.Equal(t, uint64(2), cv.Height)
 
 		// Now height 1 is fully committed.
-		cb, err := mfx.Cfg.BlockStore.LoadBlock(ctx, 1)
+		cb, err := mfx.Cfg.HeaderStore.LoadHeader(ctx, 1)
 		require.NoError(t, err)
 
 		// So, if the state machine starts up now at height 1, by first sending its round entrance...
@@ -2018,8 +2018,8 @@ func TestMirror_stateMachineActions(t *testing.T) {
 		// The whole VRV is blank.
 		require.Zero(t, rer.VRV.Height)
 
-		// But the committed block matches what was in the store.
-		require.Equal(t, cb, rer.CB)
+		// But the committed header matches what was in the store.
+		require.Equal(t, cb, rer.CH)
 
 		// Then if the state machine does all its work behind the scenes
 		// and then enters height 2:
@@ -2033,7 +2033,7 @@ func TestMirror_stateMachineActions(t *testing.T) {
 		gtest.SendSoon(t, mfx.StateMachineRoundEntranceIn, re)
 
 		rer = gtest.ReceiveSoon(t, re.Response)
-		require.Empty(t, rer.CB.Block.Hash) // Nothing in the CommittedBlock.
+		require.Empty(t, rer.CH.Header.Hash) // Nothing in the CommittedHeader.
 		require.Equal(t, uint64(2), rer.VRV.Height)
 	})
 
@@ -2061,26 +2061,26 @@ func TestMirror_stateMachineActions(t *testing.T) {
 
 		_ = gtest.ReceiveSoon(t, re.Response)
 
-		// Proposed block from different validator.
-		pb := mfx.Fx.NextProposedBlock([]byte("app_data_1"), 1)
-		mfx.Fx.SignProposal(ctx, &pb, 1)
-		require.Equal(t, tmconsensus.HandleProposedBlockAccepted, m.HandleProposedBlock(ctx, pb))
+		// Proposed header from different validator.
+		ph := mfx.Fx.NextProposedHeader([]byte("app_data_1"), 1)
+		mfx.Fx.SignProposal(ctx, &ph, 1)
+		require.Equal(t, tmconsensus.HandleProposedHeaderAccepted, m.HandleProposedHeader(ctx, ph))
 
 		smv := gtest.ReceiveSoon(t, mfx.StateMachineRoundViewOut).VRV
-		require.Equal(t, []tmconsensus.ProposedBlock{pb}, smv.ProposedBlocks)
+		require.Equal(t, []tmconsensus.ProposedHeader{ph}, smv.ProposedHeaders)
 
 		// Then the state machine submits its valid prevote to the mirror.
-		pbHash := string(pb.Block.Hash)
+		phHash := string(ph.Header.Hash)
 		vt := tmconsensus.VoteTarget{
 			Height: 1, Round: 0,
-			BlockHash: pbHash,
+			BlockHash: phHash,
 		}
 		signContent, err := tmconsensus.PrevoteSignBytes(vt, mfx.Fx.SignatureScheme)
 		require.NoError(t, err)
 		// Buffered channel so we can just send without select.
 		actionCh <- tmeil.StateMachineRoundAction{
 			Prevote: tmeil.ScopedSignature{
-				TargetHash:  pbHash,
+				TargetHash:  phHash,
 				SignContent: signContent,
 				Sig:         mfx.Fx.PrevoteSignature(ctx, vt, 0),
 			},
@@ -2088,11 +2088,11 @@ func TestMirror_stateMachineActions(t *testing.T) {
 
 		// The mirror repeats the vote back to the state machine.
 		smv = gtest.ReceiveSoon(t, mfx.StateMachineRoundViewOut).VRV
-		require.Equal(t, uint(1), smv.PrevoteProofs[pbHash].SignatureBitSet().Count())
+		require.Equal(t, uint(1), smv.PrevoteProofs[phHash].SignatureBitSet().Count())
 
 		// Now the mirror receives the remainder of the prevotes over the network.
 		voteMap := map[string][]int{
-			pbHash: {1, 2, 3},
+			phHash: {1, 2, 3},
 		}
 		sparsePrevoteProofMap := mfx.Fx.SparsePrevoteProofMap(ctx, 1, 0, voteMap)
 		keyHash, _ := mfx.Fx.ValidatorHashes()
@@ -2106,7 +2106,7 @@ func TestMirror_stateMachineActions(t *testing.T) {
 
 		// The state machine sees the 100% prevote update.
 		smv = gtest.ReceiveSoon(t, mfx.StateMachineRoundViewOut).VRV
-		require.Equal(t, uint(4), smv.PrevoteProofs[pbHash].SignatureBitSet().Count())
+		require.Equal(t, uint(4), smv.PrevoteProofs[phHash].SignatureBitSet().Count())
 
 		// Now the mirror receives everyone else's precommit over the network.
 		sparsePrecommitProofMap := mfx.Fx.SparsePrecommitProofMap(ctx, 1, 0, voteMap)
@@ -2120,14 +2120,14 @@ func TestMirror_stateMachineActions(t *testing.T) {
 
 		// The state machine sees the committing update.
 		smv = gtest.ReceiveSoon(t, mfx.StateMachineRoundViewOut).VRV
-		require.Equal(t, uint(3), smv.PrecommitProofs[pbHash].SignatureBitSet().Count())
+		require.Equal(t, uint(3), smv.PrecommitProofs[phHash].SignatureBitSet().Count())
 
 		// And as a sanity check, the gossip strategy output indicates that 1/0 is now in committing.
 		gso := gtest.ReceiveSoon(t, mfx.GossipStrategyOut)
 		require.NotNil(t, gso.Committing)
 		require.Equal(t, uint64(1), gso.Committing.Height)
 		require.Zero(t, gso.Committing.Round)
-		require.Equal(t, uint(3), gso.Committing.PrecommitProofs[pbHash].SignatureBitSet().Count())
+		require.Equal(t, uint(3), gso.Committing.PrecommitProofs[phHash].SignatureBitSet().Count())
 		require.NotNil(t, gso.Voting)
 		require.Equal(t, uint64(2), gso.Voting.Height)
 		require.Zero(t, gso.Voting.Round)
@@ -2138,7 +2138,7 @@ func TestMirror_stateMachineActions(t *testing.T) {
 		// Buffered channel so we can just send without select.
 		actionCh <- tmeil.StateMachineRoundAction{
 			Precommit: tmeil.ScopedSignature{
-				TargetHash:  pbHash,
+				TargetHash:  phHash,
 				SignContent: signContent,
 				Sig:         mfx.Fx.PrecommitSignature(ctx, vt, 0),
 			},
@@ -2149,7 +2149,7 @@ func TestMirror_stateMachineActions(t *testing.T) {
 		require.NotNil(t, gso.Committing)
 		require.Equal(t, uint64(1), gso.Committing.Height)
 		require.Zero(t, gso.Committing.Round)
-		require.Equal(t, uint(4), gso.Committing.PrecommitProofs[pbHash].SignatureBitSet().Count())
+		require.Equal(t, uint(4), gso.Committing.PrecommitProofs[phHash].SignatureBitSet().Count())
 	})
 
 	t.Run("state machine precommit handled when it arrives into orphaned round view", func(t *testing.T) {
@@ -2176,7 +2176,7 @@ func TestMirror_stateMachineActions(t *testing.T) {
 
 		_ = gtest.ReceiveSoon(t, re.Response)
 
-		// No proposed block here.
+		// No proposed header here.
 		// The state machine has a simulated timeout and prevotes nil.
 		vt := tmconsensus.VoteTarget{
 			Height: 1, Round: 0,
@@ -2273,10 +2273,10 @@ func TestMirror_StateMachineRoundViewOut(t *testing.T) {
 	// Before the state machine starts, no value is sending.
 	gtest.NotSending(t, mfx.StateMachineRoundViewOut)
 
-	// Add a proposed block to the mirror before the state machine starts.
-	pb11 := mfx.Fx.NextProposedBlock([]byte("app_data_1_1"), 1)
-	mfx.Fx.SignProposal(ctx, &pb11, 1)
-	require.Equal(t, tmconsensus.HandleProposedBlockAccepted, m.HandleProposedBlock(ctx, pb11))
+	// Add a proposed header to the mirror before the state machine starts.
+	ph11 := mfx.Fx.NextProposedHeader([]byte("app_data_1_1"), 1)
+	mfx.Fx.SignProposal(ctx, &ph11, 1)
+	require.Equal(t, tmconsensus.HandleProposedHeaderAccepted, m.HandleProposedHeader(ctx, ph11))
 
 	// The state machine still hasn't started, so there is still nothing being sent.
 	gtest.NotSending(t, mfx.StateMachineRoundViewOut)
@@ -2293,16 +2293,16 @@ func TestMirror_StateMachineRoundViewOut(t *testing.T) {
 
 	// The mirror responds with the initial state update.
 	rer := gtest.ReceiveSoon(t, re.Response)
-	require.Equal(t, []tmconsensus.ProposedBlock{pb11}, rer.VRV.ProposedBlocks)
+	require.Equal(t, []tmconsensus.ProposedHeader{ph11}, rer.VRV.ProposedHeaders)
 
 	// And because the initial state update consumed the state machine view,
 	// there is still nothing sent on the state machine view out channel.
 	gtest.NotSending(t, mfx.StateMachineRoundViewOut)
 
-	// But now if another proposed block arrives, it will reach the state machine view out.
-	pb12 := mfx.Fx.NextProposedBlock([]byte("app_data_1_2"), 2)
-	mfx.Fx.SignProposal(ctx, &pb12, 2)
-	require.Equal(t, tmconsensus.HandleProposedBlockAccepted, m.HandleProposedBlock(ctx, pb12))
+	// But now if another proposed header arrives, it will reach the state machine view out.
+	ph12 := mfx.Fx.NextProposedHeader([]byte("app_data_1_2"), 2)
+	mfx.Fx.SignProposal(ctx, &ph12, 2)
+	require.Equal(t, tmconsensus.HandleProposedHeaderAccepted, m.HandleProposedHeader(ctx, ph12))
 	vrv := gtest.ReceiveSoon(t, mfx.StateMachineRoundViewOut).VRV
 	_ = vrv
 }
@@ -2329,17 +2329,17 @@ func TestMirror_stateMachineJumpAhead(t *testing.T) {
 		}
 		gtest.SendSoon(t, mfx.StateMachineRoundEntranceIn, re)
 
-		// Enqueue a proposed block for the state machine's round, but don't read it from the state machine yet.
-		pb10 := mfx.Fx.NextProposedBlock([]byte("ignored"), 0)
-		mfx.Fx.SignProposal(ctx, &pb10, 0)
-		require.Equal(t, tmconsensus.HandleProposedBlockAccepted, m.HandleProposedBlock(ctx, pb10))
+		// Enqueue a proposed header for the state machine's round, but don't read it from the state machine yet.
+		ph10 := mfx.Fx.NextProposedHeader([]byte("ignored"), 0)
+		mfx.Fx.SignProposal(ctx, &ph10, 0)
+		require.Equal(t, tmconsensus.HandleProposedHeaderAccepted, m.HandleProposedHeader(ctx, ph10))
 
 		// Now the mirror sees a majority nil prevote at round 1.
 		keyHash, _ := mfx.Fx.ValidatorHashes()
-		pb11VoteMap := map[string][]int{
+		ph11VoteMap := map[string][]int{
 			"": {1, 2, 3},
 		}
-		sparsePrevoteProofMap := mfx.Fx.SparsePrevoteProofMap(ctx, 1, 1, pb11VoteMap)
+		sparsePrevoteProofMap := mfx.Fx.SparsePrevoteProofMap(ctx, 1, 1, ph11VoteMap)
 		prevoteProof := tmconsensus.PrevoteSparseProof{
 			Height:     1,
 			Round:      1,
@@ -2350,10 +2350,10 @@ func TestMirror_stateMachineJumpAhead(t *testing.T) {
 
 		// Now the state machine reads its input from the mirror.
 		smv := gtest.ReceiveSoon(t, mfx.StateMachineRoundViewOut)
-		// It has the proposed block for 1/0 in the main VRV.
+		// It has the proposed header for 1/0 in the main VRV.
 		require.Equal(t, uint64(1), smv.VRV.Height)
 		require.Zero(t, smv.VRV.Round)
-		require.Equal(t, []tmconsensus.ProposedBlock{pb10}, smv.VRV.ProposedBlocks)
+		require.Equal(t, []tmconsensus.ProposedHeader{ph10}, smv.VRV.ProposedHeaders)
 
 		// And it has the jumpahead set.
 		j := smv.JumpAheadRoundView
@@ -2363,10 +2363,10 @@ func TestMirror_stateMachineJumpAhead(t *testing.T) {
 
 		// Now the mirror expects the state machine to enter 1/1.
 		// If we get more information before then, such as a precommit, nothing new is sent to the state machine.
-		pb11VoteMap = map[string][]int{
+		ph11VoteMap = map[string][]int{
 			"": {1},
 		}
-		sparsePrecommitProofMap := mfx.Fx.SparsePrecommitProofMap(ctx, 1, 1, pb11VoteMap)
+		sparsePrecommitProofMap := mfx.Fx.SparsePrecommitProofMap(ctx, 1, 1, ph11VoteMap)
 		precommitProof := tmconsensus.PrecommitSparseProof{
 			Height:     1,
 			Round:      1,
@@ -2414,17 +2414,17 @@ func TestMirror_stateMachineJumpAhead(t *testing.T) {
 		}
 		gtest.SendSoon(t, mfx.StateMachineRoundEntranceIn, re)
 
-		// Enqueue a proposed block for the state machine's round, but don't read it from the state machine yet.
-		pb10 := mfx.Fx.NextProposedBlock([]byte("ignored"), 0)
-		mfx.Fx.SignProposal(ctx, &pb10, 0)
-		require.Equal(t, tmconsensus.HandleProposedBlockAccepted, m.HandleProposedBlock(ctx, pb10))
+		// Enqueue a proposed header for the state machine's round, but don't read it from the state machine yet.
+		ph10 := mfx.Fx.NextProposedHeader([]byte("ignored"), 0)
+		mfx.Fx.SignProposal(ctx, &ph10, 0)
+		require.Equal(t, tmconsensus.HandleProposedHeaderAccepted, m.HandleProposedHeader(ctx, ph10))
 
 		// Now the mirror sees a minority nil precommit at round 1.
 		keyHash, _ := mfx.Fx.ValidatorHashes()
-		pb11VoteMap := map[string][]int{
+		ph11VoteMap := map[string][]int{
 			"": {2, 3},
 		}
-		sparsePrecommitProofMap := mfx.Fx.SparsePrecommitProofMap(ctx, 1, 1, pb11VoteMap)
+		sparsePrecommitProofMap := mfx.Fx.SparsePrecommitProofMap(ctx, 1, 1, ph11VoteMap)
 		precommitProof := tmconsensus.PrecommitSparseProof{
 			Height:     1,
 			Round:      1,
@@ -2435,7 +2435,7 @@ func TestMirror_stateMachineJumpAhead(t *testing.T) {
 
 		// Receiving the 1/0 update includes the jump ahead details.
 		smv := gtest.ReceiveSoon(t, mfx.StateMachineRoundViewOut)
-		require.Equal(t, []tmconsensus.ProposedBlock{pb10}, smv.VRV.ProposedBlocks)
+		require.Equal(t, []tmconsensus.ProposedHeader{ph10}, smv.VRV.ProposedHeaders)
 
 		j := smv.JumpAheadRoundView
 		require.NotNil(t, j)
@@ -2522,20 +2522,20 @@ func TestMirror_VoteSummaryReset(t *testing.T) {
 	defer m.Wait()
 	defer cancel()
 
-	// Proposed block first.
-	pb10 := mfx.Fx.NextProposedBlock([]byte("app_data_1_0"), 0)
-	mfx.Fx.SignProposal(ctx, &pb10, 0)
-	require.Equal(t, tmconsensus.HandleProposedBlockAccepted, m.HandleProposedBlock(ctx, pb10))
+	// Proposed header first.
+	ph10 := mfx.Fx.NextProposedHeader([]byte("app_data_1_0"), 0)
+	mfx.Fx.SignProposal(ctx, &ph10, 0)
+	require.Equal(t, tmconsensus.HandleProposedHeaderAccepted, m.HandleProposedHeader(ctx, ph10))
 
 	keyHash, _ := mfx.Fx.ValidatorHashes()
 
 	// Then 3/4 prevote for the block, 1/4 for nil.
-	pb10Hash := string(pb10.Block.Hash)
-	pb10VoteMap := map[string][]int{
-		pb10Hash: {0, 1, 2},
+	ph10Hash := string(ph10.Header.Hash)
+	ph10VoteMap := map[string][]int{
+		ph10Hash: {0, 1, 2},
 		"":       {3},
 	}
-	sparsePrevoteProofMap := mfx.Fx.SparsePrevoteProofMap(ctx, 1, 0, pb10VoteMap)
+	sparsePrevoteProofMap := mfx.Fx.SparsePrevoteProofMap(ctx, 1, 0, ph10VoteMap)
 	prevoteProof := tmconsensus.PrevoteSparseProof{
 		Height:     1,
 		Round:      0,
@@ -2555,14 +2555,14 @@ func TestMirror_VoteSummaryReset(t *testing.T) {
 	gtest.SendSoon(t, mfx.StateMachineRoundEntranceIn, as10)
 
 	rer := gtest.ReceiveSoon(t, as10.Response)
-	require.Equal(t, []tmconsensus.ProposedBlock{pb10}, rer.VRV.ProposedBlocks)
+	require.Equal(t, []tmconsensus.ProposedHeader{ph10}, rer.VRV.ProposedHeaders)
 
 	// Next, the precommit is split 50-50.
-	pb10VoteMap = map[string][]int{
-		pb10Hash: {0, 1},
+	ph10VoteMap = map[string][]int{
+		ph10Hash: {0, 1},
 		"":       {2, 3},
 	}
-	sparsePrecommitProofMap := mfx.Fx.SparsePrecommitProofMap(ctx, 1, 0, pb10VoteMap)
+	sparsePrecommitProofMap := mfx.Fx.SparsePrecommitProofMap(ctx, 1, 0, ph10VoteMap)
 	precommitProof := tmconsensus.PrecommitSparseProof{
 		Height:     1,
 		Round:      0,
@@ -2593,19 +2593,19 @@ func TestMirror_VoteSummaryReset(t *testing.T) {
 	require.Zero(t, gsVRV.VoteSummary.TotalPrevotePower)
 	require.Zero(t, gsVRV.VoteSummary.TotalPrecommitPower)
 
-	// Now there is a new proposed block at 1/1.
-	pb11 := mfx.Fx.NextProposedBlock([]byte("app_data_1_1"), 0)
-	pb11.Round = 1
-	pb11Hash := string(pb11.Block.Hash)
-	mfx.Fx.SignProposal(ctx, &pb11, 0)
-	require.Equal(t, tmconsensus.HandleProposedBlockAccepted, m.HandleProposedBlock(ctx, pb11))
+	// Now there is a new proposed header at 1/1.
+	ph11 := mfx.Fx.NextProposedHeader([]byte("app_data_1_1"), 0)
+	ph11.Round = 1
+	ph11Hash := string(ph11.Header.Hash)
+	mfx.Fx.SignProposal(ctx, &ph11, 0)
+	require.Equal(t, tmconsensus.HandleProposedHeaderAccepted, m.HandleProposedHeader(ctx, ph11))
 
 	// Now the mirror just receives another split precommit.
-	pb11VoteMap := map[string][]int{
-		pb11Hash: {0, 1},
+	ph11VoteMap := map[string][]int{
+		ph11Hash: {0, 1},
 		"":       {2, 3},
 	}
-	sparsePrecommitProofMap = mfx.Fx.SparsePrecommitProofMap(ctx, 1, 1, pb11VoteMap)
+	sparsePrecommitProofMap = mfx.Fx.SparsePrecommitProofMap(ctx, 1, 1, ph11VoteMap)
 	precommitProof = tmconsensus.PrecommitSparseProof{
 		Height:     1,
 		Round:      1,
@@ -2739,16 +2739,16 @@ func TestMirror_nilCommitSentToGossipStrategy(t *testing.T) {
 
 	// Finally, new information leading to another GossipStrategyOut update
 	// will cause the NilVotedRound field to not be set.
-	pb11 := mfx.Fx.NextProposedBlock([]byte("app_data_1"), 1)
-	pb11.Round = 1
-	mfx.Fx.SignProposal(ctx, &pb11, 1)
-	require.Equal(t, tmconsensus.HandleProposedBlockAccepted, m.HandleProposedBlock(ctx, pb11))
+	ph11 := mfx.Fx.NextProposedHeader([]byte("app_data_1"), 1)
+	ph11.Round = 1
+	mfx.Fx.SignProposal(ctx, &ph11, 1)
+	require.Equal(t, tmconsensus.HandleProposedHeaderAccepted, m.HandleProposedHeader(ctx, ph11))
 
 	gso = gtest.ReceiveSoon(t, mfx.GossipStrategyOut)
 	require.NotNil(t, gso.Voting)
 	require.Equal(t, uint64(1), gso.Voting.Height)
 	require.Equal(t, uint32(1), gso.Voting.Round)
-	require.Equal(t, []tmconsensus.ProposedBlock{pb11}, gso.Voting.ProposedBlocks)
+	require.Equal(t, []tmconsensus.ProposedHeader{ph11}, gso.Voting.ProposedHeaders)
 
 	require.Nil(t, gso.NilVotedRound)
 }
@@ -2775,20 +2775,20 @@ func TestMirror_gossipStrategyOutStripsEmptyNilVotes(t *testing.T) {
 
 	prevVotingVersion := gso.Voting.Version
 
-	// Proposed block first.
-	pb1 := mfx.Fx.NextProposedBlock([]byte("app_data_1_0"), 0)
-	mfx.Fx.SignProposal(ctx, &pb1, 0)
-	require.Equal(t, tmconsensus.HandleProposedBlockAccepted, m.HandleProposedBlock(ctx, pb1))
+	// Proposed header first.
+	ph1 := mfx.Fx.NextProposedHeader([]byte("app_data_1_0"), 0)
+	mfx.Fx.SignProposal(ctx, &ph1, 0)
+	require.Equal(t, tmconsensus.HandleProposedHeaderAccepted, m.HandleProposedHeader(ctx, ph1))
 
 	gso = gtest.ReceiveSoon(t, mfx.GossipStrategyOut)
 	require.Greater(t, gso.Voting.Version, prevVotingVersion)
-	require.NotEmpty(t, gso.Voting.ProposedBlocks)
+	require.NotEmpty(t, gso.Voting.ProposedHeaders)
 	require.Nil(t, gso.Voting.PrevoteProofs[""])
 	require.Nil(t, gso.Voting.PrecommitProofs[""])
 
 	// Prevotes arrive from the network.
 	voteMap := map[string][]int{
-		string(pb1.Block.Hash): {0, 1, 2, 3},
+		string(ph1.Header.Hash): {0, 1, 2, 3},
 	}
 	keyHash, _ := mfx.Fx.ValidatorHashes()
 	prevoteProof := tmconsensus.PrevoteSparseProof{
@@ -2803,12 +2803,12 @@ func TestMirror_gossipStrategyOutStripsEmptyNilVotes(t *testing.T) {
 	prevVotingVersion = gso.Voting.Version
 	gso = gtest.ReceiveSoon(t, mfx.GossipStrategyOut)
 	require.Greater(t, gso.Voting.Version, prevVotingVersion)
-	require.NotEmpty(t, gso.Voting.ProposedBlocks)
+	require.NotEmpty(t, gso.Voting.ProposedHeaders)
 	require.Nil(t, gso.Voting.PrevoteProofs[""])
 	require.Nil(t, gso.Voting.PrecommitProofs[""])
 
 	// 3/4 precommits arrive, and the voting view still doesn't have nil votes present.
-	voteMap[string(pb1.Block.Hash)] = []int{0, 1, 2}
+	voteMap[string(ph1.Header.Hash)] = []int{0, 1, 2}
 	precommitProof := tmconsensus.PrecommitSparseProof{
 		Height:     1,
 		Round:      0,
@@ -2819,7 +2819,7 @@ func TestMirror_gossipStrategyOutStripsEmptyNilVotes(t *testing.T) {
 
 	prevVotingVersion = gso.Voting.Version
 	gso = gtest.ReceiveSoon(t, mfx.GossipStrategyOut)
-	require.Empty(t, gso.Voting.ProposedBlocks)
+	require.Empty(t, gso.Voting.ProposedHeaders)
 	require.Nil(t, gso.Voting.PrevoteProofs[""])
 	require.Nil(t, gso.Voting.PrecommitProofs[""])
 
@@ -2827,10 +2827,10 @@ func TestMirror_gossipStrategyOutStripsEmptyNilVotes(t *testing.T) {
 	require.Greater(t, gso.Committing.Version, prevVotingVersion)
 	require.Nil(t, gso.Committing.PrevoteProofs[""])
 	require.Nil(t, gso.Committing.PrecommitProofs[""])
-	require.Equal(t, uint(3), gso.Committing.PrecommitProofs[string(pb1.Block.Hash)].SignatureBitSet().Count())
+	require.Equal(t, uint(3), gso.Committing.PrecommitProofs[string(ph1.Header.Hash)].SignatureBitSet().Count())
 
 	// And if the last precommit arrives, we still don't have any nil proofs on the committing view.
-	voteMap[string(pb1.Block.Hash)] = []int{3}
+	voteMap[string(ph1.Header.Hash)] = []int{3}
 	precommitProof = tmconsensus.PrecommitSparseProof{
 		Height:     1,
 		Round:      0,
@@ -2844,7 +2844,7 @@ func TestMirror_gossipStrategyOutStripsEmptyNilVotes(t *testing.T) {
 	require.Greater(t, gso.Committing.Version, prevCommittingVersion)
 	require.Nil(t, gso.Committing.PrevoteProofs[""])
 	require.Nil(t, gso.Committing.PrecommitProofs[""])
-	require.Equal(t, uint(4), gso.Committing.PrecommitProofs[string(pb1.Block.Hash)].SignatureBitSet().Count())
+	require.Equal(t, uint(4), gso.Committing.PrecommitProofs[string(ph1.Header.Hash)].SignatureBitSet().Count())
 }
 
 func TestMirror_metrics(t *testing.T) {
@@ -2871,24 +2871,24 @@ func TestMirror_metrics(t *testing.T) {
 	defer m.Wait()
 	defer cancel()
 
-	// Proposed block first.
-	pb10 := mfx.Fx.NextProposedBlock([]byte("app_data_1_0"), 0)
-	mfx.Fx.SignProposal(ctx, &pb10, 0)
-	require.Equal(t, tmconsensus.HandleProposedBlockAccepted, m.HandleProposedBlock(ctx, pb10))
+	// Proposed header first.
+	ph10 := mfx.Fx.NextProposedHeader([]byte("app_data_1_0"), 0)
+	mfx.Fx.SignProposal(ctx, &ph10, 0)
+	require.Equal(t, tmconsensus.HandleProposedHeaderAccepted, m.HandleProposedHeader(ctx, ph10))
 
 	keyHash, _ := mfx.Fx.ValidatorHashes()
 
 	// Then 3/4 prevote for the block, 1/4 for nil.
-	pb10Hash := string(pb10.Block.Hash)
-	pb10VoteMap := map[string][]int{
-		pb10Hash: {0, 1, 2},
+	ph10Hash := string(ph10.Header.Hash)
+	ph10VoteMap := map[string][]int{
+		ph10Hash: {0, 1, 2},
 		"":       {3},
 	}
 	prevoteProof := tmconsensus.PrevoteSparseProof{
 		Height:     1,
 		Round:      0,
 		PubKeyHash: keyHash,
-		Proofs:     mfx.Fx.SparsePrevoteProofMap(ctx, 1, 0, pb10VoteMap),
+		Proofs:     mfx.Fx.SparsePrevoteProofMap(ctx, 1, 0, ph10VoteMap),
 	}
 	require.Equal(t, tmconsensus.HandleVoteProofsAccepted, m.HandlePrevoteProofs(ctx, prevoteProof))
 
@@ -2904,7 +2904,7 @@ func TestMirror_metrics(t *testing.T) {
 		Height:     1,
 		Round:      0,
 		PubKeyHash: keyHash,
-		Proofs:     mfx.Fx.SparsePrecommitProofMap(ctx, 1, 0, pb10VoteMap),
+		Proofs:     mfx.Fx.SparsePrecommitProofMap(ctx, 1, 0, ph10VoteMap),
 	}
 	require.Equal(t, tmconsensus.HandleVoteProofsAccepted, m.HandlePrecommitProofs(ctx, precommitProof))
 
@@ -2916,14 +2916,14 @@ func TestMirror_metrics(t *testing.T) {
 	require.Zero(t, ms.MirrorCommittingRound)
 
 	// Now if we get a nil precommit at 2/0, metrics show 2/1.
-	pb20VoteMap := map[string][]int{
+	ph20VoteMap := map[string][]int{
 		"": {0, 1, 2, 3},
 	}
 	precommitProof = tmconsensus.PrecommitSparseProof{
 		Height:     2,
 		Round:      0,
 		PubKeyHash: keyHash,
-		Proofs:     mfx.Fx.SparsePrecommitProofMap(ctx, 2, 0, pb20VoteMap),
+		Proofs:     mfx.Fx.SparsePrecommitProofMap(ctx, 2, 0, ph20VoteMap),
 	}
 	require.Equal(t, tmconsensus.HandleVoteProofsAccepted, m.HandlePrecommitProofs(ctx, precommitProof))
 
@@ -2943,7 +2943,7 @@ func TestMirror_stateMachineCatchup_lateInitialization(t *testing.T) {
 	// We are validator 0 in this set of 4.
 	// So, if our state machine takes a long time to initialize,
 	// and the rest of the network moves ahead a few blocks,
-	// then the first messages we send to the state machine should be replayed blocks.
+	// then the first messages we send to the state machine should be replayed headers.
 	mfx := tmmirrortest.NewFixture(ctx, t, 4)
 
 	m := mfx.NewMirror()
@@ -2954,16 +2954,16 @@ func TestMirror_stateMachineCatchup_lateInitialization(t *testing.T) {
 
 	// Have validator 1 propose, and vals 1-3 precommit for, several blocks in a row.
 	const receivedBlocks = 6
-	var pbs []tmconsensus.ProposedBlock
+	var phs []tmconsensus.ProposedHeader
 	for i := uint64(1); i < receivedBlocks; i++ {
-		pb := mfx.Fx.NextProposedBlock([]byte(fmt.Sprintf("app_data_%d", i)), 1)
-		mfx.Fx.SignProposal(ctx, &pb, 1)
-		require.Equal(t, tmconsensus.HandleProposedBlockAccepted, m.HandleProposedBlock(ctx, pb))
+		ph := mfx.Fx.NextProposedHeader([]byte(fmt.Sprintf("app_data_%d", i)), 1)
+		mfx.Fx.SignProposal(ctx, &ph, 1)
+		require.Equal(t, tmconsensus.HandleProposedHeaderAccepted, m.HandleProposedHeader(ctx, ph))
 
 		// Build the precommit proof.
-		pbHash := string(pb.Block.Hash)
+		phHash := string(ph.Header.Hash)
 		voteMap := map[string][]int{
-			pbHash: {1, 2, 3},
+			phHash: {1, 2, 3},
 		}
 		precommitProof := tmconsensus.PrecommitSparseProof{
 			Height:     i,
@@ -2974,12 +2974,12 @@ func TestMirror_stateMachineCatchup_lateInitialization(t *testing.T) {
 		require.Equal(t, tmconsensus.HandleVoteProofsAccepted, m.HandlePrecommitProofs(ctx, precommitProof))
 
 		precommitProofsMap := mfx.Fx.PrecommitProofMap(ctx, i, 0, voteMap)
-		mfx.Fx.CommitBlock(pb.Block, []byte(fmt.Sprintf("app_state_height_%d", i)), 0, precommitProofsMap)
-		pbs = append(pbs, pb)
+		mfx.Fx.CommitBlock(ph.Header, []byte(fmt.Sprintf("app_state_height_%d", i)), 0, precommitProofsMap)
+		phs = append(phs, ph)
 	}
 
 	// Now the state machine finishes initializing.
-	// It gets a sequence of committed blocks first.
+	// It gets a sequence of committed headers first.
 	for i := uint64(1); i <= receivedBlocks-2; i++ {
 		actionCh := make(chan tmeil.StateMachineRoundAction, 3)
 		re := tmeil.StateMachineRoundEntrance{
@@ -2992,7 +2992,7 @@ func TestMirror_stateMachineCatchup_lateInitialization(t *testing.T) {
 		gtest.SendSoon(t, mfx.StateMachineRoundEntranceIn, re)
 
 		rer := gtest.ReceiveSoon(t, re.Response)
-		require.True(t, rer.IsCB()) // It's a committed block, not a round update.
+		require.True(t, rer.IsCH()) // It's a committed header, not a round update.
 	}
 
 	// Now at the committing height, it gets a VRV,
@@ -3008,10 +3008,10 @@ func TestMirror_stateMachineCatchup_lateInitialization(t *testing.T) {
 	gtest.SendSoon(t, mfx.StateMachineRoundEntranceIn, re)
 
 	rer := gtest.ReceiveSoon(t, re.Response)
-	require.False(t, rer.IsCB())
+	require.False(t, rer.IsCH())
 	require.True(t, rer.IsVRV())
 
-	committingHash := string(pbs[receivedBlocks-2].Block.Hash) // -2 due to off by one on indexing.
+	committingHash := string(phs[receivedBlocks-2].Header.Hash) // -2 due to off by one on indexing.
 	require.Equal(t, uint(3), rer.VRV.RoundView.PrecommitProofs[committingHash].SignatureBitSet().Count())
 
 	// The state machine would probably submit its own vote at this point, but let's say it just goes ahead to the next round.
@@ -3025,8 +3025,8 @@ func TestMirror_stateMachineCatchup_lateInitialization(t *testing.T) {
 	}
 	gtest.SendSoon(t, mfx.StateMachineRoundEntranceIn, re)
 
-	// The round entrance is accepted, and the response is still a VRV, not a committed block.
+	// The round entrance is accepted, and the response is still a VRV, not a committed header.
 	rer = gtest.ReceiveSoon(t, re.Response)
-	require.False(t, rer.IsCB())
+	require.False(t, rer.IsCH())
 	require.True(t, rer.IsVRV())
 }

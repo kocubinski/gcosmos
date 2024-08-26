@@ -5,36 +5,36 @@ import (
 	"github.com/rollchains/gordian/tm/tmconsensus/tmconsensustest"
 )
 
-// ProposedBlockMutator is returned by [UnacceptableProposedBlockMutations]
-// to be used in table-driven tests when modifying an otherwise good proposed block
+// ProposedHeaderMutator is returned by [UnacceptableProposedHeaderMutations]
+// to be used in table-driven tests when modifying an otherwise good proposed header
 // to be ignored by the state machine.
-type ProposedBlockMutator struct {
+type ProposedHeaderMutator struct {
 	Name   string
-	Mutate func(*tmconsensus.ProposedBlock)
+	Mutate func(*tmconsensus.ProposedHeader)
 }
 
-// UnacceptableProposedBlockMutations returns a slice of mutators
+// UnacceptableProposedHeaderMutations returns a slice of mutators
 // that can be used in table-driven tests to ensure that the state machine
-// ignores certain invalid proposed blocks.
+// ignores certain invalid proposed headers.
 //
 // The nCurVals and nNextVals arguments are used to determine
-// an incorrect number of validators to set in the proposed block,
+// an incorrect number of validators to set in the proposed header,
 // in order to be ignored.
-func UnacceptableProposedBlockMutations(
+func UnacceptableProposedHeaderMutations(
 	hs tmconsensus.HashScheme, nCurVals, nNextVals int,
-) []ProposedBlockMutator {
-	return []ProposedBlockMutator{
+) []ProposedHeaderMutator {
+	return []ProposedHeaderMutator{
 		{
 			Name: "wrong PrevAppStateHash",
-			Mutate: func(pb *tmconsensus.ProposedBlock) {
-				pb.Block.PrevAppStateHash = []byte("wrong")
+			Mutate: func(ph *tmconsensus.ProposedHeader) {
+				ph.Header.PrevAppStateHash = []byte("wrong")
 			},
 		},
 		{
 			Name: "extra current validator",
-			Mutate: func(pb *tmconsensus.ProposedBlock) {
+			Mutate: func(ph *tmconsensus.ProposedHeader) {
 				var err error
-				pb.Block.ValidatorSet, err = tmconsensus.NewValidatorSet(
+				ph.Header.ValidatorSet, err = tmconsensus.NewValidatorSet(
 					tmconsensustest.DeterministicValidatorsEd25519(nCurVals+1).Vals(),
 					hs,
 				)
@@ -45,9 +45,9 @@ func UnacceptableProposedBlockMutations(
 		},
 		{
 			Name: "extra next validator",
-			Mutate: func(pb *tmconsensus.ProposedBlock) {
+			Mutate: func(ph *tmconsensus.ProposedHeader) {
 				var err error
-				pb.Block.NextValidatorSet, err = tmconsensus.NewValidatorSet(
+				ph.Header.NextValidatorSet, err = tmconsensus.NewValidatorSet(
 					tmconsensustest.DeterministicValidatorsEd25519(nNextVals+1).Vals(),
 					hs,
 				)

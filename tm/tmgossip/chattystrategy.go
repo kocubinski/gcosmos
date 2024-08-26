@@ -162,10 +162,10 @@ func (s *ChattyStrategy) broadcastViewDiff(ctx context.Context, prev, cur tmcons
 }
 
 func (s *ChattyStrategy) broadcastProposedBlocks(ctx context.Context, view tmconsensus.VersionedRoundView) bool {
-	for _, pb := range view.ProposedBlocks {
+	for _, ph := range view.ProposedHeaders {
 		if !gchan.SendC(
 			ctx, s.log,
-			s.cb.OutgoingProposedBlocks(), pb,
+			s.cb.OutgoingProposedHeaders(), ph,
 			"sending proposed blocks",
 		) {
 			return false
@@ -238,7 +238,7 @@ func (s *ChattyStrategy) broadcastAll(ctx context.Context, view tmconsensus.Vers
 }
 
 func (s *ChattyStrategy) broadcastUpdatesOnly(ctx context.Context, prev, cur tmconsensus.VersionedRoundView) bool {
-	if len(cur.ProposedBlocks) != len(prev.ProposedBlocks) {
+	if len(cur.ProposedHeaders) != len(prev.ProposedHeaders) {
 		if !s.broadcastProposedBlocks(ctx, cur) {
 			return false
 		}

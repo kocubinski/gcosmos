@@ -37,31 +37,31 @@ func TestMarshalCodecCompliance(t *testing.T, mcf MarshalCodecFactory) {
 
 					const curVals = 4
 					fx := tmconsensustest.NewStandardFixture(curVals)
-					pb := fx.NextProposedBlock([]byte("app_data"), 0)
+					ph := fx.NextProposedHeader([]byte("app_data"), 0)
 
 					// Add a validator to the next validator set,
 					// to ensure we are correctly serializing and deserializing that set
 					// separately from the current validators.
 					var err error
-					pb.Block.NextValidatorSet, err = tmconsensus.NewValidatorSet(
+					ph.Header.NextValidatorSet, err = tmconsensus.NewValidatorSet(
 						tmconsensustest.DeterministicValidatorsEd25519(curVals+1).Vals(),
 						fx.HashScheme,
 					)
 					require.NoError(t, err)
-					fx.RecalculateHash(&pb.Block)
+					fx.RecalculateHash(&ph.Header)
 
-					fx.SignProposal(ctx, &pb, 0)
+					fx.SignProposal(ctx, &ph, 0)
 
-					prevBlock := pb.Block
+					prevHeader := ph.Header
 
 					if !useInitialHeight {
-						vt := tmconsensus.VoteTarget{Height: 1, Round: 0, BlockHash: string(pb.Block.Hash)}
-						fx.CommitBlock(pb.Block, []byte("app_hash"), 0, map[string]gcrypto.CommonMessageSignatureProof{
-							string(pb.Block.Hash): fx.PrecommitSignatureProof(ctx, vt, nil, []int{0, 1, 2, 3}),
+						vt := tmconsensus.VoteTarget{Height: 1, Round: 0, BlockHash: string(ph.Header.Hash)}
+						fx.CommitBlock(ph.Header, []byte("app_hash"), 0, map[string]gcrypto.CommonMessageSignatureProof{
+							string(ph.Header.Hash): fx.PrecommitSignatureProof(ctx, vt, nil, []int{0, 1, 2, 3}),
 						})
 
-						pb = fx.NextProposedBlock([]byte("app_data_2"), 0)
-						fx.SignProposal(ctx, &pb, 0)
+						ph = fx.NextProposedHeader([]byte("app_data_2"), 0)
+						fx.SignProposal(ctx, &ph, 0)
 					}
 
 					mc := mcf()
@@ -73,7 +73,7 @@ func TestMarshalCodecCompliance(t *testing.T, mcf MarshalCodecFactory) {
 								if !useInitialHeight {
 									activePrecommit := fx.PrecommitSignatureProof(
 										ctx,
-										tmconsensus.VoteTarget{Height: 1, Round: 0, BlockHash: string(prevBlock.Hash)},
+										tmconsensus.VoteTarget{Height: 1, Round: 0, BlockHash: string(prevHeader.Hash)},
 										nil,
 										[]int{0, 1, 2},
 									)
@@ -90,47 +90,47 @@ func TestMarshalCodecCompliance(t *testing.T, mcf MarshalCodecFactory) {
 										PubKeyHash: nilPrecommit.AsSparse().PubKeyHash,
 
 										Proofs: map[string][]gcrypto.SparseSignature{
-											string(prevBlock.Hash): activePrecommit.AsSparse().Signatures,
-											"":                     nilPrecommit.AsSparse().Signatures,
+											string(prevHeader.Hash): activePrecommit.AsSparse().Signatures,
+											"":                      nilPrecommit.AsSparse().Signatures,
 										},
 									}
-									pb.Block.PrevCommitProof = proof
+									ph.Header.PrevCommitProof = proof
 
-									pb.Annotations = ac.Annotations
+									ph.Annotations = ac.Annotations
 								}
 
-								b, err := mc.MarshalProposedBlock(pb)
+								b, err := mc.MarshalProposedHeader(ph)
 								require.NoError(t, err)
 
-								var got tmconsensus.ProposedBlock
-								require.NoError(t, mc.UnmarshalProposedBlock(b, &got))
+								var got tmconsensus.ProposedHeader
+								require.NoError(t, mc.UnmarshalProposedHeader(b, &got))
 
-								require.Equal(t, pb, got)
+								require.Equal(t, ph, got)
 							})
 						}
 					})
 
 					t.Run("plain block", func(t *testing.T) {
-						b, err := mc.MarshalBlock(pb.Block)
+						b, err := mc.MarshalHeader(ph.Header)
 						require.NoError(t, err)
 
-						var got tmconsensus.Block
-						require.NoError(t, mc.UnmarshalBlock(b, &got))
+						var got tmconsensus.Header
+						require.NoError(t, mc.UnmarshalHeader(b, &got))
 
-						require.Equal(t, pb.Block, got)
+						require.Equal(t, ph.Header, got)
 					})
 
 					t.Run("plain block with annotations", func(t *testing.T) {
 						// Just move the proposed block's annotations over the block's.
-						pb.Block.Annotations, pb.Annotations = pb.Annotations, tmconsensus.Annotations{}
+						ph.Header.Annotations, ph.Annotations = ph.Annotations, tmconsensus.Annotations{}
 
-						b, err := mc.MarshalBlock(pb.Block)
+						b, err := mc.MarshalHeader(ph.Header)
 						require.NoError(t, err)
 
-						var got tmconsensus.Block
-						require.NoError(t, mc.UnmarshalBlock(b, &got))
+						var got tmconsensus.Header
+						require.NoError(t, mc.UnmarshalHeader(b, &got))
 
-						require.Equal(t, pb.Block, got)
+						require.Equal(t, ph.Header, got)
 					})
 				})
 
@@ -139,27 +139,27 @@ func TestMarshalCodecCompliance(t *testing.T, mcf MarshalCodecFactory) {
 
 					fx := tmconsensustest.NewStandardFixture(8)
 
-					pb := fx.NextProposedBlock([]byte("app_data"), 0)
-					fx.SignProposal(ctx, &pb, 0)
+					ph := fx.NextProposedHeader([]byte("app_data"), 0)
+					fx.SignProposal(ctx, &ph, 0)
 
 					if !useInitialHeight {
-						vt := tmconsensus.VoteTarget{Height: 1, Round: 0, BlockHash: string(pb.Block.Hash)}
-						fx.CommitBlock(pb.Block, []byte("app_hash"), 0, map[string]gcrypto.CommonMessageSignatureProof{
-							string(pb.Block.Hash): fx.PrecommitSignatureProof(ctx, vt, nil, []int{0, 1, 2, 3}),
+						vt := tmconsensus.VoteTarget{Height: 1, Round: 0, BlockHash: string(ph.Header.Hash)}
+						fx.CommitBlock(ph.Header, []byte("app_hash"), 0, map[string]gcrypto.CommonMessageSignatureProof{
+							string(ph.Header.Hash): fx.PrecommitSignatureProof(ctx, vt, nil, []int{0, 1, 2, 3}),
 						})
 
-						pb = fx.NextProposedBlock([]byte("app_data_2"), 0)
-						fx.SignProposal(ctx, &pb, 0)
+						ph = fx.NextProposedHeader([]byte("app_data_2"), 0)
+						fx.SignProposal(ctx, &ph, 0)
 					}
 
 					mc := mcf()
 
 					t.Run("proposed block", func(t *testing.T) {
-						orig, err := mc.MarshalProposedBlock(pb)
+						orig, err := mc.MarshalProposedHeader(ph)
 						require.NoError(t, err)
 
 						for i := 0; i < determinismTries; i++ {
-							got, err := mc.MarshalProposedBlock(pb)
+							got, err := mc.MarshalProposedHeader(ph)
 							require.NoError(t, err)
 
 							require.Equal(t, orig, got)
@@ -167,11 +167,11 @@ func TestMarshalCodecCompliance(t *testing.T, mcf MarshalCodecFactory) {
 					})
 
 					t.Run("plain block", func(t *testing.T) {
-						orig, err := mc.MarshalBlock(pb.Block)
+						orig, err := mc.MarshalHeader(ph.Header)
 						require.NoError(t, err)
 
 						for i := 0; i < determinismTries; i++ {
-							got, err := mc.MarshalBlock(pb.Block)
+							got, err := mc.MarshalHeader(ph.Header)
 							require.NoError(t, err)
 
 							require.Equal(t, orig, got)
@@ -188,13 +188,13 @@ func TestMarshalCodecCompliance(t *testing.T, mcf MarshalCodecFactory) {
 
 			fx := tmconsensustest.NewStandardFixture(8)
 
-			pb := fx.NextProposedBlock([]byte("app_data"), 0)
+			ph := fx.NextProposedHeader([]byte("app_data"), 0)
 
-			vt := tmconsensus.VoteTarget{Height: 1, Round: 0}
-			nilVT := tmconsensus.VoteTarget{Height: 1, Round: 0, BlockHash: string(pb.Block.Hash)}
+			vt := tmconsensus.VoteTarget{Height: 1, Round: 0, BlockHash: string(ph.Header.Hash)}
+			nilVT := tmconsensus.VoteTarget{Height: 1, Round: 0}
 			fullProof := map[string]gcrypto.CommonMessageSignatureProof{
-				string(pb.Block.Hash): fx.PrevoteSignatureProof(ctx, vt, nil, []int{0, 1, 2, 3}),
-				"":                    fx.PrevoteSignatureProof(ctx, nilVT, nil, []int{4, 5, 6, 7}),
+				string(ph.Header.Hash): fx.PrevoteSignatureProof(ctx, vt, nil, []int{0, 1, 2, 3}),
+				"":                     fx.PrevoteSignatureProof(ctx, nilVT, nil, []int{4, 5, 6, 7}),
 			}
 
 			proof, err := tmconsensus.PrevoteSparseProofFromFullProof(1, 0, fullProof)
@@ -215,13 +215,13 @@ func TestMarshalCodecCompliance(t *testing.T, mcf MarshalCodecFactory) {
 
 			fx := tmconsensustest.NewStandardFixture(8)
 
-			pb := fx.NextProposedBlock([]byte("app_data"), 0)
+			ph := fx.NextProposedHeader([]byte("app_data"), 0)
 
-			vt := tmconsensus.VoteTarget{Height: 1, Round: 0}
-			nilVT := tmconsensus.VoteTarget{Height: 1, Round: 0, BlockHash: string(pb.Block.Hash)}
+			vt := tmconsensus.VoteTarget{Height: 1, Round: 0, BlockHash: string(ph.Header.Hash)}
+			nilVT := tmconsensus.VoteTarget{Height: 1, Round: 0}
 			fullProof := map[string]gcrypto.CommonMessageSignatureProof{
-				string(pb.Block.Hash): fx.PrevoteSignatureProof(ctx, vt, nil, []int{0, 1, 2, 3}),
-				"":                    fx.PrevoteSignatureProof(ctx, nilVT, nil, []int{4, 5, 6, 7}),
+				string(ph.Header.Hash): fx.PrevoteSignatureProof(ctx, vt, nil, []int{0, 1, 2, 3}),
+				"":                     fx.PrevoteSignatureProof(ctx, nilVT, nil, []int{4, 5, 6, 7}),
 			}
 
 			proof, err := tmconsensus.PrevoteSparseProofFromFullProof(1, 0, fullProof)
@@ -245,13 +245,13 @@ func TestMarshalCodecCompliance(t *testing.T, mcf MarshalCodecFactory) {
 			t.Parallel()
 
 			fx := tmconsensustest.NewStandardFixture(8)
-			pb := fx.NextProposedBlock([]byte("app_data"), 0)
+			ph := fx.NextProposedHeader([]byte("app_data"), 0)
 
-			vt := tmconsensus.VoteTarget{Height: 1, Round: 0}
-			nilVT := tmconsensus.VoteTarget{Height: 1, Round: 0, BlockHash: string(pb.Block.Hash)}
+			vt := tmconsensus.VoteTarget{Height: 1, Round: 0, BlockHash: string(ph.Header.Hash)}
+			nilVT := tmconsensus.VoteTarget{Height: 1, Round: 0}
 			fullProof := map[string]gcrypto.CommonMessageSignatureProof{
-				string(pb.Block.Hash): fx.PrecommitSignatureProof(ctx, vt, nil, []int{0, 1, 2, 3}),
-				"":                    fx.PrecommitSignatureProof(ctx, nilVT, nil, []int{4, 5, 6, 7}),
+				string(ph.Header.Hash): fx.PrecommitSignatureProof(ctx, vt, nil, []int{0, 1, 2, 3}),
+				"":                     fx.PrecommitSignatureProof(ctx, nilVT, nil, []int{4, 5, 6, 7}),
 			}
 
 			proof, err := tmconsensus.PrecommitSparseProofFromFullProof(1, 0, fullProof)
@@ -272,13 +272,13 @@ func TestMarshalCodecCompliance(t *testing.T, mcf MarshalCodecFactory) {
 
 			fx := tmconsensustest.NewStandardFixture(8)
 
-			pb := fx.NextProposedBlock([]byte("app_data"), 0)
+			ph := fx.NextProposedHeader([]byte("app_data"), 0)
 
-			vt := tmconsensus.VoteTarget{Height: 1, Round: 0}
-			nilVT := tmconsensus.VoteTarget{Height: 1, Round: 0, BlockHash: string(pb.Block.Hash)}
+			vt := tmconsensus.VoteTarget{Height: 1, Round: 0, BlockHash: string(ph.Header.Hash)}
+			nilVT := tmconsensus.VoteTarget{Height: 1, Round: 0}
 			fullProof := map[string]gcrypto.CommonMessageSignatureProof{
-				string(pb.Block.Hash): fx.PrecommitSignatureProof(ctx, vt, nil, []int{0, 1, 2, 3}),
-				"":                    fx.PrecommitSignatureProof(ctx, nilVT, nil, []int{4, 5, 6, 7}),
+				string(ph.Header.Hash): fx.PrecommitSignatureProof(ctx, vt, nil, []int{0, 1, 2, 3}),
+				"":                     fx.PrecommitSignatureProof(ctx, nilVT, nil, []int{4, 5, 6, 7}),
 			}
 
 			proof, err := tmconsensus.PrecommitSparseProofFromFullProof(1, 0, fullProof)
@@ -307,10 +307,10 @@ func TestMarshalCodecCompliance(t *testing.T, mcf MarshalCodecFactory) {
 				populate: func(m *tmcodec.ConsensusMessage) {
 					fx := tmconsensustest.NewStandardFixture(3)
 
-					pb := fx.NextProposedBlock([]byte("app_data"), 0)
-					fx.SignProposal(ctx, &pb, 0)
+					ph := fx.NextProposedHeader([]byte("app_data"), 0)
+					fx.SignProposal(ctx, &ph, 0)
 
-					m.ProposedBlock = &pb
+					m.ProposedHeader = &ph
 				},
 			},
 			{
@@ -318,13 +318,13 @@ func TestMarshalCodecCompliance(t *testing.T, mcf MarshalCodecFactory) {
 				populate: func(m *tmcodec.ConsensusMessage) {
 					fx := tmconsensustest.NewStandardFixture(8)
 
-					pb := fx.NextProposedBlock([]byte("app_data"), 0)
+					ph := fx.NextProposedHeader([]byte("app_data"), 0)
 
-					vt := tmconsensus.VoteTarget{Height: 1, Round: 0}
-					nilVT := tmconsensus.VoteTarget{Height: 1, Round: 0, BlockHash: string(pb.Block.Hash)}
+					vt := tmconsensus.VoteTarget{Height: 1, Round: 0, BlockHash: string(ph.Header.Hash)}
+					nilVT := tmconsensus.VoteTarget{Height: 1, Round: 0}
 					fullProof := map[string]gcrypto.CommonMessageSignatureProof{
-						string(pb.Block.Hash): fx.PrevoteSignatureProof(ctx, vt, nil, []int{0, 1, 2, 3}),
-						"":                    fx.PrevoteSignatureProof(ctx, nilVT, nil, []int{4, 5, 6, 7}),
+						string(ph.Header.Hash): fx.PrevoteSignatureProof(ctx, vt, nil, []int{0, 1, 2, 3}),
+						"":                     fx.PrevoteSignatureProof(ctx, nilVT, nil, []int{4, 5, 6, 7}),
 					}
 
 					proof, err := tmconsensus.PrevoteSparseProofFromFullProof(1, 0, fullProof)
@@ -338,13 +338,13 @@ func TestMarshalCodecCompliance(t *testing.T, mcf MarshalCodecFactory) {
 				populate: func(m *tmcodec.ConsensusMessage) {
 					fx := tmconsensustest.NewStandardFixture(8)
 
-					pb := fx.NextProposedBlock([]byte("app_data"), 0)
+					ph := fx.NextProposedHeader([]byte("app_data"), 0)
 
-					vt := tmconsensus.VoteTarget{Height: 1, Round: 0}
-					nilVT := tmconsensus.VoteTarget{Height: 1, Round: 0, BlockHash: string(pb.Block.Hash)}
+					vt := tmconsensus.VoteTarget{Height: 1, Round: 0, BlockHash: string(ph.Header.Hash)}
+					nilVT := tmconsensus.VoteTarget{Height: 1, Round: 0}
 					fullProof := map[string]gcrypto.CommonMessageSignatureProof{
-						string(pb.Block.Hash): fx.PrecommitSignatureProof(ctx, vt, nil, []int{0, 1, 2, 3}),
-						"":                    fx.PrecommitSignatureProof(ctx, nilVT, nil, []int{4, 5, 6, 7}),
+						string(ph.Header.Hash): fx.PrecommitSignatureProof(ctx, vt, nil, []int{0, 1, 2, 3}),
+						"":                     fx.PrecommitSignatureProof(ctx, nilVT, nil, []int{4, 5, 6, 7}),
 					}
 
 					proof, err := tmconsensus.PrecommitSparseProofFromFullProof(1, 0, fullProof)

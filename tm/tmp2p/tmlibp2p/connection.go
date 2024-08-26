@@ -35,7 +35,7 @@ type Connection struct {
 	consensusTopic *pubsub.Topic
 	consensusSub   *pubsub.Subscription
 
-	outgoingProposals chan tmconsensus.ProposedBlock
+	outgoingProposals chan tmconsensus.ProposedHeader
 
 	outgoingPrevoteProofs   chan tmconsensus.PrevoteSparseProof
 	outgoingPrecommitProofs chan tmconsensus.PrecommitSparseProof
@@ -82,7 +82,7 @@ func NewConnection(ctx context.Context, log *slog.Logger, h *Host, codec tmcodec
 		consensusTopic: consensusTopic,
 		consensusSub:   consensusSub,
 
-		outgoingProposals: make(chan tmconsensus.ProposedBlock, 1),
+		outgoingProposals: make(chan tmconsensus.ProposedHeader, 1),
 
 		outgoingPrevoteProofs:   make(chan tmconsensus.PrevoteSparseProof, 1),
 		outgoingPrecommitProofs: make(chan tmconsensus.PrecommitSparseProof, 1),
@@ -116,7 +116,7 @@ func (c *Connection) background(ctx context.Context) {
 			// The connection lifecycle has terminated, so quit.
 			return
 
-		case pb, ok := <-c.outgoingProposals:
+		case ph, ok := <-c.outgoingProposals:
 			// A proposal that should go out to the network.
 
 			if !ok {
@@ -125,7 +125,7 @@ func (c *Connection) background(ctx context.Context) {
 			}
 
 			b, err := c.codec.MarshalConsensusMessage(tmcodec.ConsensusMessage{
-				ProposedBlock: &pb,
+				ProposedHeader: &ph,
 			})
 			if err != nil {
 				c.log.Warn("Failed to marshal consensus message for proposed block; cannot broadcast value to network", "err", err)
@@ -242,8 +242,8 @@ func (c *Connection) libp2pConsensusMessageValidator(
 
 		var f gexchange.Feedback
 		switch {
-		case cm.ProposedBlock != nil && h != nil:
-			f = h.HandleProposedBlock(ctx, *cm.ProposedBlock)
+		case cm.ProposedHeader != nil && h != nil:
+			f = h.HandleProposedHeader(ctx, *cm.ProposedHeader)
 		case cm.PrevoteProof != nil && h != nil:
 			f = h.HandlePrevoteProofs(ctx, *cm.PrevoteProof)
 		case cm.PrecommitProof != nil && h != nil:
@@ -314,9 +314,9 @@ func (c *Connection) OutgoingPrecommitProofs() chan<- tmconsensus.PrecommitSpars
 	return c.outgoingPrecommitProofs
 }
 
-// OutgoingProposedBlocks returns a channel where proposed blocks may be sent,
+// OutgoingProposedHeaders returns a channel where proposed headers may be sent,
 // after which they will be broadcast to the p2p network.
-func (c *Connection) OutgoingProposedBlocks() chan<- tmconsensus.ProposedBlock {
+func (c *Connection) OutgoingProposedHeaders() chan<- tmconsensus.ProposedHeader {
 	return c.outgoingProposals
 }
 

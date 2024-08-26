@@ -69,10 +69,10 @@ func RunIntegrationTest(t *testing.T, nf NewFactoryFunc) {
 			as, err := f.NewActionStore(ctx, i)
 			require.NoError(t, err)
 
-			bs, err := f.NewBlockStore(ctx, i)
+			fs, err := f.NewFinalizationStore(ctx, i)
 			require.NoError(t, err)
 
-			fs, err := f.NewFinalizationStore(ctx, i)
+			hs, err := f.NewHeaderStore(ctx, i)
 			require.NoError(t, err)
 
 			ms, err := f.NewMirrorStore(ctx, i)
@@ -112,8 +112,8 @@ func RunIntegrationTest(t *testing.T, nf NewFactoryFunc) {
 				wCtx,
 				log.With("sys", "engine", "idx", i),
 				tmengine.WithActionStore(as),
-				tmengine.WithBlockStore(bs),
 				tmengine.WithFinalizationStore(fs),
+				tmengine.WithHeaderStore(hs),
 				tmengine.WithMirrorStore(ms),
 				tmengine.WithRoundStore(rs),
 				tmengine.WithValidatorStore(vs),
@@ -228,10 +228,10 @@ func RunIntegrationTest(t *testing.T, nf NewFactoryFunc) {
 			as, err := f.NewActionStore(ctx, i)
 			require.NoError(t, err)
 
-			bs, err := f.NewBlockStore(ctx, i)
+			fs, err := f.NewFinalizationStore(ctx, i)
 			require.NoError(t, err)
 
-			fs, err := f.NewFinalizationStore(ctx, i)
+			hs, err := f.NewHeaderStore(ctx, i)
 			require.NoError(t, err)
 
 			ms, err := f.NewMirrorStore(ctx, i)
@@ -272,8 +272,8 @@ func RunIntegrationTest(t *testing.T, nf NewFactoryFunc) {
 				wCtx,
 				log.With("sys", "engine", "idx", i),
 				tmengine.WithActionStore(as),
-				tmengine.WithBlockStore(bs),
 				tmengine.WithFinalizationStore(fs),
+				tmengine.WithHeaderStore(hs),
 				tmengine.WithMirrorStore(ms),
 				tmengine.WithRoundStore(rs),
 				tmengine.WithValidatorStore(vs),

@@ -33,7 +33,7 @@ type StandardFixture struct {
 
 	// Chain genesis value.
 	// Set on a call to DefaultGenesis, or can be manually set
-	// before a call to NextProposedBlock.
+	// before a call to NextProposedHeader.
 	Genesis tmconsensus.Genesis
 
 	prevCommitProof  tmconsensus.CommitProof
@@ -113,12 +113,12 @@ func (f *StandardFixture) DefaultGenesis() tmconsensus.Genesis {
 
 	f.Genesis = g
 	if len(f.prevBlockHash) == 0 {
-		b, err := g.Block(f.HashScheme)
+		h, err := g.Header(f.HashScheme)
 		if err != nil {
-			panic(fmt.Errorf("(*StandardFixture).DefaultGenesis: error calling (Genesis).Block: %w", err))
+			panic(fmt.Errorf("(*StandardFixture).DefaultGenesis: error calling (Genesis).Header: %w", err))
 		}
 
-		f.prevBlockHash = b.Hash
+		f.prevBlockHash = h.Hash
 	}
 
 	f.prevAppStateHash = g.CurrentAppStateHash
@@ -126,7 +126,7 @@ func (f *StandardFixture) DefaultGenesis() tmconsensus.Genesis {
 	return g
 }
 
-// NextProposedBlock returns a proposed block, with height set to the last committed height + 1,
+// NextProposedHeader returns a proposed header, with height set to the last committed height + 1,
 // at Round zero, and with the previous block hash set to the last committed block's height.
 //
 // The valIdx parameter indicates which of f's validators to set as ProposerID.
@@ -135,10 +135,10 @@ func (f *StandardFixture) DefaultGenesis() tmconsensus.Genesis {
 // Both Validators and NextValidators are set to f.Vals().
 // These and other fields may be overridden,
 // in which case you should call f.RecalculateHash and f.SignProposal again.
-func (f *StandardFixture) NextProposedBlock(appDataID []byte, valIdx int) tmconsensus.ProposedBlock {
+func (f *StandardFixture) NextProposedHeader(appDataID []byte, valIdx int) tmconsensus.ProposedHeader {
 	vs := f.ValSet()
 
-	b := tmconsensus.Block{
+	h := tmconsensus.Header{
 		Height: f.prevBlockHeight + 1,
 
 		PrevBlockHash: bytes.Clone(f.prevBlockHash),
@@ -153,28 +153,28 @@ func (f *StandardFixture) NextProposedBlock(appDataID []byte, valIdx int) tmcons
 		PrevAppStateHash: f.prevAppStateHash,
 	}
 
-	f.RecalculateHash(&b)
+	f.RecalculateHash(&h)
 
-	return tmconsensus.ProposedBlock{Block: b}
+	return tmconsensus.ProposedHeader{Header: h}
 }
 
-// SignProposal sets the signature on the proposal pb,
+// SignProposal sets the signature on the proposed header ph,
 // using the validator at f.PrivVals[valIdx].
 // On error, SignProposal panics.
-func (f *StandardFixture) SignProposal(ctx context.Context, pb *tmconsensus.ProposedBlock, valIdx int) {
+func (f *StandardFixture) SignProposal(ctx context.Context, ph *tmconsensus.ProposedHeader, valIdx int) {
 	v := f.PrivVals[valIdx]
 
-	b, err := tmconsensus.ProposalSignBytes(pb.Block, pb.Round, pb.Annotations, f.SignatureScheme)
+	b, err := tmconsensus.ProposalSignBytes(ph.Header, ph.Round, ph.Annotations, f.SignatureScheme)
 	if err != nil {
-		panic(fmt.Errorf("failed to get sign bytes for proposal %#v: %w", pb, err))
+		panic(fmt.Errorf("failed to get sign bytes for proposal %#v: %w", ph, err))
 	}
 
-	pb.Signature, err = v.Signer.Sign(ctx, b)
+	ph.Signature, err = v.Signer.Sign(ctx, b)
 	if err != nil {
 		panic(fmt.Errorf("failed to sign proposal: %w", err))
 	}
 
-	pb.ProposerPubKey = v.CVal.PubKey
+	ph.ProposerPubKey = v.CVal.PubKey
 }
 
 // PrevoteSignature returns the signature for the validator at valIdx
@@ -404,16 +404,16 @@ func (f *StandardFixture) SparsePrecommitProofMap(
 	return out
 }
 
-// CommitBlock uses the input arguments to set up the next call to NextProposedBlock.
+// CommitBlock uses the input arguments to set up the next call to NextProposedHeader.
 // The commit parameter is the set of precommits to associate with the block being committed,
 // which will then be used as the previous commit details.
-func (f *StandardFixture) CommitBlock(b tmconsensus.Block, appStateHash []byte, round uint32, commit map[string]gcrypto.CommonMessageSignatureProof) {
+func (f *StandardFixture) CommitBlock(h tmconsensus.Header, appStateHash []byte, round uint32, commit map[string]gcrypto.CommonMessageSignatureProof) {
 	if len(commit) == 0 {
 		panic(fmt.Errorf("BUG: cannot commit block with empty commit data"))
 	}
 
-	f.prevBlockHeight = b.Height
-	f.prevBlockHash = b.Hash
+	f.prevBlockHeight = h.Height
+	f.prevBlockHash = h.Hash
 	f.prevAppStateHash = appStateHash
 
 	p := tmconsensus.CommitProof{
@@ -441,16 +441,16 @@ func (f *StandardFixture) ValidatorPubKeyString(idx int) string {
 	return string(f.ValidatorPubKey(idx).PubKeyBytes())
 }
 
-// RecalculateHash modifies b.Hash using f.HashScheme.
+// RecalculateHash modifies h.Hash using f.HashScheme.
 // This is useful if a block is modified by hand for any reason.
 // If calculating the hash results in an error, this method panics.
-func (f *StandardFixture) RecalculateHash(b *tmconsensus.Block) {
-	newHash, err := f.HashScheme.Block(*b)
+func (f *StandardFixture) RecalculateHash(h *tmconsensus.Header) {
+	newHash, err := f.HashScheme.Block(*h)
 	if err != nil {
 		panic(fmt.Errorf("failed to calculate block hash: %w", err))
 	}
 
-	b.Hash = newHash
+	h.Hash = newHash
 }
 
 // UpdateVRVPrevotes returns a clone of vrv, with its version incremented and with all its prevote information

@@ -18,12 +18,12 @@ func (f InmemStoreFactory) NewActionStore(ctx context.Context, idx int) (tmstore
 	return tmmemstore.NewActionStore(), nil
 }
 
-func (f InmemStoreFactory) NewBlockStore(ctx context.Context, idx int) (tmstore.BlockStore, error) {
-	return tmmemstore.NewBlockStore(), nil
-}
-
 func (f InmemStoreFactory) NewFinalizationStore(ctx context.Context, idx int) (tmstore.FinalizationStore, error) {
 	return tmmemstore.NewFinalizationStore(), nil
+}
+
+func (f InmemStoreFactory) NewHeaderStore(ctx context.Context, idx int) (tmstore.HeaderStore, error) {
+	return tmmemstore.NewHeaderStore(), nil
 }
 
 func (f InmemStoreFactory) NewMirrorStore(ctx context.Context, idx int) (tmstore.MirrorStore, error) {

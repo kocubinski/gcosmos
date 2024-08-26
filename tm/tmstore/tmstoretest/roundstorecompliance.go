@@ -43,17 +43,17 @@ func TestRoundStoreCompliance(t *testing.T, f RoundStoreFactory) {
 
 			fx := tmconsensustest.NewStandardFixture(2)
 
-			pb0 := fx.NextProposedBlock([]byte("val0"), 0)
-			pb1 := fx.NextProposedBlock([]byte("val1"), 1)
+			ph0 := fx.NextProposedHeader([]byte("val0"), 0)
+			ph1 := fx.NextProposedHeader([]byte("val1"), 1)
 
-			require.NoError(t, s.SaveProposedBlock(ctx, pb0))
-			require.NoError(t, s.SaveProposedBlock(ctx, pb1))
+			require.NoError(t, s.SaveProposedHeader(ctx, ph0))
+			require.NoError(t, s.SaveProposedHeader(ctx, ph1))
 
 			pbs, _, _, err := s.LoadRoundState(ctx, 1, 0)
 			require.NoError(t, err)
 
 			// Contents should match, order does not matter.
-			require.ElementsMatch(t, []tmconsensus.ProposedBlock{pb0, pb1}, pbs)
+			require.ElementsMatch(t, []tmconsensus.ProposedHeader{ph0, ph1}, pbs)
 		})
 
 		t.Run("overwriting an existing proposed block", func(t *testing.T) {
@@ -67,16 +67,16 @@ func TestRoundStoreCompliance(t *testing.T, f RoundStoreFactory) {
 
 			fx := tmconsensustest.NewStandardFixture(2)
 
-			pb0 := fx.NextProposedBlock([]byte("val0"), 0)
+			ph0 := fx.NextProposedHeader([]byte("val0"), 0)
 
 			// First write succeeds.
-			require.NoError(t, s.SaveProposedBlock(ctx, pb0))
+			require.NoError(t, s.SaveProposedHeader(ctx, ph0))
 
 			// And a second write is an error.
-			err = s.SaveProposedBlock(ctx, pb0)
+			err = s.SaveProposedHeader(ctx, ph0)
 			require.ErrorIs(t, err, tmstore.OverwriteError{
 				Field: "hash",
-				Value: fmt.Sprintf("%x", pb0.Block.Hash),
+				Value: fmt.Sprintf("%x", ph0.Header.Hash),
 			})
 		})
 	})
@@ -161,13 +161,13 @@ func TestRoundStoreCompliance(t *testing.T, f RoundStoreFactory) {
 
 				fx := tmconsensustest.NewStandardFixture(2)
 
-				pb := fx.NextProposedBlock([]byte("app_data"), 0)
+				ph := fx.NextProposedHeader([]byte("app_data"), 0)
 
 				// First validator votes for proposed block,
 				// other validator votes for nil.
 				voteMap := map[string][]int{
-					string(pb.Block.Hash): {0},
-					"":                    {1},
+					string(ph.Header.Hash): {0},
+					"":                     {1},
 				}
 				proofMap := tc.proofMapFn(fx)(ctx, 1, 0, voteMap)
 
@@ -194,14 +194,14 @@ func TestRoundStoreCompliance(t *testing.T, f RoundStoreFactory) {
 
 			fx := tmconsensustest.NewStandardFixture(2)
 
-			pb := fx.NextProposedBlock([]byte("app_data"), 0)
-			require.NoError(t, s.SaveProposedBlock(ctx, pb))
+			ph := fx.NextProposedHeader([]byte("app_data"), 0)
+			require.NoError(t, s.SaveProposedHeader(ctx, ph))
 
 			// First validator votes for proposed block,
 			// other validator votes for nil.
 			voteMap := map[string][]int{
-				string(pb.Block.Hash): {0},
-				"":                    {1},
+				string(ph.Header.Hash): {0},
+				"":                     {1},
 			}
 			prevoteProofMap := fx.PrevoteProofMap(ctx, 1, 0, voteMap)
 			require.NoError(t, s.OverwritePrevoteProofs(ctx, 1, 0, prevoteProofMap))
@@ -211,7 +211,7 @@ func TestRoundStoreCompliance(t *testing.T, f RoundStoreFactory) {
 
 			pbs, prevotes, precommits, err := s.LoadRoundState(ctx, 1, 0)
 			require.NoError(t, err)
-			require.Equal(t, []tmconsensus.ProposedBlock{pb}, pbs)
+			require.Equal(t, []tmconsensus.ProposedHeader{ph}, pbs)
 			require.Equal(t, prevoteProofMap, prevotes)
 			require.Equal(t, precommitProofMap, precommits)
 		})
@@ -227,12 +227,12 @@ func TestRoundStoreCompliance(t *testing.T, f RoundStoreFactory) {
 
 			fx := tmconsensustest.NewStandardFixture(2)
 
-			pb := fx.NextProposedBlock([]byte("app_data"), 0)
-			require.NoError(t, s.SaveProposedBlock(ctx, pb))
+			ph := fx.NextProposedHeader([]byte("app_data"), 0)
+			require.NoError(t, s.SaveProposedHeader(ctx, ph))
 
 			pbs, prevotes, precommits, err := s.LoadRoundState(ctx, 1, 0)
 			require.NoError(t, err)
-			require.Equal(t, []tmconsensus.ProposedBlock{pb}, pbs)
+			require.Equal(t, []tmconsensus.ProposedHeader{ph}, pbs)
 			require.Nil(t, prevotes)
 			require.Nil(t, precommits)
 		})
@@ -248,13 +248,13 @@ func TestRoundStoreCompliance(t *testing.T, f RoundStoreFactory) {
 
 			fx := tmconsensustest.NewStandardFixture(2)
 
-			pb := fx.NextProposedBlock([]byte("app_data"), 0)
+			ph := fx.NextProposedHeader([]byte("app_data"), 0)
 
 			// First validator votes for proposed block,
 			// other validator votes for nil.
 			voteMap := map[string][]int{
-				string(pb.Block.Hash): {0},
-				"":                    {1},
+				string(ph.Header.Hash): {0},
+				"":                     {1},
 			}
 			prevoteProofMap := fx.PrevoteProofMap(ctx, 1, 0, voteMap)
 			require.NoError(t, s.OverwritePrevoteProofs(ctx, 1, 0, prevoteProofMap))
@@ -277,13 +277,13 @@ func TestRoundStoreCompliance(t *testing.T, f RoundStoreFactory) {
 
 			fx := tmconsensustest.NewStandardFixture(2)
 
-			pb := fx.NextProposedBlock([]byte("app_data"), 0)
+			ph := fx.NextProposedHeader([]byte("app_data"), 0)
 
 			// First validator votes for proposed block,
 			// other validator votes for nil.
 			voteMap := map[string][]int{
-				string(pb.Block.Hash): {0},
-				"":                    {1},
+				string(ph.Header.Hash): {0},
+				"":                     {1},
 			}
 
 			precommitProofMap := fx.PrecommitProofMap(ctx, 1, 0, voteMap)

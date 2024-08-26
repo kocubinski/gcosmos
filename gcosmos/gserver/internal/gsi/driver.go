@@ -266,7 +266,7 @@ func (d *Driver) handleFinalizations(
 
 		// TODO: don't hardcode the initial height.
 		const initialHeight = 1
-		if fbReq.Block.Height == initialHeight {
+		if fbReq.Header.Height == initialHeight {
 			appHash, err := s.Commit(store.NewChangeset())
 			if err != nil {
 				d.log.Warn("Failed to commit new changeset for initial height", "err", err)
@@ -274,14 +274,14 @@ func (d *Driver) handleFinalizations(
 			}
 
 			resp := tmdriver.FinalizeBlockResponse{
-				Height:    fbReq.Block.Height,
+				Height:    fbReq.Header.Height,
 				Round:     fbReq.Round,
-				BlockHash: fbReq.Block.Hash,
+				BlockHash: fbReq.Header.Hash,
 
 				// At genesis, we don't have a block response
 				// from which to extract the next validators.
 				// By design, the validators at height 2 match height 1.
-				Validators:   fbReq.Block.NextValidatorSet.Validators,
+				Validators:   fbReq.Header.NextValidatorSet.Validators,
 				AppStateHash: appHash,
 			}
 			if !gchan.SendC(
@@ -305,7 +305,7 @@ func (d *Driver) handleFinalizations(
 			return
 		}
 
-		a, err := BlockAnnotationFromBytes(fbReq.Block.Annotations.Driver)
+		a, err := BlockAnnotationFromBytes(fbReq.Header.Annotations.Driver)
 		if err != nil {
 			d.log.Warn(
 				"Failed to extract driver annotation from finalize block request",
@@ -326,8 +326,8 @@ func (d *Driver) handleFinalizations(
 
 		// Guard the call to pool.Have with a zero check,
 		// because we never call Need or SetAvailable on zero.
-		if !gsbd.IsZeroTxDataID(string(fbReq.Block.DataID)) {
-			haveTxs, err, have := d.pool.Have(string(fbReq.Block.DataID))
+		if !gsbd.IsZeroTxDataID(string(fbReq.Header.DataID)) {
+			haveTxs, err, have := d.pool.Have(string(fbReq.Header.DataID))
 			if !have {
 				panic(errors.New("TODO: handle block data not ready during finalization"))
 			}
@@ -338,11 +338,11 @@ func (d *Driver) handleFinalizations(
 		}
 
 		blockReq := &coreappmgr.BlockRequest[transaction.Tx]{
-			Height: fbReq.Block.Height,
+			Height: fbReq.Header.Height,
 
 			Time: blockTime,
 
-			Hash:    fbReq.Block.Hash,
+			Hash:    fbReq.Header.Hash,
 			AppHash: cID.Hash,
 			ChainId: "???", // TODO: the chain ID needs to be threaded here properly.
 			Txs:     txs,
@@ -368,11 +368,11 @@ func (d *Driver) handleFinalizations(
 		}
 
 		// By default, we just use the block's declared next validators block.
-		updatedVals := fbReq.Block.NextValidatorSet.Validators
+		updatedVals := fbReq.Header.NextValidatorSet.Validators
 		if len(blockResp.ValidatorUpdates) > 0 {
 			// We can never modify a ValdatorSet's validators,
 			// so create a clone.
-			updatedVals = slices.Clone(fbReq.Block.NextValidatorSet.Validators)
+			updatedVals = slices.Clone(fbReq.Header.NextValidatorSet.Validators)
 
 			// Make a map of pubkeys that have a power change.
 			// TODO: this doesn't respect key type, and it should.
@@ -468,14 +468,14 @@ func (d *Driver) handleFinalizations(
 			d.log.Warn("Failed to commit state changes", "err", err)
 			return
 		}
-		d.log.Info("Committed change to root store", "height", fbReq.Block.Height, "apphash", glog.Hex(appHash))
+		d.log.Info("Committed change to root store", "height", fbReq.Header.Height, "apphash", glog.Hex(appHash))
 
 		// TODO: There could be updated consensus params that we care about here.
 
 		fbResp := tmdriver.FinalizeBlockResponse{
-			Height:    fbReq.Block.Height,
+			Height:    fbReq.Header.Height,
 			Round:     fbReq.Round,
-			BlockHash: fbReq.Block.Hash,
+			BlockHash: fbReq.Header.Hash,
 
 			Validators: updatedVals,
 

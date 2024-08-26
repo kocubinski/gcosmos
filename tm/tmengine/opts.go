@@ -45,20 +45,20 @@ func WithActionStore(s tmstore.ActionStore) Opt {
 	}
 }
 
-// WithBlockStore sets the engine's block store.
-// This option is required.
-func WithBlockStore(s tmstore.BlockStore) Opt {
-	return func(e *Engine, _ *tmstate.StateMachineConfig) error {
-		e.mCfg.BlockStore = s
-		return nil
-	}
-}
-
 // WithFinalizationStore sets the engine's finalization store.
 // This option is required.
 func WithFinalizationStore(s tmstore.FinalizationStore) Opt {
 	return func(_ *Engine, smc *tmstate.StateMachineConfig) error {
 		smc.FinalizationStore = s
+		return nil
+	}
+}
+
+// WithHeaderStore sets the engine's header store.
+// This option is required.
+func WithHeaderStore(s tmstore.HeaderStore) Opt {
+	return func(e *Engine, _ *tmstate.StateMachineConfig) error {
+		e.mCfg.HeaderStore = s
 		return nil
 	}
 }

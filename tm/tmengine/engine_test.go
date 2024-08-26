@@ -70,7 +70,7 @@ func TestEngine_plumbing_ConsensusStrategy(t *testing.T) {
 
 		require.True(t, efx.Fx.ValSet().Equal(rv0.ValidatorSet))
 
-		require.Empty(t, rv0.ProposedBlocks)
+		require.Empty(t, rv0.ProposedHeaders)
 
 		// The proofs always have an empty nil proof, for some reason internal to the mirror.
 		require.Len(t, rv0.PrevoteProofs, 1)
@@ -88,7 +88,7 @@ func TestEngine_plumbing_ConsensusStrategy(t *testing.T) {
 	})
 
 	// Shared across subsequent subtests.
-	var pb tmconsensus.ProposedBlock
+	var ph tmconsensus.ProposedHeader
 
 	t.Run("state machine proposes a block", func(t *testing.T) {
 		require.Equal(t, 1, cap(erc.ProposalOut))
@@ -104,16 +104,16 @@ func TestEngine_plumbing_ConsensusStrategy(t *testing.T) {
 		// This causes a voting view update to be sent to the gossip strategy.
 		vrv := gtest.ReceiveSoon(t, efx.GossipStrategy.Updates).Voting
 
-		require.Len(t, vrv.ProposedBlocks, 1)
-		pb = vrv.ProposedBlocks[0]
-		require.Equal(t, "app_data_1", string(pb.Block.DataID))
+		require.Len(t, vrv.ProposedHeaders, 1)
+		ph = vrv.ProposedHeaders[0]
+		require.Equal(t, "app_data_1", string(ph.Header.DataID))
 
-		// The proposed block is not identical to the fixture's next proposed block.
+		// The proposed header is not identical to the fixture's next proposed header.
 		// Arguably that is a bug in the fixture,
 		// but the actual engine sets the PrevBlockHash to match the genesis pseudo-block
 		// and it has a PrevAppStateHash.
-		expPB := efx.Fx.NextProposedBlock([]byte("app_data_1"), 0)
-		expPB.Block.PrevAppStateHash = []byte(initAppStateHash)
+		expPH := efx.Fx.NextProposedHeader([]byte("app_data_1"), 0)
+		expPH.Header.PrevAppStateHash = []byte(initAppStateHash)
 
 		g := tmconsensus.Genesis{
 			ChainID:             "my-chain", // NOTE: this is hard-coded to the fixture's default chain ID.
@@ -122,29 +122,29 @@ func TestEngine_plumbing_ConsensusStrategy(t *testing.T) {
 			ValidatorSet:        efx.Fx.ValSet(),
 		}
 
-		gBlock, err := g.Block(efx.Fx.HashScheme)
+		gBlock, err := g.Header(efx.Fx.HashScheme)
 		require.NoError(t, err)
-		expPB.Block.PrevBlockHash = gBlock.Hash
+		expPH.Header.PrevBlockHash = gBlock.Hash
 
-		efx.Fx.RecalculateHash(&expPB.Block)
+		efx.Fx.RecalculateHash(&expPH.Header)
 
-		efx.Fx.SignProposal(ctx, &expPB, 0)
-		require.Equal(t, expPB, pb)
+		efx.Fx.SignProposal(ctx, &expPH, 0)
+		require.Equal(t, expPH, ph)
 	})
 
 	// Used by subsequent subtests.
-	blockHash := string(pb.Block.Hash)
+	blockHash := string(ph.Header.Hash)
 	var vrv tmconsensus.VersionedRoundView
 
-	t.Run("mirror presents proposed block back to state machine", func(t *testing.T) {
-		// Once the state machine has sent the proposed block to the mirror,
+	t.Run("mirror presents proposed header back to state machine", func(t *testing.T) {
+		// Once the state machine has sent the proposed header to the mirror,
 		// the mirror enqueues a view update presented to the state machine.
-		// That update will include the new proposed block.
-		// When the state machine receives that new proposed block,
+		// That update will include the new proposed header.
+		// When the state machine receives that new proposed header,
 		// it calls the consensus strategy's ConsiderProposedBlocks method.
 		cReq := gtest.ReceiveSoon(t, efx.ConsensusStrategy.ConsiderProposedBlocksRequests)
-		require.Equal(t, []tmconsensus.ProposedBlock{pb}, cReq.PBs)
-		require.Equal(t, []string{string(pb.Block.Hash)}, cReq.Reason.NewProposedBlocks)
+		require.Equal(t, []tmconsensus.ProposedHeader{ph}, cReq.PHs)
+		require.Equal(t, []string{string(ph.Header.Hash)}, cReq.Reason.NewProposedBlocks)
 
 		// The state machine votes for the block it proposed.
 		cReq.ChoiceHash <- blockHash
@@ -183,8 +183,8 @@ func TestEngine_plumbing_ConsensusStrategy(t *testing.T) {
 		// The mirror sends an updated voting view to the gossip strategy.
 		vrv = *(gtest.ReceiveSoon(t, efx.GossipStrategy.Updates).Voting)
 
-		// It still has the proposed block and prevotes.
-		require.Len(t, vrv.ProposedBlocks, 1)
+		// It still has the proposed header and prevotes.
+		require.Len(t, vrv.ProposedHeaders, 1)
 		require.Len(t, vrv.PrevoteProofs, 1)
 		require.Equal(t, uint(4), vrv.PrevoteProofs[blockHash].SignatureBitSet().Count())
 
@@ -221,7 +221,7 @@ func TestEngine_plumbing_ConsensusStrategy(t *testing.T) {
 
 		// And the state machine received the committing view, causing it to make a finalize block request.
 		finReq := gtest.ReceiveSoon(t, efx.FinalizeBlockRequests)
-		require.Equal(t, pb.Block, finReq.Block)
+		require.Equal(t, ph.Header, finReq.Header)
 		require.Zero(t, finReq.Round)
 
 		// By the time the state machine received a finalize block request,
@@ -231,7 +231,7 @@ func TestEngine_plumbing_ConsensusStrategy(t *testing.T) {
 		// Under normal circumstances, the finalize request will complete before the timeout.
 		gtest.SendSoon(t, finReq.Resp, tmdriver.FinalizeBlockResponse{
 			Height: 1, Round: 0,
-			BlockHash: pb.Block.Hash,
+			BlockHash: ph.Header.Hash,
 
 			// Validators unchanged.
 			Validators: efx.Fx.Vals(),
@@ -242,7 +242,7 @@ func TestEngine_plumbing_ConsensusStrategy(t *testing.T) {
 		// We are going to propose a block at height 2 later,
 		// so we need to commit the block at height 1 within the fixture.
 		efx.Fx.CommitBlock(
-			committingVRV.ProposedBlocks[0].Block,
+			committingVRV.ProposedHeaders[0].Header,
 			[]byte("app_state_1"),
 			0,
 			committingVRV.PrecommitProofs,
@@ -266,7 +266,7 @@ func TestEngine_plumbing_ConsensusStrategy(t *testing.T) {
 	})
 
 	t.Run("proposal timeout on the new height", func(t *testing.T) {
-		// After that timer elapses, the consensus strategy must choose a proposed block
+		// After that timer elapses, the consensus strategy must choose a proposed header
 		// (of which there are none).
 		require.NoError(t, efx.RoundTimer.ElapseProposalTimer(2, 0))
 
@@ -320,14 +320,14 @@ func TestEngine_plumbing_ConsensusStrategy(t *testing.T) {
 	})
 
 	t.Run("chain advances properly from round 1 on a height", func(t *testing.T) {
-		pb21 := efx.Fx.NextProposedBlock([]byte("app_data_2_1"), 1)
-		pb21.Round = 1
-		efx.Fx.SignProposal(ctx, &pb21, 1)
-		require.Equal(t, tmconsensus.HandleProposedBlockAccepted, engine.HandleProposedBlock(ctx, pb21))
+		ph21 := efx.Fx.NextProposedHeader([]byte("app_data_2_1"), 1)
+		ph21.Round = 1
+		efx.Fx.SignProposal(ctx, &ph21, 1)
+		require.Equal(t, tmconsensus.HandleProposedHeaderAccepted, engine.HandleProposedHeader(ctx, ph21))
 
 		cpbReq := gtest.ReceiveSoon(t, cs.ConsiderProposedBlocksRequests)
-		require.Equal(t, []tmconsensus.ProposedBlock{pb21}, cpbReq.PBs)
-		require.Equal(t, []string{string(pb21.Block.Hash)}, cpbReq.Reason.NewProposedBlocks)
+		require.Equal(t, []tmconsensus.ProposedHeader{ph21}, cpbReq.PHs)
+		require.Equal(t, []string{string(ph21.Header.Hash)}, cpbReq.Reason.NewProposedBlocks)
 
 		// There is technically a data race on asserting this timer active
 		// immediately after making the enter round call.
@@ -337,7 +337,7 @@ func TestEngine_plumbing_ConsensusStrategy(t *testing.T) {
 		// Sending the precommit choice updates the voting view to the gossip strategy.
 		_ = gtest.ReceiveSoon(t, efx.GossipStrategy.Updates)
 
-		blockHash := string(pb21.Block.Hash)
+		blockHash := string(ph21.Header.Hash)
 		gtest.SendSoon(t, cpbReq.ChoiceHash, blockHash)
 		_ = gtest.ReceiveSoon(t, efx.GossipStrategy.Updates)
 
@@ -371,7 +371,7 @@ func TestEngine_plumbing_ConsensusStrategy(t *testing.T) {
 		require.Equal(t, tmconsensus.HandleVoteProofsAccepted, engine.HandlePrecommitProofs(ctx, precommitSparseProof))
 
 		finReq := gtest.ReceiveSoon(t, efx.FinalizeBlockRequests)
-		require.Equal(t, pb21.Block, finReq.Block)
+		require.Equal(t, ph21.Header, finReq.Header)
 		require.Equal(t, uint32(1), finReq.Round)
 
 		// The commit wait timer elapses before finalization.
@@ -382,7 +382,7 @@ func TestEngine_plumbing_ConsensusStrategy(t *testing.T) {
 
 		finReq.Resp <- tmdriver.FinalizeBlockResponse{
 			Height: 2, Round: 1,
-			BlockHash: pb21.Block.Hash,
+			BlockHash: ph21.Header.Hash,
 
 			Validators: efx.Fx.Vals(),
 
@@ -443,68 +443,68 @@ func TestEngine_plumbing_GossipStrategy(t *testing.T) {
 
 		require.Equal(t, uint64(1), u.Voting.Height)
 		require.Zero(t, u.Voting.Round)
-		require.Empty(t, u.Voting.ProposedBlocks)
+		require.Empty(t, u.Voting.ProposedHeaders)
 
 		require.Equal(t, uint64(1), u.NextRound.Height)
 		require.Equal(t, uint32(1), u.NextRound.Round)
-		require.Empty(t, u.NextRound.ProposedBlocks)
+		require.Empty(t, u.NextRound.ProposedHeaders)
 	})
 
-	pb103 := efx.Fx.NextProposedBlock([]byte("app_data_1_0_3"), 3)
-	pb103.Block.PrevAppStateHash = []byte(initAppStateHash)
-	efx.Fx.RecalculateHash(&pb103.Block)
-	efx.Fx.SignProposal(ctx, &pb103, 3)
-	t.Run("proposed block from network", func(t *testing.T) {
-		require.Equal(t, tmconsensus.HandleProposedBlockAccepted, engine.HandleProposedBlock(ctx, pb103))
+	ph103 := efx.Fx.NextProposedHeader([]byte("app_data_1_0_3"), 3)
+	ph103.Header.PrevAppStateHash = []byte(initAppStateHash)
+	efx.Fx.RecalculateHash(&ph103.Header)
+	efx.Fx.SignProposal(ctx, &ph103, 3)
+	t.Run("proposed header from network", func(t *testing.T) {
+		require.Equal(t, tmconsensus.HandleProposedHeaderAccepted, engine.HandleProposedHeader(ctx, ph103))
 
 		u := gtest.ReceiveSoon(t, gs.Updates)
 
 		require.Equal(t, uint64(1), u.Voting.Height)
 		require.Zero(t, u.Voting.Round)
-		require.Equal(t, []tmconsensus.ProposedBlock{pb103}, u.Voting.ProposedBlocks)
+		require.Equal(t, []tmconsensus.ProposedHeader{ph103}, u.Voting.ProposedHeaders)
 
 		require.Nil(t, u.Committing)
 		require.Nil(t, u.NextRound)
 
 		cReq := gtest.ReceiveSoon(t, cs.ConsiderProposedBlocksRequests)
-		require.Equal(t, []string{string(pb103.Block.Hash)}, cReq.Reason.NewProposedBlocks)
+		require.Equal(t, []string{string(ph103.Header.Hash)}, cReq.Reason.NewProposedBlocks)
 		gtest.SendSoon(t, cReq.ChoiceError, tmconsensus.ErrProposedBlockChoiceNotReady)
 	})
 
-	var pb100 tmconsensus.ProposedBlock
+	var ph100 tmconsensus.ProposedHeader
 	var blockHash100 string
-	t.Run("proposed block from state machine", func(t *testing.T) {
+	t.Run("proposed header from state machine", func(t *testing.T) {
 		gtest.SendSoon(t, erc.ProposalOut, tmconsensus.Proposal{
 			DataID: "app_data_1_0_0",
 		})
 
-		// The proposed blocks that arrive from the state machine
+		// The proposed headers that arrive from the state machine
 		// are constructed slightly differently from the fixture --
 		// the fixture omits the previous block hash and previous app state hash,
 		// at genesis at least.
-		// So load the proposed block from the state machine's action store
+		// So load the proposed header from the state machine's action store
 		// to confirm it matches with what the gossip strategy receives.
 
 		u := gtest.ReceiveSoon(t, gs.Updates)
 
 		ra, err := efx.ActionStore.Load(ctx, 1, 0)
 		require.NoError(t, err)
-		pb100 = ra.ProposedBlock
-		blockHash100 = string(pb100.Block.Hash)
-		require.Equal(t, uint64(1), pb100.Block.Height)
-		require.Zero(t, pb100.Round)
-		require.Equal(t, "app_data_1_0_0", string(pb100.Block.DataID))
+		ph100 = ra.ProposedHeader
+		blockHash100 = string(ph100.Header.Hash)
+		require.Equal(t, uint64(1), ph100.Header.Height)
+		require.Zero(t, ph100.Round)
+		require.Equal(t, "app_data_1_0_0", string(ph100.Header.DataID))
 
 		require.Equal(t, uint64(1), u.Voting.Height)
 		require.Zero(t, u.Voting.Round)
-		require.Equal(t, []tmconsensus.ProposedBlock{pb103, pb100}, u.Voting.ProposedBlocks)
+		require.Equal(t, []tmconsensus.ProposedHeader{ph103, ph100}, u.Voting.ProposedHeaders)
 
 		require.Nil(t, u.Committing)
 		require.Nil(t, u.NextRound)
 	})
 
 	// From here the network is going to settle on the 1_0_3 block, not the 1_0_0.
-	blockHash103 := string(pb103.Block.Hash)
+	blockHash103 := string(ph103.Header.Hash)
 	pubKeyHash, _ := efx.Fx.ValidatorHashes()
 	t.Run("prevote from network", func(t *testing.T) {
 		only3Prevote := efx.Fx.SparsePrevoteProofMap(ctx, 1, 0, map[string][]int{
@@ -521,7 +521,7 @@ func TestEngine_plumbing_GossipStrategy(t *testing.T) {
 
 		require.Equal(t, uint64(1), u.Voting.Height)
 		require.Zero(t, u.Voting.Round)
-		require.Equal(t, []tmconsensus.ProposedBlock{pb103, pb100}, u.Voting.ProposedBlocks)
+		require.Equal(t, []tmconsensus.ProposedHeader{ph103, ph100}, u.Voting.ProposedHeaders)
 
 		proof103 := u.Voting.PrevoteProofs[blockHash103]
 		require.Equal(t, uint(1), proof103.SignatureBitSet().Count())
@@ -1164,12 +1164,12 @@ func TestEngine_metrics(t *testing.T) {
 	_ = gtest.ReceiveSoon(t, eReady)
 
 	// The network proposes a block and it is received.
-	pb103 := efx.Fx.NextProposedBlock([]byte("app_data_1_0_3"), 3)
-	efx.Fx.SignProposal(ctx, &pb103, 3)
-	require.Equal(t, tmconsensus.HandleProposedBlockAccepted, engine.HandleProposedBlock(ctx, pb103))
+	ph103 := efx.Fx.NextProposedHeader([]byte("app_data_1_0_3"), 3)
+	efx.Fx.SignProposal(ctx, &ph103, 3)
+	require.Equal(t, tmconsensus.HandleProposedHeaderAccepted, engine.HandleProposedHeader(ctx, ph103))
 	_ = gtest.ReceiveSoon(t, ercCh)
 
-	// Since the mirror and state machine must have seen the proposed block,
+	// Since the mirror and state machine must have seen the proposed header,
 	// it should be safe to assume they have both reported height 1 and round 0 to the metrics collector.
 	m := gtest.ReceiveSoon(t, metricsCh)
 	require.Equal(t, uint64(1), m.MirrorVotingHeight)

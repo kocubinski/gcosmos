@@ -17,7 +17,7 @@ func TestSimpleSignatureScheme(t *testing.T) {
 	var buf bytes.Buffer
 
 	t.Run("proposal", func(t *testing.T) {
-		orig := tmconsensus.Block{
+		orig := tmconsensus.Header{
 			Height:           10,
 			PrevBlockHash:    []byte("proposal"),
 			PrevAppStateHash: []byte("state"),
@@ -39,24 +39,24 @@ func TestSimpleSignatureScheme(t *testing.T) {
 		})
 
 		t.Run("sign bytes change after modifying block", func(t *testing.T) {
-			for _, fn := range []func(tmconsensus.Block) tmconsensus.Block{
-				func(b tmconsensus.Block) tmconsensus.Block {
-					out := b
+			for _, fn := range []func(tmconsensus.Header) tmconsensus.Header{
+				func(h tmconsensus.Header) tmconsensus.Header {
+					out := h
 					out.Height = 1234
 					return out
 				},
-				func(b tmconsensus.Block) tmconsensus.Block {
-					out := b
+				func(h tmconsensus.Header) tmconsensus.Header {
+					out := h
 					out.PrevBlockHash = []byte("different block hash")
 					return out
 				},
-				func(b tmconsensus.Block) tmconsensus.Block {
-					out := b
+				func(h tmconsensus.Header) tmconsensus.Header {
+					out := h
 					out.PrevAppStateHash = []byte("different app state hash")
 					return out
 				},
-				func(b tmconsensus.Block) tmconsensus.Block {
-					out := b
+				func(h tmconsensus.Header) tmconsensus.Header {
+					out := h
 					out.DataID = []byte("different app data ID")
 					return out
 				},
@@ -148,13 +148,13 @@ func TestSimpleSignatureScheme(t *testing.T) {
 
 				t.Run("sign bytes change after modification", func(t *testing.T) {
 					cases := []func(tmconsensus.VoteTarget) tmconsensus.VoteTarget{
-						func(b tmconsensus.VoteTarget) tmconsensus.VoteTarget {
-							out := b
+						func(vt tmconsensus.VoteTarget) tmconsensus.VoteTarget {
+							out := vt
 							out.Height = 1234
 							return out
 						},
-						func(b tmconsensus.VoteTarget) tmconsensus.VoteTarget {
-							out := b
+						func(vt tmconsensus.VoteTarget) tmconsensus.VoteTarget {
+							out := vt
 							out.Round = 2345
 							return out
 						},
@@ -164,8 +164,8 @@ func TestSimpleSignatureScheme(t *testing.T) {
 						// nil prevote ignoes those fields.
 						cases = append(
 							cases,
-							func(b tmconsensus.VoteTarget) tmconsensus.VoteTarget {
-								out := b
+							func(vt tmconsensus.VoteTarget) tmconsensus.VoteTarget {
+								out := vt
 								out.BlockHash = "different block hash"
 								return out
 							},

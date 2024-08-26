@@ -26,17 +26,17 @@ type InitChainResponse struct {
 }
 
 // FinalizeBlockRequest is sent from the state machine to the driver,
-// notifying the driver that the given block is going to be committed.
+// notifying the driver that the given header represents the block that is to be committed.
 //
-// The driver must evaluate the block and return the validators to set
-// as NextValidators on the subsequent block;
+// The driver must evaluate the block corresponding to the header
+// and return the validators to set as NextValidators on the subsequent block;
 // and it must return the resulting app state hash,
 // to be used as PrevAppStateHash in the subsequent block.
 //
 // Consumers of this value may assume that Resp is buffered and sends will not block.
 type FinalizeBlockRequest struct {
-	Block tmconsensus.Block
-	Round uint32
+	Header tmconsensus.Header
+	Round  uint32
 
 	Resp chan FinalizeBlockResponse
 }

@@ -39,7 +39,7 @@ type StateMachineRoundEntrance struct {
 //
 // Exactly one of the fields must be set.
 type StateMachineRoundAction struct {
-	PB                 tmconsensus.ProposedBlock
+	PH                 tmconsensus.ProposedHeader
 	Prevote, Precommit ScopedSignature
 }
 
@@ -64,7 +64,7 @@ type ScopedSignature struct {
 type RoundEntranceResponse struct {
 	VRV tmconsensus.VersionedRoundView
 
-	CB tmconsensus.CommittedBlock
+	CH tmconsensus.CommittedHeader
 }
 
 // IsVRV reports whether r contains a VersionedRoundView,
@@ -73,10 +73,10 @@ func (r RoundEntranceResponse) IsVRV() bool {
 	return r.VRV.Height > 0
 }
 
-// IsCB reports whether r contains a CommittedBlock,
-// by checking for a non-zero height on r.CB.
-func (r RoundEntranceResponse) IsCB() bool {
-	return r.CB.Block.Height > 0
+// IsCH reports whether r contains a CommittedHeader,
+// by checking for a non-zero height on r.CH.
+func (r RoundEntranceResponse) IsCH() bool {
+	return r.CH.Header.Height > 0
 }
 
 // StateMachineRoundView is the set of values the mirror sends to the state machine
@@ -99,5 +99,5 @@ type StateMachineRoundView struct {
 	// the mirror will send a committed block on the round view update channel.
 	//
 	// Pointer because it is rarely set.
-	CB *tmconsensus.CommittedBlock
+	CH *tmconsensus.CommittedHeader
 }

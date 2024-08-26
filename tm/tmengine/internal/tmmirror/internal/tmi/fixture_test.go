@@ -33,7 +33,7 @@ type KernelFixture struct {
 	SnapshotRequests   chan tmi.SnapshotRequest
 	ViewLookupRequests chan tmi.ViewLookupRequest
 
-	AddPBRequests        chan tmconsensus.ProposedBlock
+	AddPHRequests        chan tmconsensus.ProposedHeader
 	AddPrevoteRequests   chan tmi.AddPrevoteRequest
 	AddPrecommitRequests chan tmi.AddPrecommitRequest
 
@@ -60,7 +60,7 @@ func NewKernelFixture(ctx context.Context, t *testing.T, nVals int) *KernelFixtu
 
 	// "Arbitrarily sized to allow some concurrent requests,
 	// with low likelihood of blocking."
-	addPBRequests := make(chan tmconsensus.ProposedBlock, 8)
+	addPHRequests := make(chan tmconsensus.ProposedHeader, 8)
 
 	// "The calling method blocks on the response regardless,
 	// so no point in buffering these."
@@ -91,7 +91,7 @@ func NewKernelFixture(ctx context.Context, t *testing.T, nVals int) *KernelFixtu
 		SnapshotRequests:   snapshotRequests,
 		ViewLookupRequests: viewLookupRequests,
 
-		AddPBRequests:        addPBRequests,
+		AddPHRequests:        addPHRequests,
 		AddPrevoteRequests:   addPrevoteRequests,
 		AddPrecommitRequests: addPrecommitRequests,
 
@@ -100,7 +100,7 @@ func NewKernelFixture(ctx context.Context, t *testing.T, nVals int) *KernelFixtu
 
 		Cfg: tmi.KernelConfig{
 			Store:          tmmemstore.NewMirrorStore(),
-			BlockStore:     tmmemstore.NewBlockStore(),
+			HeaderStore:    tmmemstore.NewHeaderStore(),
 			RoundStore:     tmmemstore.NewRoundStore(),
 			ValidatorStore: tmmemstore.NewValidatorStore(fx.HashScheme),
 
@@ -119,7 +119,7 @@ func NewKernelFixture(ctx context.Context, t *testing.T, nVals int) *KernelFixtu
 			SnapshotRequests:   snapshotRequests,
 			ViewLookupRequests: viewLookupRequests,
 
-			AddPBRequests:        addPBRequests,
+			AddPHRequests:        addPHRequests,
 			AddPrevoteRequests:   addPrevoteRequests,
 			AddPrecommitRequests: addPrecommitRequests,
 

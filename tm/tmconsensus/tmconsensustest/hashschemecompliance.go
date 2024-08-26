@@ -12,39 +12,39 @@ import (
 
 // TestHashSchemeCompliance runs the compliance tests for a hashing scheme.
 //
-// makeDefaultBlock should only be set if the hash scheme has specific restrictions on blocks,
+// makeDefaultHeader should only be set if the hash scheme has specific restrictions on block headers,
 // such as expecting certain values to have exact lengths.
-// It is acceptable for makeDefaultBlock to panic on error.
-// If makeDefaultBlock is nil, a default block maker function is used.
+// It is acceptable for makeDefaultHeader to panic on error.
+// If makeDefaultHeader is nil, a default header maker function is used.
 //
 // We currently assume that a hashing scheme value is stateless,
 // and so a single value can be used for all tests.
 func TestHashSchemeCompliance(
 	t *testing.T,
-	h tmconsensus.HashScheme,
+	hs tmconsensus.HashScheme,
 	p gcrypto.CommonMessageSignatureProofScheme,
-	makeDefaultBlock func(gcrypto.CommonMessageSignatureProofScheme) tmconsensus.Block,
+	makeDefaultHeader func(gcrypto.CommonMessageSignatureProofScheme) tmconsensus.Header,
 ) {
 	t.Run("Block", func(t *testing.T) {
-		if makeDefaultBlock == nil {
-			makeDefaultBlock = defaultHashSchemeBlock
+		if makeDefaultHeader == nil {
+			makeDefaultHeader = defaultHashSchemeHeader
 		}
 
 		t.Run("validate default block", func(t *testing.T) {
-			b := makeDefaultBlock(p)
-			if len(b.PrevBlockHash) == 0 {
+			h := makeDefaultHeader(p)
+			if len(h.PrevBlockHash) == 0 {
 				t.Errorf("PrevBlockHash must not be empty")
 			}
-			if len(b.DataID) == 0 {
+			if len(h.DataID) == 0 {
 				t.Errorf("DataID must not be empty")
 			}
 
 			// TODO: assert some details of PrevCommitProof.
 
-			if len(b.ValidatorSet.Validators) < 2 {
+			if len(h.ValidatorSet.Validators) < 2 {
 				t.Errorf("Validators must have at least two elements, preferably more")
 			}
-			if len(b.NextValidatorSet.Validators) < 2 {
+			if len(h.NextValidatorSet.Validators) < 2 {
 				t.Errorf("NextValidators must have at least two elements, preferably more")
 			}
 		})
@@ -53,28 +53,28 @@ func TestHashSchemeCompliance(
 			t.Fatalf("default block validation failed; cannot continue")
 		}
 
-		b := makeDefaultBlock(p)
+		h := makeDefaultHeader(p)
 		var err error
-		b.ValidatorSet, err = tmconsensus.NewValidatorSet(b.ValidatorSet.Validators, h)
+		h.ValidatorSet, err = tmconsensus.NewValidatorSet(h.ValidatorSet.Validators, hs)
 		require.NoError(t, err)
-		b.NextValidatorSet, err = tmconsensus.NewValidatorSet(b.NextValidatorSet.Validators, h)
+		h.NextValidatorSet, err = tmconsensus.NewValidatorSet(h.NextValidatorSet.Validators, hs)
 		require.NoError(t, err)
 
-		origHash, err := h.Block(b)
+		origHash, err := hs.Block(h)
 		require.NoError(t, err)
 
 		t.Run("determinism", func(t *testing.T) {
 			t.Parallel()
 
-			b := makeDefaultBlock(p)
+			h := makeDefaultHeader(p)
 			var err error
-			b.ValidatorSet, err = tmconsensus.NewValidatorSet(b.ValidatorSet.Validators, h)
+			h.ValidatorSet, err = tmconsensus.NewValidatorSet(h.ValidatorSet.Validators, hs)
 			require.NoError(t, err)
-			b.NextValidatorSet, err = tmconsensus.NewValidatorSet(b.NextValidatorSet.Validators, h)
+			h.NextValidatorSet, err = tmconsensus.NewValidatorSet(h.NextValidatorSet.Validators, hs)
 			require.NoError(t, err)
 
 			for i := 0; i < 100; i++ {
-				bh, err := h.Block(b)
+				bh, err := hs.Block(h)
 				require.NoError(t, err)
 
 				require.Equalf(t, origHash, bh, "calculated different block hash on attempt %d/100", i+1)
@@ -82,20 +82,20 @@ func TestHashSchemeCompliance(
 		})
 
 		t.Run("existing hash value is not consulted", func(t *testing.T) {
-			b := makeDefaultBlock(p)
+			h := makeDefaultHeader(p)
 			var err error
-			b.ValidatorSet, err = tmconsensus.NewValidatorSet(b.ValidatorSet.Validators, h)
+			h.ValidatorSet, err = tmconsensus.NewValidatorSet(h.ValidatorSet.Validators, hs)
 			require.NoError(t, err)
-			b.NextValidatorSet, err = tmconsensus.NewValidatorSet(b.NextValidatorSet.Validators, h)
+			h.NextValidatorSet, err = tmconsensus.NewValidatorSet(h.NextValidatorSet.Validators, hs)
 			require.NoError(t, err)
 
-			if b.Hash == nil {
-				b.Hash = []byte("some hash")
+			if h.Hash == nil {
+				h.Hash = []byte("some hash")
 			} else {
-				b.Hash = nil
+				h.Hash = nil
 			}
 
-			bh, err := h.Block(b)
+			bh, err := hs.Block(h)
 			require.NoError(t, err)
 
 			require.Equal(t, origHash, bh, "returned hash should have been the same regardless of existing hash field value")
@@ -106,24 +106,24 @@ func TestHashSchemeCompliance(
 
 			tcs := []struct {
 				name string
-				fn   func(*tmconsensus.Block)
+				fn   func(*tmconsensus.Header)
 			}{
 				{
 					name: "PrevBlockHash",
-					fn: func(b *tmconsensus.Block) {
-						b.PrevBlockHash[0]++
+					fn: func(h *tmconsensus.Header) {
+						h.PrevBlockHash[0]++
 					},
 				},
 				{
 					name: "Height",
-					fn: func(b *tmconsensus.Block) {
-						b.Height++
+					fn: func(h *tmconsensus.Header) {
+						h.Height++
 					},
 				},
 				{
 					name: "DataID",
-					fn: func(b *tmconsensus.Block) {
-						b.DataID[0]++
+					fn: func(h *tmconsensus.Header) {
+						h.DataID[0]++
 					},
 				},
 
@@ -131,30 +131,30 @@ func TestHashSchemeCompliance(
 
 				{
 					name: "Validators (drop element)",
-					fn: func(b *tmconsensus.Block) {
-						updatedVS := b.ValidatorSet
+					fn: func(h *tmconsensus.Header) {
+						updatedVS := h.ValidatorSet
 						updatedVS.Validators = updatedVS.Validators[1:]
-						b.ValidatorSet = updatedVS
+						h.ValidatorSet = updatedVS
 					},
 				},
 				{
 					name: "Validators (change power on one element)",
-					fn: func(b *tmconsensus.Block) {
-						b.ValidatorSet.Validators[0].Power++
+					fn: func(h *tmconsensus.Header) {
+						h.ValidatorSet.Validators[0].Power++
 					},
 				},
 				{
 					name: "NextValidators (drop element)",
-					fn: func(b *tmconsensus.Block) {
-						updatedVS := b.NextValidatorSet
+					fn: func(h *tmconsensus.Header) {
+						updatedVS := h.NextValidatorSet
 						updatedVS.Validators = updatedVS.Validators[1:]
-						b.NextValidatorSet = updatedVS
+						h.NextValidatorSet = updatedVS
 					},
 				},
 				{
 					name: "NextValidators (change power on one element)",
-					fn: func(b *tmconsensus.Block) {
-						b.NextValidatorSet.Validators[0].Power++
+					fn: func(h *tmconsensus.Header) {
+						h.NextValidatorSet.Validators[0].Power++
 					},
 				},
 			}
@@ -168,11 +168,11 @@ func TestHashSchemeCompliance(
 
 				tcs = append(tcs, struct {
 					name string
-					fn   func(*tmconsensus.Block)
+					fn   func(*tmconsensus.Header)
 				}{
 					name: ac.Name,
-					fn: func(b *tmconsensus.Block) {
-						b.Annotations = ac.Annotations
+					fn: func(h *tmconsensus.Header) {
+						h.Annotations = ac.Annotations
 					},
 				})
 			}
@@ -181,9 +181,9 @@ func TestHashSchemeCompliance(
 				tc := tc
 				var seenHashes [][]byte
 				t.Run(tc.name, func(t *testing.T) {
-					b := makeDefaultBlock(p)
-					tc.fn(&b)
-					bh, err := h.Block(b)
+					h := makeDefaultHeader(p)
+					tc.fn(&h)
+					bh, err := hs.Block(h)
 					require.NoError(t, err)
 
 					require.NotEqualf(t, origHash, bh, "same hash calculated after changing block field %s", tc.name)
@@ -199,7 +199,7 @@ func TestHashSchemeCompliance(
 		t.Parallel()
 
 		pubKeys := DeterministicValidatorsEd25519(3).PubKeys()
-		origHash, err := h.PubKeys(pubKeys)
+		origHash, err := hs.PubKeys(pubKeys)
 		require.NoError(t, err)
 
 		t.Run("respects order", func(t *testing.T) {
@@ -207,7 +207,7 @@ func TestHashSchemeCompliance(
 			keys := slices.Clone(pubKeys)
 
 			keys[0], keys[1] = keys[1], keys[0]
-			newHash, err := h.PubKeys(keys)
+			newHash, err := hs.PubKeys(keys)
 			require.NoError(t, err)
 
 			require.NotEqual(t, origHash, newHash)
@@ -215,7 +215,7 @@ func TestHashSchemeCompliance(
 
 		t.Run("deterministic", func(t *testing.T) {
 			for i := 0; i < 10; i++ {
-				gotHash, err := h.PubKeys(pubKeys)
+				gotHash, err := hs.PubKeys(pubKeys)
 				require.NoError(t, err)
 				require.Equal(t, origHash, gotHash)
 			}
@@ -226,7 +226,7 @@ func TestHashSchemeCompliance(
 		t.Parallel()
 
 		pows := []uint64{1000, 100, 10}
-		origHash, err := h.VotePowers(pows)
+		origHash, err := hs.VotePowers(pows)
 		require.NoError(t, err)
 
 		t.Run("respects order", func(t *testing.T) {
@@ -234,7 +234,7 @@ func TestHashSchemeCompliance(
 			powsClone := slices.Clone(pows)
 
 			powsClone[0], powsClone[1] = powsClone[1], powsClone[0]
-			newHash, err := h.VotePowers(powsClone)
+			newHash, err := hs.VotePowers(powsClone)
 			require.NoError(t, err)
 
 			require.NotEqual(t, origHash, newHash)
@@ -242,7 +242,7 @@ func TestHashSchemeCompliance(
 
 		t.Run("deterministic", func(t *testing.T) {
 			for i := 0; i < 10; i++ {
-				gotHash, err := h.VotePowers(pows)
+				gotHash, err := hs.VotePowers(pows)
 				require.NoError(t, err)
 				require.Equal(t, origHash, gotHash)
 			}
@@ -250,7 +250,7 @@ func TestHashSchemeCompliance(
 	})
 }
 
-func defaultHashSchemeBlock(p gcrypto.CommonMessageSignatureProofScheme) tmconsensus.Block {
+func defaultHashSchemeHeader(p gcrypto.CommonMessageSignatureProofScheme) tmconsensus.Header {
 	vals := DeterministicValidatorsEd25519(5)
 
 	// All but the last validator; the NextValidators will have all the validators.
@@ -298,7 +298,7 @@ func defaultHashSchemeBlock(p gcrypto.CommonMessageSignatureProofScheme) tmconse
 	}
 	nilPrecommitProof.AddSignature(sig3, bvPubKeys[3])
 
-	return tmconsensus.Block{
+	return tmconsensus.Header{
 		PrevBlockHash: []byte("previous"),
 
 		Height: 3,

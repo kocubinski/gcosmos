@@ -22,7 +22,7 @@ type SimpleSignatureScheme struct{}
 var _ tmconsensus.SignatureScheme = SimpleSignatureScheme{}
 
 func (s SimpleSignatureScheme) WriteProposalSigningContent(
-	w io.Writer, b tmconsensus.Block, round uint32, pbAnnotations tmconsensus.Annotations,
+	w io.Writer, h tmconsensus.Header, round uint32, pbAnnotations tmconsensus.Annotations,
 ) (int, error) {
 	n, err := fmt.Fprintf(w, `PROPOSAL:
 Height=%d
@@ -30,7 +30,7 @@ Round=%d
 PrevBlockHash=%x
 PrevAppStateHash=%x
 DataID=%x
-`, b.Height, round, b.PrevBlockHash, b.PrevAppStateHash, b.DataID)
+`, h.Height, round, h.PrevBlockHash, h.PrevAppStateHash, h.DataID)
 	if err != nil {
 		return n, err
 	}

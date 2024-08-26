@@ -23,7 +23,7 @@ import (
 //	  checkSignature(buf.Bytes(), pv.Signature, publicKeys[i])
 //	}
 type SignatureScheme interface {
-	WriteProposalSigningContent(w io.Writer, b Block, round uint32, pbAnnotations Annotations) (int, error)
+	WriteProposalSigningContent(w io.Writer, h Header, round uint32, pbAnnotations Annotations) (int, error)
 
 	WritePrevoteSigningContent(io.Writer, VoteTarget) (int, error)
 
@@ -37,16 +37,16 @@ var sigBufPool = sync.Pool{
 }
 
 // ProposalSignBytes returns a new byte slice containing
-// the proposal sign bytes for b, as defined by s.
+// the proposal sign bytes for h, as defined by s.
 //
 // Use this function for one-off calls, but prefer to maintain
 // a local bytes.Buffer in loops involving signatures.
-func ProposalSignBytes(b Block, round uint32, pbAnnotations Annotations, s SignatureScheme) ([]byte, error) {
+func ProposalSignBytes(h Header, round uint32, pbAnnotations Annotations, s SignatureScheme) ([]byte, error) {
 	buf := sigBufPool.Get().(*bytes.Buffer)
 	defer sigBufPool.Put(buf)
 
 	buf.Reset()
-	_, err := s.WriteProposalSigningContent(buf, b, round, pbAnnotations)
+	_, err := s.WriteProposalSigningContent(buf, h, round, pbAnnotations)
 	if err != nil {
 		return nil, err
 	}

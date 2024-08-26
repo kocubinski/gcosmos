@@ -167,14 +167,14 @@ func (c *ConsensusStrategy) EnterRound(
 	return nil
 }
 
-// ConsiderProposedBlocks effectively chooses the first valid block in pbs.
+// ConsiderProposedBlocks effectively chooses the first valid block in phs.
 func (c *ConsensusStrategy) ConsiderProposedBlocks(
 	ctx context.Context,
-	pbs []tmconsensus.ProposedBlock,
+	phs []tmconsensus.ProposedHeader,
 	_ tmconsensus.ConsiderProposedBlocksReason,
 ) (string, error) {
-PB_LOOP:
-	for _, pb := range pbs {
+PH_LOOP:
+	for _, ph := range phs {
 		// TODO: handle a particular proposed block being excluded from a round,
 		// presumably because we got its data and we chose not to accept it.
 		const excluded = false
@@ -182,28 +182,28 @@ PB_LOOP:
 			continue
 		}
 
-		if pb.Block.Height != c.curH {
+		if ph.Header.Height != c.curH {
 			c.log.Debug(
 				"Ignoring proposed block due to height mismatch",
-				"want", c.curH, "got", pb.Block.Height,
+				"want", c.curH, "got", ph.Header.Height,
 			)
 			continue
 		}
-		if pb.Round != c.curR {
+		if ph.Round != c.curR {
 			c.log.Debug(
 				"Ignoring proposed block due to round mismatch",
 				"h", c.curH,
-				"want", c.curR, "got", pb.Round,
+				"want", c.curR, "got", ph.Round,
 			)
 			continue
 		}
 
-		h, r, nTxs, _, err := gsbd.ParseDataID(string(pb.Block.DataID))
+		h, r, nTxs, _, err := gsbd.ParseDataID(string(ph.Header.DataID))
 		if err != nil {
 			c.log.Debug(
 				"Ignoring proposed block due to unparseable app data ID",
 				"h", c.curH, "r", c.curR,
-				"block_hash", glog.Hex(pb.Block.Hash),
+				"block_hash", glog.Hex(ph.Header.Hash),
 				"err", err,
 			)
 			continue
@@ -228,9 +228,9 @@ PB_LOOP:
 		if nTxs != 0 {
 			// Unconditional call to Need first.
 			// (TODO: we should only call this when the reason includes this as a new block, right?)
-			c.pool.Need(h, r, string(pb.Block.DataID), pb.Annotations.Driver)
+			c.pool.Need(h, r, string(ph.Header.DataID), ph.Annotations.Driver)
 
-			txs, err, ready := c.pool.Have(string(pb.Block.DataID))
+			txs, err, ready := c.pool.Have(string(ph.Header.DataID))
 			if !ready {
 				// Request is in flight.
 				// Can't decide on this block yet.
@@ -273,12 +273,12 @@ PB_LOOP:
 						"tx_hash", glog.Hex(txHash[:]),
 						"err", err,
 					)
-					continue PB_LOOP
+					continue PH_LOOP
 				}
 			}
 		}
 
-		ba, err := BlockAnnotationFromBytes(pb.Block.Annotations.Driver)
+		ba, err := BlockAnnotationFromBytes(ph.Header.Annotations.Driver)
 		if err != nil {
 			c.log.Debug(
 				"Ignoring proposed block due to error extracting block annotation",
@@ -304,7 +304,7 @@ PB_LOOP:
 			continue
 		}
 
-		return string(pb.Block.Hash), nil
+		return string(ph.Header.Hash), nil
 	}
 
 	return "", tmconsensus.ErrProposedBlockChoiceNotReady
@@ -312,9 +312,9 @@ PB_LOOP:
 
 func (c *ConsensusStrategy) ChooseProposedBlock(
 	ctx context.Context,
-	pbs []tmconsensus.ProposedBlock,
+	phs []tmconsensus.ProposedHeader,
 ) (string, error) {
-	h, err := c.ConsiderProposedBlocks(ctx, pbs, tmconsensus.ConsiderProposedBlocksReason{})
+	h, err := c.ConsiderProposedBlocks(ctx, phs, tmconsensus.ConsiderProposedBlocksReason{})
 	if err == tmconsensus.ErrProposedBlockChoiceNotReady {
 		return "", nil
 	}

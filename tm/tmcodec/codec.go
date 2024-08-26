@@ -8,8 +8,8 @@ import (
 type Marshaler interface {
 	MarshalConsensusMessage(ConsensusMessage) ([]byte, error)
 
-	MarshalBlock(tmconsensus.Block) ([]byte, error)
-	MarshalProposedBlock(tmconsensus.ProposedBlock) ([]byte, error)
+	MarshalHeader(tmconsensus.Header) ([]byte, error)
+	MarshalProposedHeader(tmconsensus.ProposedHeader) ([]byte, error)
 
 	MarshalPrevoteProof(tmconsensus.PrevoteSparseProof) ([]byte, error)
 	MarshalPrecommitProof(tmconsensus.PrecommitSparseProof) ([]byte, error)
@@ -19,8 +19,8 @@ type Marshaler interface {
 type Unmarshaler interface {
 	UnmarshalConsensusMessage([]byte, *ConsensusMessage) error
 
-	UnmarshalBlock([]byte, *tmconsensus.Block) error
-	UnmarshalProposedBlock([]byte, *tmconsensus.ProposedBlock) error
+	UnmarshalHeader([]byte, *tmconsensus.Header) error
+	UnmarshalProposedHeader([]byte, *tmconsensus.ProposedHeader) error
 
 	UnmarshalPrevoteProof([]byte, *tmconsensus.PrevoteSparseProof) error
 	UnmarshalPrecommitProof([]byte, *tmconsensus.PrecommitSparseProof) error
@@ -37,7 +37,7 @@ type MarshalCodec interface {
 // Exactly one of the fields must be set.
 // If zero or multiple fields are set, behavior is undefined.
 type ConsensusMessage struct {
-	ProposedBlock *tmconsensus.ProposedBlock
+	ProposedHeader *tmconsensus.ProposedHeader
 
 	PrevoteProof   *tmconsensus.PrevoteSparseProof
 	PrecommitProof *tmconsensus.PrecommitSparseProof

@@ -7,10 +7,10 @@ import (
 	"github.com/rollchains/gordian/tm/tmconsensus"
 )
 
-// jsonProposedBlock is a converted [tmconsensus.ProposedBlock]
+// jsonProposedHeader is a converted [tmconsensus.ProposedHeader]
 // that can be safely marshalled as JSON.
-type jsonProposedBlock struct {
-	Block jsonBlock
+type jsonProposedHeader struct {
+	Header jsonHeader
 
 	Round uint32
 
@@ -21,50 +21,50 @@ type jsonProposedBlock struct {
 	UserAnnotation, DriverAnnotation []byte
 }
 
-func (jpb jsonProposedBlock) ToProposedBlock(
+func (jph jsonProposedHeader) ToProposedHeader(
 	reg *gcrypto.Registry,
-) (tmconsensus.ProposedBlock, error) {
-	b, err := jpb.Block.ToBlock(reg)
+) (tmconsensus.ProposedHeader, error) {
+	h, err := jph.Header.ToHeader(reg)
 	if err != nil {
-		return tmconsensus.ProposedBlock{}, fmt.Errorf(
-			"failed to unmarshal proposed block: %w", err,
+		return tmconsensus.ProposedHeader{}, fmt.Errorf(
+			"failed to unmarshal proposed header: %w", err,
 		)
 	}
 
-	pubKey, err := reg.Unmarshal(jpb.ProposerPubKey)
+	pubKey, err := reg.Unmarshal(jph.ProposerPubKey)
 	if err != nil {
-		return tmconsensus.ProposedBlock{}, fmt.Errorf(
+		return tmconsensus.ProposedHeader{}, fmt.Errorf(
 			"failed to unmarshal proposer pubkey: %w", err,
 		)
 	}
 
-	return tmconsensus.ProposedBlock{
-		Block:          b,
-		Round:          jpb.Round,
+	return tmconsensus.ProposedHeader{
+		Header:         h,
+		Round:          jph.Round,
 		ProposerPubKey: pubKey,
-		Signature:      jpb.Signature,
+		Signature:      jph.Signature,
 		Annotations: tmconsensus.Annotations{
-			User:   jpb.UserAnnotation,
-			Driver: jpb.DriverAnnotation,
+			User:   jph.UserAnnotation,
+			Driver: jph.DriverAnnotation,
 		},
 	}, nil
 }
 
-func toJSONProposedBlock(pb tmconsensus.ProposedBlock, reg *gcrypto.Registry) jsonProposedBlock {
-	return jsonProposedBlock{
-		Block:          toJSONBlock(pb.Block, reg),
-		Round:          pb.Round,
-		ProposerPubKey: reg.Marshal(pb.ProposerPubKey),
-		Signature:      pb.Signature,
+func toJSONProposedHeader(ph tmconsensus.ProposedHeader, reg *gcrypto.Registry) jsonProposedHeader {
+	return jsonProposedHeader{
+		Header:         toJSONHeader(ph.Header, reg),
+		Round:          ph.Round,
+		ProposerPubKey: reg.Marshal(ph.ProposerPubKey),
+		Signature:      ph.Signature,
 
-		UserAnnotation:   pb.Annotations.User,
-		DriverAnnotation: pb.Annotations.Driver,
+		UserAnnotation:   ph.Annotations.User,
+		DriverAnnotation: ph.Annotations.Driver,
 	}
 }
 
-// jsonProposedBlock is a converted [tmconsensus.Block]
+// jsonProposedHeader is a converted [tmconsensus.Header]
 // that can be safely marshalled as JSON.
-type jsonBlock struct {
+type jsonHeader struct {
 	Hash          []byte
 	PrevBlockHash []byte
 
@@ -84,27 +84,27 @@ type jsonBlock struct {
 	UserAnnotation, DriverAnnotation []byte
 }
 
-func (jb jsonBlock) ToBlock(
+func (jh jsonHeader) ToHeader(
 	reg *gcrypto.Registry,
-) (tmconsensus.Block, error) {
-	validators := make([]tmconsensus.Validator, len(jb.ValidatorSet.Validators))
-	for i, jv := range jb.ValidatorSet.Validators {
+) (tmconsensus.Header, error) {
+	validators := make([]tmconsensus.Validator, len(jh.ValidatorSet.Validators))
+	for i, jv := range jh.ValidatorSet.Validators {
 		var err error
 		validators[i], err = jv.ToValidator(reg)
 		if err != nil {
-			return tmconsensus.Block{}, fmt.Errorf(
+			return tmconsensus.Header{}, fmt.Errorf(
 				"failed to unmarshal to validator at index %d: %w",
 				i, err,
 			)
 		}
 	}
 
-	nextValidators := make([]tmconsensus.Validator, len(jb.NextValidatorSet.Validators))
-	for i, jv := range jb.NextValidatorSet.Validators {
+	nextValidators := make([]tmconsensus.Validator, len(jh.NextValidatorSet.Validators))
+	for i, jv := range jh.NextValidatorSet.Validators {
 		var err error
 		nextValidators[i], err = jv.ToValidator(reg)
 		if err != nil {
-			return tmconsensus.Block{}, fmt.Errorf(
+			return tmconsensus.Header{}, fmt.Errorf(
 				"failed to unmarshal to NextValidator at index %d: %w",
 				i, err,
 			)
@@ -117,46 +117,46 @@ func (jb jsonBlock) ToBlock(
 	}
 
 	var proof tmconsensus.CommitProof
-	if len(jb.PrevCommitProof.PubKeyHash) > 0 {
+	if len(jh.PrevCommitProof.PubKeyHash) > 0 {
 		var err error
-		proof, err = jb.PrevCommitProof.ToCommitProof()
+		proof, err = jh.PrevCommitProof.ToCommitProof()
 		if err != nil {
-			return tmconsensus.Block{}, fmt.Errorf(
+			return tmconsensus.Header{}, fmt.Errorf(
 				"failed to build PrevCommitProof: %w", err,
 			)
 		}
 	}
 
-	return tmconsensus.Block{
-		Hash:          jb.Hash,
-		PrevBlockHash: jb.PrevBlockHash,
+	return tmconsensus.Header{
+		Hash:          jh.Hash,
+		PrevBlockHash: jh.PrevBlockHash,
 
-		Height: jb.Height,
+		Height: jh.Height,
 
 		PrevCommitProof: proof,
 
 		ValidatorSet: tmconsensus.ValidatorSet{
 			Validators:    validators,
-			PubKeyHash:    jb.ValidatorSet.PubKeyHash,
-			VotePowerHash: jb.ValidatorSet.VotePowerHash,
+			PubKeyHash:    jh.ValidatorSet.PubKeyHash,
+			VotePowerHash: jh.ValidatorSet.VotePowerHash,
 		},
 		NextValidatorSet: tmconsensus.ValidatorSet{
 			Validators:    nextValidators,
-			PubKeyHash:    jb.NextValidatorSet.PubKeyHash,
-			VotePowerHash: jb.NextValidatorSet.VotePowerHash,
+			PubKeyHash:    jh.NextValidatorSet.PubKeyHash,
+			VotePowerHash: jh.NextValidatorSet.VotePowerHash,
 		},
 
-		DataID:           jb.DataID,
-		PrevAppStateHash: jb.PrevAppStateHash,
+		DataID:           jh.DataID,
+		PrevAppStateHash: jh.PrevAppStateHash,
 
 		Annotations: tmconsensus.Annotations{
-			User:   jb.UserAnnotation,
-			Driver: jb.DriverAnnotation,
+			User:   jh.UserAnnotation,
+			Driver: jh.DriverAnnotation,
 		},
 	}, nil
 }
 
-func toJSONBlock(b tmconsensus.Block, reg *gcrypto.Registry) jsonBlock {
+func toJSONHeader(b tmconsensus.Header, reg *gcrypto.Registry) jsonHeader {
 	jValidators := make([]jsonValidator, len(b.ValidatorSet.Validators))
 	for i, v := range b.ValidatorSet.Validators {
 		jValidators[i] = toJSONValidator(v, reg)
@@ -167,7 +167,7 @@ func toJSONBlock(b tmconsensus.Block, reg *gcrypto.Registry) jsonBlock {
 		jNextValidators[i] = toJSONValidator(v, reg)
 	}
 
-	jb := jsonBlock{
+	jh := jsonHeader{
 		Hash:          b.Hash,
 		PrevBlockHash: b.PrevBlockHash,
 
@@ -182,18 +182,18 @@ func toJSONBlock(b tmconsensus.Block, reg *gcrypto.Registry) jsonBlock {
 		DriverAnnotation: b.Annotations.Driver,
 	}
 
-	jb.ValidatorSet.Validators = jValidators
-	jb.ValidatorSet.PubKeyHash = b.ValidatorSet.PubKeyHash
-	jb.ValidatorSet.VotePowerHash = b.ValidatorSet.VotePowerHash
+	jh.ValidatorSet.Validators = jValidators
+	jh.ValidatorSet.PubKeyHash = b.ValidatorSet.PubKeyHash
+	jh.ValidatorSet.VotePowerHash = b.ValidatorSet.VotePowerHash
 
-	jb.NextValidatorSet.Validators = jNextValidators
-	jb.NextValidatorSet.PubKeyHash = b.NextValidatorSet.PubKeyHash
-	jb.NextValidatorSet.VotePowerHash = b.NextValidatorSet.VotePowerHash
+	jh.NextValidatorSet.Validators = jNextValidators
+	jh.NextValidatorSet.PubKeyHash = b.NextValidatorSet.PubKeyHash
+	jh.NextValidatorSet.VotePowerHash = b.NextValidatorSet.VotePowerHash
 
-	return jb
+	return jh
 }
 
-// jsonProposedBlock is a converted [tmconsensus.Validator]
+// jsonProposedHeader is a converted [tmconsensus.Validator]
 // that can be safely marshalled as JSON.
 type jsonValidator struct {
 	PubKey []byte

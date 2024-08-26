@@ -28,9 +28,9 @@ func TestStepFromVoteSummary(t *testing.T) {
 
 		fx, rv := makeRV(4)
 		vs := rv.VoteSummary
-		pb1 := fx.NextProposedBlock([]byte("app_data_1"), 0)
+		pb1 := fx.NextProposedHeader([]byte("app_data_1"), 0)
 		prevoteMap := fx.PrevoteProofMap(ctx, 1, 0, map[string][]int{
-			string(pb1.Block.Hash): {0, 1},
+			string(pb1.Header.Hash): {0, 1},
 		})
 		vs.SetPrevotePowers(fx.Vals(), prevoteMap)
 
@@ -46,9 +46,9 @@ func TestStepFromVoteSummary(t *testing.T) {
 
 		fx, rv := makeRV(4)
 		vs := rv.VoteSummary
-		pb1 := fx.NextProposedBlock([]byte("app_data_1"), 0)
+		pb1 := fx.NextProposedHeader([]byte("app_data_1"), 0)
 		prevoteMap := fx.PrevoteProofMap(ctx, 1, 0, map[string][]int{
-			string(pb1.Block.Hash): {0, 1, 2},
+			string(pb1.Header.Hash): {0, 1, 2},
 		})
 		vs.SetPrevotePowers(fx.Vals(), prevoteMap)
 
@@ -64,10 +64,10 @@ func TestStepFromVoteSummary(t *testing.T) {
 
 		fx, rv := makeRV(4)
 		vs := rv.VoteSummary
-		pb1 := fx.NextProposedBlock([]byte("app_data_1"), 0)
+		pb1 := fx.NextProposedHeader([]byte("app_data_1"), 0)
 		prevoteMap := fx.PrevoteProofMap(ctx, 1, 0, map[string][]int{
-			string(pb1.Block.Hash): {0, 1},
-			"":                     {2},
+			string(pb1.Header.Hash): {0, 1},
+			"":                      {2},
 		})
 		vs.SetPrevotePowers(fx.Vals(), prevoteMap)
 
@@ -83,9 +83,9 @@ func TestStepFromVoteSummary(t *testing.T) {
 
 		fx, rv := makeRV(4)
 		vs := rv.VoteSummary
-		pb1 := fx.NextProposedBlock([]byte("app_data_1"), 0)
+		pb1 := fx.NextProposedHeader([]byte("app_data_1"), 0)
 		precommitMap := fx.PrecommitProofMap(ctx, 1, 0, map[string][]int{
-			string(pb1.Block.Hash): {0, 1},
+			string(pb1.Header.Hash): {0, 1},
 		})
 		vs.SetPrecommitPowers(fx.Vals(), precommitMap)
 
@@ -101,9 +101,9 @@ func TestStepFromVoteSummary(t *testing.T) {
 
 		fx, rv := makeRV(4)
 		vs := rv.VoteSummary
-		pb1 := fx.NextProposedBlock([]byte("app_data_1"), 0)
+		pb1 := fx.NextProposedHeader([]byte("app_data_1"), 0)
 		precommitMap := fx.PrecommitProofMap(ctx, 1, 0, map[string][]int{
-			string(pb1.Block.Hash): {0, 1, 2},
+			string(pb1.Header.Hash): {0, 1, 2},
 		})
 		vs.SetPrecommitPowers(fx.Vals(), precommitMap)
 
@@ -119,10 +119,10 @@ func TestStepFromVoteSummary(t *testing.T) {
 
 		fx, rv := makeRV(4)
 		vs := rv.VoteSummary
-		pb1 := fx.NextProposedBlock([]byte("app_data_1"), 0)
+		pb1 := fx.NextProposedHeader([]byte("app_data_1"), 0)
 		precommitMap := fx.PrecommitProofMap(ctx, 1, 0, map[string][]int{
-			string(pb1.Block.Hash): {0, 1},
-			"":                     {2},
+			string(pb1.Header.Hash): {0, 1},
+			"":                      {2},
 		})
 		vs.SetPrecommitPowers(fx.Vals(), precommitMap)
 

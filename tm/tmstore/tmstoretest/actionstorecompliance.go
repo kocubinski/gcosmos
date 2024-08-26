@@ -13,7 +13,7 @@ import (
 type ActionStoreFactory func(cleanup func(func())) (tmstore.ActionStore, error)
 
 func TestActionStoreCompliance(t *testing.T, f ActionStoreFactory) {
-	t.Run("proposed blocks", func(t *testing.T) {
+	t.Run("proposed headers", func(t *testing.T) {
 		t.Parallel()
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -23,13 +23,13 @@ func TestActionStoreCompliance(t *testing.T, f ActionStoreFactory) {
 		require.NoError(t, err)
 
 		fx := tmconsensustest.NewStandardFixture(2)
-		pb1 := fx.NextProposedBlock([]byte("app_data_1"), 0)
-		pb1.Round = 2 // Arbitrary, test nonzero round.
+		ph1 := fx.NextProposedHeader([]byte("app_data_1"), 0)
+		ph1.Round = 2 // Arbitrary, test nonzero round.
 
-		fx.RecalculateHash(&pb1.Block)
-		fx.SignProposal(ctx, &pb1, 0)
+		fx.RecalculateHash(&ph1.Header)
+		fx.SignProposal(ctx, &ph1, 0)
 
-		require.NoError(t, s.SaveProposedBlock(ctx, pb1))
+		require.NoError(t, s.SaveProposedHeader(ctx, ph1))
 
 		t.Run("round trip", func(t *testing.T) {
 			ra, err := s.Load(ctx, 1, 2)
@@ -37,22 +37,22 @@ func TestActionStoreCompliance(t *testing.T, f ActionStoreFactory) {
 
 			require.Equal(t, uint64(1), ra.Height)
 			require.Equal(t, uint32(2), ra.Round)
-			require.Equal(t, ra.ProposedBlock, pb1)
+			require.Equal(t, ra.ProposedHeader, ph1)
 		})
 
 		t.Run("double save rejected with same input", func(t *testing.T) {
-			err := s.SaveProposedBlock(ctx, pb1)
+			err := s.SaveProposedHeader(ctx, ph1)
 			require.ErrorIs(t, err, tmstore.DoubleActionError{Type: "proposed block"})
 		})
 
 		t.Run("double save rejected with different input", func(t *testing.T) {
-			otherPB := fx.NextProposedBlock([]byte("different_app_data"), 0)
+			otherPH := fx.NextProposedHeader([]byte("different_app_data"), 0)
 
-			otherPB.Round = 2
-			fx.RecalculateHash(&otherPB.Block)
-			fx.SignProposal(ctx, &otherPB, 0)
+			otherPH.Round = 2
+			fx.RecalculateHash(&otherPH.Header)
+			fx.SignProposal(ctx, &otherPH, 0)
 
-			err := s.SaveProposedBlock(ctx, otherPB)
+			err := s.SaveProposedHeader(ctx, otherPH)
 			require.ErrorIs(t, err, tmstore.DoubleActionError{Type: "proposed block"})
 		})
 	})
@@ -67,16 +67,16 @@ func TestActionStoreCompliance(t *testing.T, f ActionStoreFactory) {
 		require.NoError(t, err)
 
 		fx := tmconsensustest.NewStandardFixture(2)
-		pb1 := fx.NextProposedBlock([]byte("app_data_1"), 0)
-		pb1.Round = 2
+		ph1 := fx.NextProposedHeader([]byte("app_data_1"), 0)
+		ph1.Round = 2
 
-		fx.RecalculateHash(&pb1.Block)
-		fx.SignProposal(ctx, &pb1, 0)
+		fx.RecalculateHash(&ph1.Header)
+		fx.SignProposal(ctx, &ph1, 0)
 
 		vt := tmconsensus.VoteTarget{
 			Height:    1,
 			Round:     2,
-			BlockHash: string(pb1.Block.Hash),
+			BlockHash: string(ph1.Header.Hash),
 		}
 		sig := fx.PrevoteSignature(ctx, vt, 0)
 
@@ -118,16 +118,16 @@ func TestActionStoreCompliance(t *testing.T, f ActionStoreFactory) {
 		require.NoError(t, err)
 
 		fx := tmconsensustest.NewStandardFixture(2)
-		pb1 := fx.NextProposedBlock([]byte("app_data_1"), 0)
-		pb1.Round = 2
+		ph1 := fx.NextProposedHeader([]byte("app_data_1"), 0)
+		ph1.Round = 2
 
-		fx.RecalculateHash(&pb1.Block)
-		fx.SignProposal(ctx, &pb1, 0)
+		fx.RecalculateHash(&ph1.Header)
+		fx.SignProposal(ctx, &ph1, 0)
 
 		vt := tmconsensus.VoteTarget{
 			Height:    1,
 			Round:     2,
-			BlockHash: string(pb1.Block.Hash),
+			BlockHash: string(ph1.Header.Hash),
 		}
 		sig := fx.PrecommitSignature(ctx, vt, 0)
 
@@ -166,16 +166,16 @@ func TestActionStoreCompliance(t *testing.T, f ActionStoreFactory) {
 		defer cancel()
 
 		fx := tmconsensustest.NewStandardFixture(2)
-		pb1 := fx.NextProposedBlock([]byte("app_data_1"), 0)
-		pb1.Round = 2
+		ph1 := fx.NextProposedHeader([]byte("app_data_1"), 0)
+		ph1.Round = 2
 
-		fx.RecalculateHash(&pb1.Block)
-		fx.SignProposal(ctx, &pb1, 0)
+		fx.RecalculateHash(&ph1.Header)
+		fx.SignProposal(ctx, &ph1, 0)
 
 		vt := tmconsensus.VoteTarget{
 			Height:    1,
 			Round:     2,
-			BlockHash: string(pb1.Block.Hash),
+			BlockHash: string(ph1.Header.Hash),
 		}
 		prevoteSig := fx.PrevoteSignature(ctx, vt, 0)
 		prevotePubKey := fx.ValidatorPubKey(0)
@@ -224,18 +224,18 @@ func TestActionStoreCompliance(t *testing.T, f ActionStoreFactory) {
 			require.NoError(t, err)
 
 			fx := tmconsensustest.NewStandardFixture(2)
-			pb1 := fx.NextProposedBlock([]byte("app_data_1"), 0)
-			pb1.Round = 2 // Arbitrary, test nonzero round.
+			ph1 := fx.NextProposedHeader([]byte("app_data_1"), 0)
+			ph1.Round = 2 // Arbitrary, test nonzero round.
 
-			fx.RecalculateHash(&pb1.Block)
-			fx.SignProposal(ctx, &pb1, 0)
+			fx.RecalculateHash(&ph1.Header)
+			fx.SignProposal(ctx, &ph1, 0)
 
-			require.NoError(t, s.SaveProposedBlock(ctx, pb1))
+			require.NoError(t, s.SaveProposedHeader(ctx, ph1))
 
 			vt := tmconsensus.VoteTarget{
 				Height:    1,
 				Round:     2,
-				BlockHash: string(pb1.Block.Hash),
+				BlockHash: string(ph1.Header.Hash),
 			}
 
 			pubKey := fx.ValidatorPubKey(0)
@@ -250,7 +250,7 @@ func TestActionStoreCompliance(t *testing.T, f ActionStoreFactory) {
 
 			require.Equal(t, uint64(1), ra.Height)
 			require.Equal(t, uint32(2), ra.Round)
-			require.Equal(t, ra.ProposedBlock, pb1)
+			require.Equal(t, ra.ProposedHeader, ph1)
 			require.True(t, pubKey.Equal(ra.PubKey))
 
 			require.Equal(t, vt.BlockHash, ra.PrevoteTarget)

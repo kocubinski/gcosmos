@@ -26,7 +26,7 @@ type Kernel struct {
 	log *slog.Logger
 
 	store  tmstore.MirrorStore
-	bStore tmstore.BlockStore
+	hStore tmstore.HeaderStore
 	rStore tmstore.RoundStore
 	vStore tmstore.ValidatorStore
 
@@ -39,7 +39,7 @@ type Kernel struct {
 	initialHeight uint64
 	initialVals   tmconsensus.ValidatorSet
 
-	pbf tmelink.ProposedBlockFetcher
+	phf tmelink.ProposedHeaderFetcher
 	mc  *tmemetrics.Collector
 
 	gossipOutCh chan<- tmelink.NetworkViewUpdate
@@ -48,9 +48,9 @@ type Kernel struct {
 
 	snapshotRequests   <-chan SnapshotRequest
 	viewLookupRequests <-chan ViewLookupRequest
-	pbCheckRequests    <-chan PBCheckRequest
+	phCheckRequests    <-chan PHCheckRequest
 
-	addPBRequests        <-chan tmconsensus.ProposedBlock
+	addPHRequests        <-chan tmconsensus.ProposedHeader
 	addPrevoteRequests   <-chan AddPrevoteRequest
 	addPrecommitRequests <-chan AddPrecommitRequest
 
@@ -61,7 +61,7 @@ type Kernel struct {
 
 type KernelConfig struct {
 	Store          tmstore.MirrorStore
-	BlockStore     tmstore.BlockStore
+	HeaderStore    tmstore.HeaderStore
 	RoundStore     tmstore.RoundStore
 	ValidatorStore tmstore.ValidatorStore
 
@@ -72,7 +72,7 @@ type KernelConfig struct {
 	InitialHeight     uint64
 	InitialValidators []tmconsensus.Validator
 
-	ProposedBlockFetcher tmelink.ProposedBlockFetcher
+	ProposedHeaderFetcher tmelink.ProposedHeaderFetcher
 
 	GossipStrategyOut chan<- tmelink.NetworkViewUpdate
 
@@ -88,9 +88,9 @@ type KernelConfig struct {
 	NHRRequests        <-chan chan NetworkHeightRound
 	SnapshotRequests   <-chan SnapshotRequest
 	ViewLookupRequests <-chan ViewLookupRequest
-	PBCheckRequests    <-chan PBCheckRequest
+	PHCheckRequests    <-chan PHCheckRequest
 
-	AddPBRequests        <-chan tmconsensus.ProposedBlock
+	AddPHRequests        <-chan tmconsensus.ProposedHeader
 	AddPrevoteRequests   <-chan AddPrevoteRequest
 	AddPrecommitRequests <-chan AddPrecommitRequest
 
@@ -134,7 +134,7 @@ func NewKernel(ctx context.Context, log *slog.Logger, cfg KernelConfig) (*Kernel
 		log: log,
 
 		store:  cfg.Store,
-		bStore: cfg.BlockStore,
+		hStore: cfg.HeaderStore,
 		rStore: cfg.RoundStore,
 		vStore: cfg.ValidatorStore,
 
@@ -145,7 +145,7 @@ func NewKernel(ctx context.Context, log *slog.Logger, cfg KernelConfig) (*Kernel
 		initialHeight: cfg.InitialHeight,
 		initialVals:   initialValSet,
 
-		pbf: cfg.ProposedBlockFetcher,
+		phf: cfg.ProposedHeaderFetcher,
 		mc:  cfg.MetricsCollector,
 
 		// Channels provided through the config,
@@ -156,9 +156,9 @@ func NewKernel(ctx context.Context, log *slog.Logger, cfg KernelConfig) (*Kernel
 
 		snapshotRequests:   cfg.SnapshotRequests,
 		viewLookupRequests: cfg.ViewLookupRequests,
-		pbCheckRequests:    cfg.PBCheckRequests,
+		phCheckRequests:    cfg.PHCheckRequests,
 
-		addPBRequests:        cfg.AddPBRequests,
+		addPHRequests:        cfg.AddPHRequests,
 		addPrevoteRequests:   cfg.AddPrevoteRequests,
 		addPrecommitRequests: cfg.AddPrecommitRequests,
 
@@ -183,7 +183,7 @@ func NewKernel(ctx context.Context, log *slog.Logger, cfg KernelConfig) (*Kernel
 		// Not necessary to prepopulate NextRound,
 		// as that will happen in k.loadInitialVotingView.
 
-		InFlightFetchPBs: make(map[string]context.CancelFunc),
+		InFlightFetchPHs: make(map[string]context.CancelFunc),
 
 		StateMachineViewManager: newStateMachineViewManager(cfg.StateMachineRoundViewOut),
 
@@ -260,8 +260,8 @@ func (k *Kernel) mainLoop(ctx context.Context, s *kState, wd *gwatchdog.Watchdog
 			k.log.Info(
 				"Mirror kernel stopping",
 				"cause", context.Cause(ctx),
-				"committing_height", s.CommittingBlock.Height,
-				"committing_hash", glog.Hex(s.CommittingBlock.Hash),
+				"committing_height", s.CommittingHeader.Height,
+				"committing_hash", glog.Hex(s.CommittingHeader.Hash),
 				"voting_height", s.Voting.Height,
 				"voting_round", s.Voting.Round,
 				"voting_vote_summary", s.Voting.VoteSummary,
@@ -276,11 +276,11 @@ func (k *Kernel) mainLoop(ctx context.Context, s *kState, wd *gwatchdog.Watchdog
 		case req := <-k.viewLookupRequests:
 			k.sendViewLookupResponse(ctx, s, req)
 
-		case req := <-k.pbCheckRequests:
-			k.sendPBCheckResponse(ctx, s, req)
+		case req := <-k.phCheckRequests:
+			k.sendPHCheckResponse(ctx, s, req)
 
-		case pb := <-k.addPBRequests:
-			k.addPB(ctx, s, pb)
+		case ph := <-k.addPHRequests:
+			k.addPH(ctx, s, ph)
 
 		case req := <-k.addPrevoteRequests:
 			k.addPrevote(ctx, s, req)
@@ -294,8 +294,8 @@ func (k *Kernel) mainLoop(ctx context.Context, s *kState, wd *gwatchdog.Watchdog
 		case smOut.Ch <- smOut.Val:
 			smOut.MarkSent()
 
-		case pb := <-k.pbf.FetchedProposedBlocks:
-			k.addPB(ctx, s, pb)
+		case ph := <-k.phf.FetchedProposedHeaders:
+			k.addPH(ctx, s, ph)
 
 		case re := <-k.stateMachineRoundEntranceIn:
 			k.handleStateMachineRoundEntrance(ctx, s, re)
@@ -309,51 +309,51 @@ func (k *Kernel) mainLoop(ctx context.Context, s *kState, wd *gwatchdog.Watchdog
 	}
 }
 
-// addPB adds a proposed block to the current round state.
-// This is called both from a direct add proposed block request (from the Mirror layer)
-// and from an out-of-band fetched proposed block's arrival.
-func (k *Kernel) addPB(ctx context.Context, s *kState, pb tmconsensus.ProposedBlock) {
-	defer trace.StartRegion(ctx, "addPB").End()
+// addPH adds a proposed header to the current round state.
+// This is called both from a direct add proposed header request (from the Mirror layer)
+// and from an out-of-band fetched proposed header's arrival.
+func (k *Kernel) addPH(ctx context.Context, s *kState, ph tmconsensus.ProposedHeader) {
+	defer trace.StartRegion(ctx, "addPH").End()
 
-	// Before any other work, cancel an outstanding fetch for this PB.
-	if cancel, ok := s.InFlightFetchPBs[string(pb.Block.Hash)]; ok {
+	// Before any other work, cancel an outstanding fetch for this PH.
+	if cancel, ok := s.InFlightFetchPHs[string(ph.Header.Hash)]; ok {
 		cancel()
-		delete(s.InFlightFetchPBs, string(pb.Block.Hash))
+		delete(s.InFlightFetchPHs, string(ph.Header.Hash))
 	}
 
-	vrv, viewID, _ := s.FindView(pb.Block.Height, pb.Round, "(*Kernel).addPB")
+	vrv, viewID, _ := s.FindView(ph.Header.Height, ph.Round, "(*Kernel).addPH")
 	if vrv == nil {
 		k.log.Info(
 			"Dropping proposed block that did not match a view (may have been received immediately before a view shift)",
-			"pb_height", pb.Block.Height, "pb_round", pb.Round,
+			"ph_height", ph.Header.Height, "ph_round", ph.Round,
 			"voting_height", s.Voting.Height, "voting_round", s.Voting.Round,
 		)
 		return
 	}
 
-	// If we concurrently handled multiple requests for the same proposed block,
-	// the goroutines calling into HandleProposedBlock would have seen the same original view
-	// and would both request the same block to be added.
+	// If we concurrently handled multiple requests for the same proposed header,
+	// the goroutines calling into HandleProposedHEader would have seen the same original view
+	// and would both request the same header to be added.
 	// Since those add blocks are serialized into the kernel,
 	// we now need to make sure this isn't a duplicate.
-	for _, have := range vrv.ProposedBlocks {
-		// HandleProposedBlock should have done all the validation,
+	for _, have := range vrv.ProposedHeaders {
+		// HandleProposedHeader should have done all the validation,
 		// and we assume it is impossible for two distinct blocks
 		// to have an identical signature.
-		if bytes.Equal(have.Signature, pb.Signature) {
-			// Not logging the duplicate block drop, as it is not very informative.
+		if bytes.Equal(have.Signature, ph.Signature) {
+			// Not logging the duplicate header drop, as it is not very informative.
 			return
 		}
 	}
 
 	// On the right height/round, no duplicate detected,
-	// so we can add the proposed block.
-	vrv.ProposedBlocks = append(vrv.ProposedBlocks, pb)
+	// so we can add the proposed header.
+	vrv.ProposedHeaders = append(vrv.ProposedHeaders, ph)
 
 	// Persist the change before updating local state.
-	if err := k.rStore.SaveProposedBlock(ctx, pb); err != nil {
-		glog.HRE(k.log, pb.Block.Height, pb.Round, err).Warn(
-			"Failed to save proposed block to round store; this may cause issues upon restart",
+	if err := k.rStore.SaveProposedHeader(ctx, ph); err != nil {
+		glog.HRE(k.log, ph.Header.Height, ph.Round, err).Warn(
+			"Failed to save proposed header to round store; this may cause issues upon restart",
 		)
 		// Continue anyway despite failure.
 	}
@@ -372,7 +372,7 @@ func (k *Kernel) addPB(ctx context.Context, s *kState, pb tmconsensus.ProposedBl
 	backfillVRV := &s.Committing
 
 	// TODO: this merging code should probably move to a function in gcrypto.
-	commitProofs := pb.Block.PrevCommitProof.Proofs
+	commitProofs := ph.Header.PrevCommitProof.Proofs
 	mergedAny := false
 	for blockHash, laterSigs := range commitProofs {
 		target := backfillVRV.PrecommitProofs[blockHash]
@@ -381,7 +381,7 @@ func (k *Kernel) addPB(ctx context.Context, s *kState, pb tmconsensus.ProposedBl
 		}
 
 		laterSparseCommit := gcrypto.SparseSignatureProof{
-			PubKeyHash: pb.Block.PrevCommitProof.PubKeyHash,
+			PubKeyHash: ph.Header.PrevCommitProof.PubKeyHash,
 			Signatures: laterSigs,
 		}
 
@@ -393,10 +393,10 @@ func (k *Kernel) addPB(ctx context.Context, s *kState, pb tmconsensus.ProposedBl
 		// We've updated the previous precommits, so the round store needs updated.
 		if err := k.rStore.OverwritePrecommitProofs(
 			ctx,
-			pb.Block.Height-1, pb.Block.PrevCommitProof.Round, // TODO: Don't assume this matches the committing view.
+			ph.Header.Height-1, ph.Header.PrevCommitProof.Round, // TODO: Don't assume this matches the committing view.
 			backfillVRV.PrecommitProofs,
 		); err != nil {
-			glog.HRE(k.log, pb.Block.Height, pb.Round, err).Warn(
+			glog.HRE(k.log, ph.Header.Height, ph.Round, err).Warn(
 				"Failed to save backfilled commit info to round store; this may cause issues upon restart",
 			)
 		}
@@ -416,7 +416,7 @@ func (k *Kernel) addPB(ctx context.Context, s *kState, pb tmconsensus.ProposedBl
 	// but for now, we will check for a view shift if this proposed block
 	// has any precommits, indicating we've received this block later than expected.
 	if viewID == ViewIDVoting {
-		if _, ok := s.Voting.PrecommitProofs[string(pb.Block.Hash)]; ok {
+		if _, ok := s.Voting.PrecommitProofs[string(ph.Header.Hash)]; ok {
 			k.checkVotingPrecommitViewShift(ctx, s)
 		}
 	}
@@ -509,7 +509,7 @@ func (k *Kernel) addPrevote(ctx context.Context, s *kState, req AddPrevoteReques
 	}
 
 	// See if we need to make a request for a proposed block.
-	k.checkMissingPBs(ctx, s, vrv.PrevoteProofs)
+	k.checkMissingPHs(ctx, s, vrv.PrevoteProofs)
 
 	// END OF addPrecommit SYNCHRONIZATION.
 
@@ -610,7 +610,7 @@ func (k *Kernel) addPrecommit(ctx context.Context, s *kState, req AddPrecommitRe
 	}
 
 	// See if we need to make a request for a proposed block.
-	k.checkMissingPBs(ctx, s, vrv.PrecommitProofs)
+	k.checkMissingPHs(ctx, s, vrv.PrecommitProofs)
 
 	// END OF addPrevote SYNCHRONIZATION.
 
@@ -687,16 +687,16 @@ func (k *Kernel) checkVotingPrecommitViewShift(ctx context.Context, s *kState) e
 	}
 
 	// It was a precommit for a non-nil block.
-	hasPB := false
-	for _, pb := range vrv.ProposedBlocks {
-		if string(pb.Block.Hash) == committingHash {
-			hasPB = true
+	hasPH := false
+	for _, ph := range vrv.ProposedHeaders {
+		if string(ph.Header.Hash) == committingHash {
+			hasPH = true
 			break
 		}
 	}
 
-	if !hasPB {
-		_, ok := s.InFlightFetchPBs[committingHash]
+	if !hasPH {
+		_, ok := s.InFlightFetchPHs[committingHash]
 		k.log.Warn(
 			"Ready to commit block, but block is not yet available; stuck in this voting round until the block is fetched",
 			"height", vrv.Height, "round", vrv.Round,
@@ -706,14 +706,14 @@ func (k *Kernel) checkVotingPrecommitViewShift(ctx context.Context, s *kState) e
 		return nil
 	}
 
-	var votedBlock tmconsensus.Block
-	for _, pb := range s.Voting.ProposedBlocks {
-		if string(pb.Block.Hash) == committingHash {
-			votedBlock = pb.Block
+	var votedHeader tmconsensus.Header
+	for _, ph := range s.Voting.ProposedHeaders {
+		if string(ph.Header.Hash) == committingHash {
+			votedHeader = ph.Header
 			break
 		}
 	}
-	if votedBlock.Hash == nil {
+	if votedHeader.Hash == nil {
 		// Still the zero value, which is an unsolved problem for now.
 		panic(fmt.Errorf(
 			"BUG: missed update; needed to fetch missing proposed block with hash %x",
@@ -723,33 +723,33 @@ func (k *Kernel) checkVotingPrecommitViewShift(ctx context.Context, s *kState) e
 
 	// We are about to shift the voting view to committing,
 	// but first we need to persist the currently committing block.
-	if s.CommittingBlock.Height >= k.initialHeight {
-		cb := tmconsensus.CommittedBlock{
-			Block: s.CommittingBlock,
-			Proof: votedBlock.PrevCommitProof,
+	if s.CommittingHeader.Height >= k.initialHeight {
+		ch := tmconsensus.CommittedHeader{
+			Header: s.CommittingHeader,
+			Proof:  votedHeader.PrevCommitProof,
 		}
-		if err := k.bStore.SaveBlock(ctx, cb); err != nil {
-			return fmt.Errorf("failed to save newly committed block: %w", err)
+		if err := k.hStore.SaveHeader(ctx, ch); err != nil {
+			return fmt.Errorf("failed to save newly committed header: %w", err)
 		}
 	}
 
 	// TODO: gassert: verify incoming validator set's hashes.
-	nextValSet := votedBlock.NextValidatorSet
+	nextValSet := votedHeader.NextValidatorSet
 	nhd := nextHeightDetails{ValidatorSet: nextValSet}
 	var err error
 
 	nhd.Round0NilPrevote, nhd.Round0NilPrecommit, err =
-		k.getInitialNilProofs(votedBlock.Height+1, 0, nextValSet)
+		k.getInitialNilProofs(votedHeader.Height+1, 0, nextValSet)
 	if err != nil {
 		return fmt.Errorf("failed to load nil proofs on new voting round: %w", err)
 	}
 	nhd.Round1NilPrevote, nhd.Round1NilPrecommit, err =
-		k.getInitialNilProofs(votedBlock.Height+1, 1, nextValSet)
+		k.getInitialNilProofs(votedHeader.Height+1, 1, nextValSet)
 	if err != nil {
 		return fmt.Errorf("failed to load nil proofs on new next round: %w", err)
 	}
 
-	nhd.VotedBlock = votedBlock
+	nhd.VotedHeader = votedHeader
 
 	s.ShiftVotingToCommitting(nhd)
 	if err := k.updateObservers(ctx, s); err != nil {
@@ -757,9 +757,9 @@ func (k *Kernel) checkVotingPrecommitViewShift(ctx context.Context, s *kState) e
 	}
 
 	k.log.Info(
-		"Committed block",
-		"height", s.CommittingBlock.Height-1, "hash", glog.Hex(s.CommittingBlock.PrevBlockHash),
-		"next_committing_height", s.CommittingBlock.Height, "next_committing_hash", glog.Hex(s.CommittingBlock.Hash),
+		"Committed header",
+		"height", s.CommittingHeader.Height-1, "hash", glog.Hex(s.CommittingHeader.PrevBlockHash),
+		"next_committing_height", s.CommittingHeader.Height, "next_committing_hash", glog.Hex(s.CommittingHeader.Hash),
 	)
 
 	return nil
@@ -804,9 +804,9 @@ func (k *Kernel) checkNextRoundPrecommitViewShift(ctx context.Context, s *kState
 	}
 
 	if maxPow >= min {
-		// Make a PB fetch request if we don't have the proposed block
+		// Make a PH fetch request if we don't have the proposed block
 		// that just crossed the threshold.
-		k.checkMissingPBs(ctx, s, s.Voting.PrecommitProofs)
+		k.checkMissingPHs(ctx, s, s.Voting.PrecommitProofs)
 	}
 
 	return nil
@@ -851,37 +851,37 @@ func (k *Kernel) checkPrevoteViewShift(ctx context.Context, s *kState, vID ViewI
 
 	// If the vote was for a single non-nil block, we may need to fetch proposed blocks.
 	if vs.PrevoteBlockPower[vs.MostVotedPrevoteHash] >= min {
-		k.checkMissingPBs(ctx, s, s.Voting.PrevoteProofs)
+		k.checkMissingPHs(ctx, s, s.Voting.PrevoteProofs)
 	}
 
 	return nil
 }
 
-// checkMissingPBs creates a fetch proposed block request,
+// checkMissingPHs creates a fetch proposed block request,
 // if there is more than minority voting power present for a singular block
 // and if we do not have that proposed block yet
 // and if we do not have an outstanding request for that block.
 // This is only applicable to the Voting view.
-func (k *Kernel) checkMissingPBs(ctx context.Context, s *kState, proofs map[string]gcrypto.CommonMessageSignatureProof) {
-	havePBHashes := make(map[string]struct{}, len(s.Voting.ProposedBlocks))
-	for _, pb := range s.Voting.ProposedBlocks {
-		havePBHashes[string(pb.Block.Hash)] = struct{}{}
+func (k *Kernel) checkMissingPHs(ctx context.Context, s *kState, proofs map[string]gcrypto.CommonMessageSignatureProof) {
+	havePHHashes := make(map[string]struct{}, len(s.Voting.ProposedHeaders))
+	for _, ph := range s.Voting.ProposedHeaders {
+		havePHHashes[string(ph.Header.Hash)] = struct{}{}
 	}
 
 	// Any block hash -- except nil --
 	// that we have a proof for, but we don't have a proposed block for.
-	missingPBs := make([]string, 0, len(proofs)-1)
+	missingPHs := make([]string, 0, len(proofs)-1)
 	for blockHash := range proofs {
 		if blockHash == "" {
 			continue
 		}
 
-		if _, ok := havePBHashes[blockHash]; !ok {
-			missingPBs = append(missingPBs, blockHash)
+		if _, ok := havePHHashes[blockHash]; !ok {
+			missingPHs = append(missingPHs, blockHash)
 		}
 	}
 
-	if len(missingPBs) == 0 {
+	if len(missingPHs) == 0 {
 		// Nothing left to do.
 		return
 	}
@@ -890,24 +890,24 @@ func (k *Kernel) checkMissingPBs(ctx context.Context, s *kState, proofs map[stri
 	// before bothering with the vote distribution.
 
 	skippedAny := false
-	for i, missingPB := range missingPBs {
-		if _, ok := s.InFlightFetchPBs[missingPB]; !ok {
+	for i, missingPH := range missingPHs {
+		if _, ok := s.InFlightFetchPHs[missingPH]; !ok {
 			continue
 		}
 
 		// We do have an in-flight request for this proposed block.
 		// Clear the value so we know not to try fetching it.
-		missingPBs[i] = ""
+		missingPHs[i] = ""
 		skippedAny = true
 	}
 
 	if skippedAny {
 		// Bulk delete any cleared elements, which should be slightly more efficient than deleting individually.
-		missingPBs = slices.DeleteFunc(missingPBs, func(hash string) bool {
+		missingPHs = slices.DeleteFunc(missingPHs, func(hash string) bool {
 			return hash == ""
 		})
 
-		if len(missingPBs) == 0 {
+		if len(missingPHs) == 0 {
 			// If we cleared the whole slice, then there is no need for further work.
 			return
 		}
@@ -923,7 +923,7 @@ func (k *Kernel) checkMissingPBs(ctx context.Context, s *kState, proofs map[stri
 
 	min := tmconsensus.ByzantineMinority(dist.AvailableVotePower)
 
-	for _, missingHash := range missingPBs {
+	for _, missingHash := range missingPHs {
 		if dist.BlockVotePower[missingHash] < min {
 			continue
 		}
@@ -938,13 +938,13 @@ func (k *Kernel) checkMissingPBs(ctx context.Context, s *kState, proofs map[stri
 		case <-ctx.Done():
 			// The caller should log whatever it needs for a context cancellation.
 			return
-		case k.pbf.FetchRequests <- tmelink.ProposedBlockFetchRequest{
+		case k.phf.FetchRequests <- tmelink.ProposedHeaderFetchRequest{
 			Ctx:       fetchCtx,
 			Height:    s.Voting.Height,
 			BlockHash: missingHash,
 		}:
 			// Okay.
-			s.InFlightFetchPBs[missingHash] = cancel
+			s.InFlightFetchPHs[missingHash] = cancel
 		default:
 			// The FetchRequests channel ought to be sufficiently buffered to avoid this.
 			// But even if we do hit this log line once,
@@ -1062,9 +1062,9 @@ func (k *Kernel) copySnapshotView(src tmconsensus.VersionedRoundView, dst *tmcon
 	}
 
 	if (fields & RVProposedBlocks) > 0 {
-		dst.ProposedBlocks = append(dst.ProposedBlocks[:0], src.ProposedBlocks...)
+		dst.ProposedHeaders = append(dst.ProposedHeaders[:0], src.ProposedHeaders...)
 	} else {
-		dst.ProposedBlocks = dst.ProposedBlocks[:0]
+		dst.ProposedHeaders = dst.ProposedHeaders[:0]
 	}
 
 	// Clear the prevote maps regardless of whether we are populating them.
@@ -1153,13 +1153,13 @@ func (k *Kernel) sendViewLookupResponse(ctx context.Context, s *kState, req View
 	req.Resp <- resp
 }
 
-func (k *Kernel) sendPBCheckResponse(ctx context.Context, s *kState, req PBCheckRequest) {
-	defer trace.StartRegion(ctx, "sendPBCheckResponse").End()
+func (k *Kernel) sendPHCheckResponse(ctx context.Context, s *kState, req PHCheckRequest) {
+	defer trace.StartRegion(ctx, "sendPHCheckResponse").End()
 
-	var resp PBCheckResponse
+	var resp PHCheckResponse
 
-	pbHeight := req.PB.Block.Height
-	pbRound := req.PB.Round
+	pbHeight := req.PH.Header.Height
+	pbRound := req.PH.Round
 	votingHeight := s.Voting.Height
 	votingRound := s.Voting.Round
 	committingHeight := s.Committing.Height
@@ -1168,12 +1168,12 @@ func (k *Kernel) sendPBCheckResponse(ctx context.Context, s *kState, req PBCheck
 	// Sorted earliest to latest heights,
 	// then interior round checks also sorted earliest to latest.
 	if pbHeight < committingHeight {
-		resp.Status = PBCheckRoundTooOld
+		resp.Status = PHCheckRoundTooOld
 	} else if pbHeight == committingHeight {
 		if pbRound < committingRound {
-			resp.Status = PBCheckRoundTooOld
+			resp.Status = PHCheckRoundTooOld
 		} else if pbRound == committingRound {
-			k.setPBCheckStatus(req, &resp, s.Committing)
+			k.setPHCheckStatus(req, &resp, s.Committing)
 		} else {
 			panic(fmt.Errorf(
 				"TODO: handle proposed block with round (%d) beyond committing round (%d)",
@@ -1182,11 +1182,11 @@ func (k *Kernel) sendPBCheckResponse(ctx context.Context, s *kState, req PBCheck
 		}
 	} else if pbHeight == votingHeight {
 		if pbRound < votingRound {
-			resp.Status = PBCheckRoundTooOld
+			resp.Status = PHCheckRoundTooOld
 		} else if pbRound == votingRound {
-			k.setPBCheckStatus(req, &resp, s.Voting)
+			k.setPHCheckStatus(req, &resp, s.Voting)
 		} else if pbRound == votingRound+1 {
-			k.setPBCheckStatus(req, &resp, s.NextRound)
+			k.setPHCheckStatus(req, &resp, s.NextRound)
 		} else {
 			panic(fmt.Errorf(
 				"TODO: handle proposed block with round (%d) beyond voting round (%d)",
@@ -1195,18 +1195,18 @@ func (k *Kernel) sendPBCheckResponse(ctx context.Context, s *kState, req PBCheck
 		}
 	} else if pbHeight == votingHeight+1 {
 		// Special case of the proposed block being for the next height.
-		resp.Status = PBCheckNextHeight
+		resp.Status = PHCheckNextHeight
 
 		rv := s.Voting.RoundView.Clone()
 		resp.VotingRoundView = &rv
 	} else {
-		resp.Status = PBCheckRoundTooFarInFuture
+		resp.Status = PHCheckRoundTooFarInFuture
 	}
 
-	if resp.Status == PBCheckInvalid {
+	if resp.Status == PHCheckInvalid {
 		// Wasn't set.
 		panic(fmt.Errorf(
-			"BUG: cannot determine PBStatus; pb h=%d/r=%d, voting h=%d/r=%d, committing h=%d/r=%d",
+			"BUG: cannot determine PHCheckStatus; ph h=%d/r=%d, voting h=%d/r=%d, committing h=%d/r=%d",
 			pbHeight, pbRound, votingHeight, votingRound, committingHeight, committingRound,
 		))
 	}
@@ -1215,33 +1215,33 @@ func (k *Kernel) sendPBCheckResponse(ctx context.Context, s *kState, req PBCheck
 	req.Resp <- resp
 }
 
-func (k *Kernel) setPBCheckStatus(
-	req PBCheckRequest,
-	resp *PBCheckResponse,
+func (k *Kernel) setPHCheckStatus(
+	req PHCheckRequest,
+	resp *PHCheckResponse,
 	vrv tmconsensus.VersionedRoundView,
 ) {
-	alreadyHaveSignature := slices.ContainsFunc(vrv.ProposedBlocks, func(havePB tmconsensus.ProposedBlock) bool {
-		return bytes.Equal(havePB.Signature, req.PB.Signature)
+	alreadyHaveSignature := slices.ContainsFunc(vrv.ProposedHeaders, func(havePH tmconsensus.ProposedHeader) bool {
+		return bytes.Equal(havePH.Signature, req.PH.Signature)
 	})
 
 	if alreadyHaveSignature {
-		resp.Status = PBCheckAlreadyHaveSignature
+		resp.Status = PHCheckAlreadyHaveSignature
 	} else {
 		// The block might be acceptable, but we need to confirm that there is a matching public key first.
 		// We are currently assuming that it is cheaper for the kernel to block on seeking through the validators
 		// than it is to copy over the entire validator block and hand it off to the mirror's calling goroutine.
 		var proposerPubKey gcrypto.PubKey
 		for _, val := range vrv.ValidatorSet.Validators {
-			if req.PB.ProposerPubKey.Equal(val.PubKey) {
+			if req.PH.ProposerPubKey.Equal(val.PubKey) {
 				proposerPubKey = val.PubKey
 				break
 			}
 		}
 
 		if proposerPubKey == nil {
-			resp.Status = PBCheckSignerUnrecognized
+			resp.Status = PHCheckSignerUnrecognized
 		} else {
-			resp.Status = PBCheckAcceptable
+			resp.Status = PHCheckAcceptable
 			resp.ProposerPubKey = proposerPubKey
 		}
 	}
@@ -1259,7 +1259,7 @@ func (k *Kernel) handleStateMachineRoundEntrance(ctx context.Context, s *kState,
 		// There is one acceptable condition here -- it was before the committing round.
 		if status == ViewBeforeCommitting {
 			// Then we have to load it from the block store.
-			cb, err := k.bStore.LoadBlock(ctx, re.H)
+			ch, err := k.hStore.LoadHeader(ctx, re.H)
 			if err != nil {
 				panic(fmt.Errorf(
 					"failed to load block at height %d from block store for state machine: %w",
@@ -1269,7 +1269,7 @@ func (k *Kernel) handleStateMachineRoundEntrance(ctx context.Context, s *kState,
 
 			// Send on 1-buffered channel does not require a select.
 			re.Response <- tmeil.RoundEntranceResponse{
-				CB: cb,
+				CH: ch,
 			}
 			return
 		}
@@ -1292,25 +1292,25 @@ func (k *Kernel) handleStateMachineRoundEntrance(ctx context.Context, s *kState,
 func (k *Kernel) handleStateMachineAction(ctx context.Context, s *kState, act tmeil.StateMachineRoundAction) {
 	defer trace.StartRegion(ctx, "handleStateMachineAction").End()
 
-	hasPB := len(act.PB.Block.Hash) > 0
+	hasPH := len(act.PH.Header.Hash) > 0
 	hasPrevote := len(act.Prevote.Sig) > 0
 	hasPrecommit := len(act.Precommit.Sig) > 0
 
-	if !(hasPB || hasPrevote || hasPrecommit) {
+	if !(hasPH || hasPrevote || hasPrecommit) {
 		panic(errors.New("BUG: no state machine action present"))
 	}
 
-	if hasPB {
+	if hasPH {
 		if hasPrevote || hasPrecommit {
 			panic(fmt.Errorf(
-				"BUG: multiple state machine actions present when exactly one required: pb=true prevote=%t precommit=%t",
+				"BUG: multiple state machine actions present when exactly one required: ph=true prevote=%t precommit=%t",
 				hasPrevote, hasPrecommit,
 			))
 		}
 
-		// addPB works directly on the proposed block without any feedback to the caller,
+		// addPH works directly on the proposed block without any feedback to the caller,
 		// so we are fine to call that directly here.
-		k.addPB(ctx, s, act.PB)
+		k.addPH(ctx, s, act.PH)
 		return
 	}
 
@@ -1336,7 +1336,7 @@ func (k *Kernel) handleStateMachineAction(ctx context.Context, s *kState, act tm
 	if hasPrevote {
 		if hasPrecommit {
 			panic(errors.New(
-				"BUG: multiple state machine actions present when exactly one required: pb=false prevote=true precommit=true",
+				"BUG: multiple state machine actions present when exactly one required: ph=false prevote=true precommit=true",
 			))
 		}
 
@@ -1451,7 +1451,7 @@ func (k *Kernel) loadInitialView(
 	vs tmconsensus.ValidatorSet,
 ) (tmconsensus.RoundView, error) {
 	var rv tmconsensus.RoundView
-	pbs, prevotes, precommits, err := k.rStore.LoadRoundState(ctx, h, r)
+	phs, prevotes, precommits, err := k.rStore.LoadRoundState(ctx, h, r)
 	if err != nil && !errors.Is(err, tmconsensus.RoundUnknownError{WantHeight: h, WantRound: r}) {
 		return rv, err
 	}
@@ -1462,7 +1462,7 @@ func (k *Kernel) loadInitialView(
 
 		ValidatorSet: vs,
 
-		ProposedBlocks: pbs,
+		ProposedHeaders: phs,
 	}
 
 	// Is there ever a case where we don't have the validator hashes in the store?
@@ -1550,10 +1550,10 @@ func (k *Kernel) loadInitialCommittingView(ctx context.Context, s *kState) error
 	s.Committing.PrecommitVersion = 1
 	s.MarkCommittingViewUpdated()
 
-	// Now we need to set s.CommittingBlock.
+	// Now we need to set s.CommittingHeader.
 	// We know this block is in the committing view,
 	// so it must have >2/3 voting power available.
-	// That means we can simply look for the single block with the highest voting power.
+	// That means we can simply look for the single header with the highest voting power.
 	if len(rv.PrecommitProofs) == 0 {
 		panic(fmt.Errorf(
 			"BUG: loading commit view from disk without any precommits, height=%d/round=%d",
@@ -1573,14 +1573,14 @@ func (k *Kernel) loadInitialCommittingView(ctx context.Context, s *kState) error
 	}
 
 	// Now find which proposed block matches the hash.
-	for _, pb := range rv.ProposedBlocks {
-		if string(pb.Block.Hash) == committingHash {
-			s.CommittingBlock = pb.Block
+	for _, ph := range rv.ProposedHeaders {
+		if string(ph.Header.Hash) == committingHash {
+			s.CommittingHeader = ph.Header
 			break
 		}
 	}
 
-	if string(s.CommittingBlock.Hash) == "" {
+	if len(s.CommittingHeader.Hash) == 0 {
 		panic(fmt.Errorf(
 			"BUG: failed to determine committing block at height=%d/round=%d, expected hash %x",
 			h, r, committingHash,
@@ -1604,7 +1604,7 @@ func (k *Kernel) loadInitialVotingView(ctx context.Context, s *kState) error {
 		vs = k.initialVals
 	} else {
 		// During initialization, we have set the committing block on the kState value.
-		vs = s.CommittingBlock.ValidatorSet
+		vs = s.CommittingHeader.ValidatorSet
 	}
 
 	if len(vs.Validators) == 0 {

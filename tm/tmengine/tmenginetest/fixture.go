@@ -27,8 +27,8 @@ type Fixture struct {
 	GossipStrategy    *tmgossiptest.PassThroughStrategy
 
 	ActionStore       *tmmemstore.ActionStore
-	BlockStore        *tmmemstore.BlockStore
 	FinalizationStore *tmmemstore.FinalizationStore
+	HeaderStore       *tmmemstore.HeaderStore
 	MirrorStore       *tmmemstore.MirrorStore
 	RoundStore        *tmmemstore.RoundStore
 	ValidatorStore    *tmmemstore.ValidatorStore
@@ -63,8 +63,8 @@ func NewFixture(ctx context.Context, t *testing.T, nVals int) *Fixture {
 		GossipStrategy:    tmgossiptest.NewPassThroughStrategy(),
 
 		ActionStore:       tmmemstore.NewActionStore(),
-		BlockStore:        tmmemstore.NewBlockStore(),
 		FinalizationStore: tmmemstore.NewFinalizationStore(),
+		HeaderStore:       tmmemstore.NewHeaderStore(),
 		MirrorStore:       tmmemstore.NewMirrorStore(),
 		RoundStore:        tmmemstore.NewRoundStore(),
 		ValidatorStore:    fx.NewMemValidatorStore(),
@@ -114,8 +114,8 @@ func (f *Fixture) BaseOptionMap() OptionMap {
 	return OptionMap{
 		"WithGenesis": tmengine.WithGenesis(eg),
 
-		"WithBlockStore":        tmengine.WithBlockStore(f.BlockStore),
 		"WithFinalizationStore": tmengine.WithFinalizationStore(f.FinalizationStore),
+		"WithHeaderStore":       tmengine.WithHeaderStore(f.HeaderStore),
 		"WithMirrorStore":       tmengine.WithMirrorStore(f.MirrorStore),
 		"WithRoundStore":        tmengine.WithRoundStore(f.RoundStore),
 		"WithValidatorStore":    tmengine.WithValidatorStore(f.ValidatorStore),

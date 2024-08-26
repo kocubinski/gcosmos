@@ -17,18 +17,18 @@ type LoggingConsensusHandler struct {
 	Handler tmconsensus.ConsensusHandler
 }
 
-func (h LoggingConsensusHandler) HandleProposedBlock(ctx context.Context, pb tmconsensus.ProposedBlock) gexchange.Feedback {
+func (h LoggingConsensusHandler) HandleProposedHeader(ctx context.Context, ph tmconsensus.ProposedHeader) gexchange.Feedback {
 	log := h.Log.With(
-		"height", pb.Block.Height,
-		"round", pb.Round,
-		"block_hash", glog.Hex(pb.Block.Hash),
+		"height", ph.Header.Height,
+		"round", ph.Round,
+		"block_hash", glog.Hex(ph.Header.Hash),
 	)
 
-	log.Info("Handling proposed block")
+	log.Info("Handling proposed header")
 
-	f := h.Handler.HandleProposedBlock(ctx, pb)
+	f := h.Handler.HandleProposedHeader(ctx, ph)
 
-	log.Info("Handled proposed block", "feedback", f.String())
+	log.Info("Handled proposed header", "feedback", f.String())
 
 	return f
 }
@@ -76,18 +76,18 @@ type LoggingFineGrainedConsensusHandler struct {
 	Handler tmconsensus.FineGrainedConsensusHandler
 }
 
-func (h LoggingFineGrainedConsensusHandler) HandleProposedBlock(ctx context.Context, pb tmconsensus.ProposedBlock) tmconsensus.HandleProposedBlockResult {
+func (h LoggingFineGrainedConsensusHandler) HandleProposedHeader(ctx context.Context, ph tmconsensus.ProposedHeader) tmconsensus.HandleProposedHeaderResult {
 	log := h.Log.With(
-		"height", pb.Block.Height,
-		"round", pb.Round,
-		"block_hash", glog.Hex(pb.Block.Hash),
+		"height", ph.Header.Height,
+		"round", ph.Round,
+		"block_hash", glog.Hex(ph.Header.Hash),
 	)
 
-	log.Info("Handling proposed block")
+	log.Info("Handling proposed header")
 
-	r := h.Handler.HandleProposedBlock(ctx, pb)
+	r := h.Handler.HandleProposedHeader(ctx, ph)
 
-	log.Info("Handled proposed block", "result", r.String())
+	log.Info("Handled proposed header", "result", r.String())
 
 	return r
 }

@@ -23,11 +23,11 @@ type Genesis struct {
 	ValidatorSet ValidatorSet
 }
 
-// AsBlock returns the genesis Block corresponding to g.
+// Header returns the genesis Header corresponding to g.
 // It will have only its Height, NextValidators, and Hash set.
 // If there is an error retrieving the hash, that error is returned.
-func (g Genesis) Block(h HashScheme) (Block, error) {
-	b := Block{
+func (g Genesis) Header(hs HashScheme) (Header, error) {
+	h := Header{
 		// Genesis initial height is the height of the first block to propose,
 		// so the stored block must be one less.
 		Height: g.InitialHeight - 1,
@@ -35,13 +35,13 @@ func (g Genesis) Block(h HashScheme) (Block, error) {
 		NextValidatorSet: g.ValidatorSet,
 	}
 
-	bh, err := h.Block(b)
+	bh, err := hs.Block(h)
 	if err != nil {
-		return b, fmt.Errorf("failed to calculate genesis block hash: %w", err)
+		return h, fmt.Errorf("failed to calculate genesis block hash: %w", err)
 	}
 
-	b.Hash = bh
-	return b, nil
+	h.Hash = bh
+	return h, nil
 }
 
 // ExternalGenesis is a view of the externally defined genesis data,

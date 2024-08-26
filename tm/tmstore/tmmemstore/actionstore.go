@@ -26,19 +26,19 @@ func NewActionStore() *ActionStore {
 	}
 }
 
-func (s *ActionStore) SaveProposedBlock(ctx context.Context, pb tmconsensus.ProposedBlock) error {
+func (s *ActionStore) SaveProposedHeader(ctx context.Context, ph tmconsensus.ProposedHeader) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	hr := hr{H: pb.Block.Height, R: pb.Round}
+	hr := hr{H: ph.Header.Height, R: ph.Round}
 	ra, ok := s.ras[hr]
-	if ok && ra.ProposedBlock.Block.Height != 0 {
+	if ok && ra.ProposedHeader.Header.Height != 0 {
 		return tmstore.DoubleActionError{Type: "proposed block"}
 	}
 
 	ra.Height = hr.H
 	ra.Round = hr.R
-	ra.ProposedBlock = pb
+	ra.ProposedHeader = ph
 
 	s.ras[hr] = ra
 	return nil

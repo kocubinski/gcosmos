@@ -46,7 +46,7 @@ type EnterRoundCall struct {
 // in order for the ChooseProposedBlock method to return
 // (or cancel the context passed to the method).
 type ConsiderProposedBlocksRequest struct {
-	PBs         []tmconsensus.ProposedBlock
+	PHs         []tmconsensus.ProposedHeader
 	Reason      tmconsensus.ConsiderProposedBlocksReason
 	ChoiceHash  chan string
 	ChoiceError chan error
@@ -59,7 +59,7 @@ type ConsiderProposedBlocksRequest struct {
 // in order for the ChooseProposedBlock method to return
 // (or cancel the context passed to the method).
 type ChooseProposedBlockRequest struct {
-	Input       []tmconsensus.ProposedBlock
+	Input       []tmconsensus.ProposedHeader
 	ChoiceHash  chan string
 	ChoiceError chan error
 }
@@ -142,11 +142,11 @@ func (s *MockConsensusStrategy) EnterRound(
 
 func (s *MockConsensusStrategy) ConsiderProposedBlocks(
 	ctx context.Context,
-	pbs []tmconsensus.ProposedBlock,
+	phs []tmconsensus.ProposedHeader,
 	reason tmconsensus.ConsiderProposedBlocksReason,
 ) (string, error) {
 	req := ConsiderProposedBlocksRequest{
-		PBs:         pbs,
+		PHs:         phs,
 		Reason:      reason,
 		ChoiceHash:  make(chan string, 1),
 		ChoiceError: make(chan error, 1),
@@ -172,10 +172,10 @@ func (s *MockConsensusStrategy) ConsiderProposedBlocks(
 }
 
 func (s *MockConsensusStrategy) ChooseProposedBlock(
-	ctx context.Context, pbs []tmconsensus.ProposedBlock,
+	ctx context.Context, phs []tmconsensus.ProposedHeader,
 ) (string, error) {
 	req := ChooseProposedBlockRequest{
-		Input:       pbs,
+		Input:       phs,
 		ChoiceHash:  make(chan string, 1),
 		ChoiceError: make(chan error, 1),
 	}
