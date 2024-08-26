@@ -35,8 +35,21 @@ func TestMarshalCodecCompliance(t *testing.T, mcf MarshalCodecFactory) {
 				t.Run("round trip", func(t *testing.T) {
 					t.Parallel()
 
-					fx := tmconsensustest.NewStandardFixture(4)
+					const curVals = 4
+					fx := tmconsensustest.NewStandardFixture(curVals)
 					pb := fx.NextProposedBlock([]byte("app_data"), 0)
+
+					// Add a validator to the next validator set,
+					// to ensure we are correctly serializing and deserializing that set
+					// separately from the current validators.
+					var err error
+					pb.Block.NextValidatorSet, err = tmconsensus.NewValidatorSet(
+						tmconsensustest.DeterministicValidatorsEd25519(curVals+1).Vals(),
+						fx.HashScheme,
+					)
+					require.NoError(t, err)
+					fx.RecalculateHash(&pb.Block)
+
 					fx.SignProposal(ctx, &pb, 0)
 
 					prevBlock := pb.Block

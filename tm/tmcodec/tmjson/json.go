@@ -186,7 +186,7 @@ func toJSONBlock(b tmconsensus.Block, reg *gcrypto.Registry) jsonBlock {
 	jb.ValidatorSet.PubKeyHash = b.ValidatorSet.PubKeyHash
 	jb.ValidatorSet.VotePowerHash = b.ValidatorSet.VotePowerHash
 
-	jb.NextValidatorSet.Validators = jValidators
+	jb.NextValidatorSet.Validators = jNextValidators
 	jb.NextValidatorSet.PubKeyHash = b.NextValidatorSet.PubKeyHash
 	jb.NextValidatorSet.VotePowerHash = b.NextValidatorSet.VotePowerHash
 

@@ -180,7 +180,6 @@ func RunIntegrationTest(t *testing.T, nf NewFactoryFunc) {
 	})
 
 	t.Run("basic flow with validator shuffle app", func(t *testing.T) {
-		t.Skip("TODO: this is failing following the ValidatorSet refactor; there is a likely issue with a hash not being recalculated")
 		t.Parallel()
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -193,8 +192,8 @@ func RunIntegrationTest(t *testing.T, nf NewFactoryFunc) {
 			tb: t,
 		})
 
-		const netSize = 10 // Total number of validators in the network.
-		const pickN = 5    // How many validators participate in rounds beyond initial height.
+		const netSize = 6 // Total number of validators in the network.
+		const pickN = 4   // How many validators participate in rounds beyond initial height.
 		n, err := f.NewNetwork(ctx, log)
 		require.NoError(t, err)
 		defer n.Wait()
@@ -339,7 +338,7 @@ func RunIntegrationTest(t *testing.T, nf NewFactoryFunc) {
 				finResp := gtest.ReceiveOrTimeout(t, apps[appIdx].FinalizeResponses, gtest.ScaleMs(500))
 				require.Equal(t, height, finResp.Height)
 
-				require.Len(t, finResp.Validators, 5)
+				require.Len(t, finResp.Validators, pickN)
 
 				// TODO: There should be more assertions around the specific validators here.
 			}
