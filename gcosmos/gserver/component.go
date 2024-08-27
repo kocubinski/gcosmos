@@ -3,6 +3,7 @@ package gserver
 import (
 	"context"
 	"crypto/ed25519"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -53,6 +54,8 @@ type Component struct {
 	cancel  context.CancelCauseFunc
 
 	log *slog.Logger
+
+	chainID string
 
 	app   serverv2.AppI[transaction.Tx]
 	txc   transaction.Codec[transaction.Tx]
@@ -192,8 +195,29 @@ func (c *Component) Init(app serverv2.AppI[transaction.Tx], v *viper.Viper, log 
 	c.ms = ms
 	c.fs = fs
 
+	// Is it possible for the genesis path to ever be rooted somewhere else?
+	homeDir := v.GetString("home")
+	genesisPath := filepath.Join(homeDir, "config", "genesis.json")
+	gf, err := os.Open(genesisPath)
+	if err != nil {
+		return fmt.Errorf("failed to open genesis file to extract chain ID: %w", err)
+	}
+	defer gf.Close()
+
+	var cid struct {
+		ChainID string `json:"chain_id"`
+	}
+	if err := json.NewDecoder(gf).Decode(&cid); err != nil {
+		return fmt.Errorf("failed to parse JSON from genesis file at %s: %w", genesisPath, err)
+	}
+	// Even though we have a defer above, close it explicitly now that we are done parsing.
+	_ = gf.Close()
+
+	// Store the chain ID on the component, because the driver needs it during Start.
+	c.chainID = cid.ChainID
+
 	genesis := &tmconsensus.ExternalGenesis{
-		ChainID:         "TODO:TEMPORARY_CHAIN_ID", // todo parse this out of sdk genesis file
+		ChainID:         cid.ChainID,
 		InitialHeight:   1,
 		InitialAppState: strings.NewReader(""), // No initial app state yet.
 		// TODO: where will GenesisValidators come from?
@@ -308,6 +332,8 @@ func (c *Component) Start(ctx context.Context) error {
 		ctx,
 		c.log.With("serversys", "driver"),
 		gsi.DriverConfig{
+			ChainID: c.chainID,
+
 			ConsensusAuthority: c.app.GetConsensusAuthority(),
 
 			AppManager: c.app.GetAppManager(),

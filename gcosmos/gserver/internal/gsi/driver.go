@@ -33,6 +33,8 @@ import (
 )
 
 type DriverConfig struct {
+	ChainID string
+
 	ConsensusAuthority string
 
 	AppManager *appmanager.AppManager[transaction.Tx]
@@ -49,6 +51,8 @@ type DriverConfig struct {
 
 type Driver struct {
 	log *slog.Logger
+
+	chainID string
 
 	txBuf *SDKTxBuf
 
@@ -74,6 +78,8 @@ func NewDriver(
 
 	d := &Driver{
 		log: log,
+
+		chainID: cfg.ChainID,
 
 		txBuf: cfg.TxBuffer,
 
@@ -344,7 +350,7 @@ func (d *Driver) handleFinalizations(
 
 			Hash:    fbReq.Header.Hash,
 			AppHash: cID.Hash,
-			ChainId: "???", // TODO: the chain ID needs to be threaded here properly.
+			ChainId: d.chainID,
 			Txs:     txs,
 		}
 

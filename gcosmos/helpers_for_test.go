@@ -105,7 +105,8 @@ func ConfigureChain(t *testing.T, ctx context.Context, cfg ChainConfig) Chain {
 		keyAddresses[i] = keyOut.Address
 	}
 
-	// Add each key as a genesis account on the first validator's environment.
+	// Add each key address as a genesis account on the first validator's environment.
+	// This is necessary for collect-gentxs later.
 	for i, a := range keyAddresses {
 		rootCmds[0].Run(
 			"genesis", "add-genesis-account",
@@ -150,10 +151,10 @@ func ConfigureChain(t *testing.T, ctx context.Context, cfg ChainConfig) Chain {
 		).NoError(t)
 	}
 
-	// Add a gentx for every validator, to a temporary gentx directory.
+	// Add a gentx for every validator, to one shared temporary gentx directory.
 	gentxDir := t.TempDir()
 	for i, e := range rootCmds {
-		vs := fmt.Sprintf("val%d", i)
+		valName := fmt.Sprintf("val%d", i)
 		stake := cfg.StakeStrategy(i)
 		if i > 0 {
 			// The first validator has every genesis account already,
@@ -161,14 +162,14 @@ func ConfigureChain(t *testing.T, ctx context.Context, cfg ChainConfig) Chain {
 			// in order to do a gentx.
 			e.Run(
 				"genesis", "add-genesis-account",
-				vs, stake,
+				valName, stake,
 			).NoError(t)
 		}
 		e.Run(
 			"genesis", "gentx",
 			"--chain-id", cfg.ID,
-			"--output-document", filepath.Join(gentxDir, vs+".gentx.json"),
-			vs, stake,
+			"--output-document", filepath.Join(gentxDir, valName+".gentx.json"),
+			valName, stake,
 		).NoError(t)
 	}
 

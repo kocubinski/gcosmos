@@ -206,6 +206,7 @@ func TestTx_single_basicSend(t *testing.T) {
 		// First generate the transaction.
 		res := c.RootCmds[0].Run(
 			"tx", "bank", "send", c.FixedAddresses[0], c.FixedAddresses[1], sendAmount,
+			"--chain-id", t.Name(),
 			"--generate-only",
 		)
 		res.NoError(t)
@@ -214,16 +215,17 @@ func TestTx_single_basicSend(t *testing.T) {
 		msgPath := filepath.Join(dir, "send.msg")
 		require.NoError(t, os.WriteFile(msgPath, res.Stdout.Bytes(), 0o600))
 
-		// TODO: get the real account number, don't just make it up.
-		const accountNumber = 100
+		// TODO: is there a better way to dynamically get this?
+		const accountNumber = 1
 
 		// Sign the transaction offline so that we can send it.
 		res = c.RootCmds[0].Run(
 			"tx", "sign", msgPath,
 			"--offline",
+			"--chain-id", t.Name(),
 			fmt.Sprintf("--account-number=%d", accountNumber),
 			"--from", c.FixedAddresses[0],
-			"--sequence=30", // Seems like this should be rejected, but it's accepted for some reason?!
+			"--sequence=0", // We know this is the first transaction for the sender.
 		)
 
 		res.NoError(t)
@@ -235,10 +237,10 @@ func TestTx_single_basicSend(t *testing.T) {
 
 		// Just log out what it responds, for now.
 		// We can't do much with the response until we actually start handling the transaction.
-		require.Equal(t, http.StatusOK, resp.StatusCode)
 		b, err := io.ReadAll(resp.Body)
 		require.NoError(t, err)
 		t.Logf("response body: %s", b)
+		require.Equal(t, http.StatusOK, resp.StatusCode)
 
 		// TODO: make some height assertions here instead of just sleeping.
 		time.Sleep(8 * time.Second)
@@ -341,16 +343,17 @@ func TestTx_single_delegate(t *testing.T) {
 		msgPath := filepath.Join(dir, "delegate.msg")
 		require.NoError(t, os.WriteFile(msgPath, res.Stdout.Bytes(), 0o600))
 
-		// TODO: get the real account number, don't just make it up.
-		const accountNumber = 100
+		// TODO: is there a better way to dynamically get this?
+		const accountNumber = 1
 
 		// Sign the transaction offline so that we can send it.
 		res = c.RootCmds[0].Run(
 			"tx", "sign", msgPath,
 			"--offline",
+			"--chain-id", t.Name(),
 			fmt.Sprintf("--account-number=%d", accountNumber),
 			"--from", c.FixedAddresses[0],
-			"--sequence=30", // Seems like this should be rejected, but it's accepted for some reason?!
+			"--sequence=0", // We know this is the first transaction for the sender.
 		)
 
 		res.NoError(t)
@@ -361,10 +364,10 @@ func TestTx_single_delegate(t *testing.T) {
 		require.NoError(t, err)
 
 		// Just log out what it responds, for now.
-		require.Equal(t, http.StatusOK, resp.StatusCode)
 		b, err := io.ReadAll(resp.Body)
 		require.NoError(t, err)
 		t.Logf("response body: %s", b)
+		require.Equal(t, http.StatusOK, resp.StatusCode)
 
 		// TODO: make some height assertions here instead of just sleeping.
 		time.Sleep(8 * time.Second)
@@ -415,6 +418,8 @@ func TestTx_single_addAndRemoveNewValidator(t *testing.T) {
 	httpAddr := c.Start(t, ctx, 1).HTTP[0]
 
 	if !runCometInsteadOfGordian {
+		chainID := t.Name()
+
 		baseURL := "http://" + httpAddr
 
 		// Make sure we are beyond the initial height.
@@ -499,6 +504,7 @@ func TestTx_single_addAndRemoveNewValidator(t *testing.T) {
 			"tx", "staking",
 			"create-validator", createPath,
 			"--from", "newVal",
+			"--chain-id", chainID,
 			"--generate-only",
 		)
 		res.NoError(t)
@@ -506,27 +512,28 @@ func TestTx_single_addAndRemoveNewValidator(t *testing.T) {
 		stakePath := filepath.Join(scratchDir, "stake.msg")
 		require.NoError(t, os.WriteFile(stakePath, res.Stdout.Bytes(), 0o600))
 
-		// TODO: get the real account number, don't just make it up.
-		const accountNumber = 100
+		// TODO: is there a better way to dynamically get this?
+		const accountNumber = 1
 
 		// Sign the transaction offline so that we can send it.
 		res = newValRootCmd.Run(
 			"tx", "sign", stakePath,
 			"--offline",
+			"--chain-id", chainID,
 			fmt.Sprintf("--account-number=%d", accountNumber),
 			"--from", "newVal",
-			"--sequence=30", // Seems like this should be rejected, but it's accepted for some reason?!
+			"--sequence=0", // We know this is the first transaction for the account.
 		)
 		res.NoError(t)
 
 		resp, err := http.Post(baseURL+"/debug/submit_tx", "application/json", &res.Stdout)
 		require.NoError(t, err)
 
-		require.Equal(t, http.StatusOK, resp.StatusCode)
 		b, err := io.ReadAll(resp.Body)
 		require.NoError(t, err)
 		t.Logf("Response body from submitting tx: %s", b)
 		resp.Body.Close()
+		require.Equal(t, http.StatusOK, resp.StatusCode)
 
 		// Wait for create-validator transaction to flush.
 		deadline = time.Now().Add(time.Minute)
@@ -614,6 +621,7 @@ func TestTx_single_addAndRemoveNewValidator(t *testing.T) {
 				delegateAmount, // The same amount we fully delegated to the new validator.
 				"--from", "newVal",
 				"--generate-only",
+				"--chain-id", chainID,
 			)
 			res.NoError(t)
 			t.Logf("redelegate stdout: %s", res.Stdout.String())
@@ -625,9 +633,10 @@ func TestTx_single_addAndRemoveNewValidator(t *testing.T) {
 			res = newValRootCmd.Run(
 				"tx", "sign", redelegatePath,
 				"--offline",
+				"--chain-id", chainID,
 				fmt.Sprintf("--account-number=%d", accountNumber),
 				"--from", "newVal",
-				"--sequence=31", // Go one past the previous wrong value.
+				"--sequence=1", // Already sent one transaction, next sequence is 1.
 			)
 			res.NoError(t)
 
