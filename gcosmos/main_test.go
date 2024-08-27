@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/rollchains/gordian/gcosmos/internal/gci"
 	"github.com/rollchains/gordian/internal/gtest"
 	"github.com/stretchr/testify/require"
-	"github.com/rollchains/gordian/gcosmos/internal/gci"
 )
 
 func TestRootCmd(t *testing.T) {
@@ -792,6 +792,7 @@ func TestTx_multiple_simpleSend(t *testing.T) {
 	// First generate the transaction.
 	res := c.RootCmds[0].Run(
 		"tx", "bank", "send", c.FixedAddresses[0], c.FixedAddresses[1], sendAmount,
+		"--chain-id", t.Name(),
 		"--generate-only",
 	)
 	res.NoError(t)
@@ -800,16 +801,18 @@ func TestTx_multiple_simpleSend(t *testing.T) {
 	msgPath := filepath.Join(dir, "send.msg")
 	require.NoError(t, os.WriteFile(msgPath, res.Stdout.Bytes(), 0o600))
 
-	// TODO: get the real account number, don't just make it up.
-	const accountNumber = 100
+	// The validator accounts start at zero,
+	// and this account is the first one after the validator set.
+	const accountNumber = totalVals
 
 	// Sign the transaction offline so that we can send it.
 	res = c.RootCmds[0].Run(
 		"tx", "sign", msgPath,
 		"--offline",
+		"--chain-id", t.Name(),
 		fmt.Sprintf("--account-number=%d", accountNumber),
 		"--from", c.FixedAddresses[0],
-		"--sequence=30", // Seems like this should be rejected, but it's accepted for some reason?!
+		"--sequence=0", // We know this is the first transaction for the sender.
 	)
 
 	res.NoError(t)
@@ -819,10 +822,10 @@ func TestTx_multiple_simpleSend(t *testing.T) {
 
 	// Just log out what it responds, for now.
 	// We can't do much with the response until we actually start handling the transaction.
-	require.Equal(t, http.StatusOK, resp.StatusCode)
 	b, err := io.ReadAll(resp.Body)
 	require.NoError(t, err)
 	t.Logf("response body: %s", b)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
 
 	deadline := time.Now().Add(time.Minute)
 	u := "http://" + httpAddrs[0] + "/debug/pending_txs"
