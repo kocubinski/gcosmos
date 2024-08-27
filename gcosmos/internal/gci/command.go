@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	coreappmgr "cosmossdk.io/core/app"
+	coreserver "cosmossdk.io/core/server"
 	"cosmossdk.io/core/transaction"
 	serverv2 "cosmossdk.io/server/v2"
 	"cosmossdk.io/server/v2/appmanager"
@@ -268,7 +268,7 @@ func runDriver(
 		return
 	}
 
-	blockReq := &coreappmgr.BlockRequest[transaction.Tx]{
+	blockReq := &coreserver.BlockRequest[transaction.Tx]{
 		Height: req.Genesis.InitialHeight, // Comet does genesis height - 1, do we need that too?
 
 		ChainId:   req.Genesis.ChainID,

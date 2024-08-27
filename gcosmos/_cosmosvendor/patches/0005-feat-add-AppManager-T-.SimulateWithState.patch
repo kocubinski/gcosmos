@@ -1,4 +1,4 @@
-From 7ec3b8854c0b22f02e01422686b4558e306ddf40 Mon Sep 17 00:00:00 2001
+From fde2ccd0fba90adc8afcdb0d6ec1305495f050e9 Mon Sep 17 00:00:00 2001
 From: Mark Rushakoff <mark@strange.love>
 Date: Mon, 29 Jul 2024 11:57:21 -0400
 Subject: [PATCH 5/7] feat: add (AppManager[T]).SimulateWithState
@@ -12,7 +12,7 @@ SimulateWithState method already, so we add it here.
  1 file changed, 9 insertions(+)
 
 diff --git a/server/v2/appmanager/appmanager.go b/server/v2/appmanager/appmanager.go
-index 284b1dcb09..2a472830d3 100644
+index 023f76bd20..73796395c3 100644
 --- a/server/v2/appmanager/appmanager.go
 +++ b/server/v2/appmanager/appmanager.go
 @@ -186,3 +186,12 @@ func (a AppManager[T]) QueryWithState(
@@ -25,7 +25,7 @@ index 284b1dcb09..2a472830d3 100644
 +	ctx context.Context,
 +	state corestore.ReaderMap,
 +	tx T,
-+) (appmanager.TxResult, corestore.WriterMap) {
++) (server.TxResult, corestore.WriterMap) {
 +	return a.stf.Simulate(ctx, state, a.config.SimulationGasLimit, tx)
 +}
 -- 

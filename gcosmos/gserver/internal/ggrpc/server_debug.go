@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 
-	appmanager "cosmossdk.io/core/app"
 	"cosmossdk.io/core/event"
+	coreserver "cosmossdk.io/core/server"
 	banktypes "cosmossdk.io/x/bank/types"
 )
 
@@ -125,16 +125,12 @@ func (g *GordianGRPC) QueryAccountBalance(ctx context.Context, req *QueryAccount
 }
 
 // getGordianResponseFromSDKResult converts an app manager TxResult to the gRPC proto result.
-func getGordianResponseFromSDKResult(res appmanager.TxResult) *TxResultResponse {
+func getGordianResponseFromSDKResult(res coreserver.TxResult) *TxResultResponse {
 	resp := &TxResultResponse{
 		Code:      res.Code,
 		Events:    convertEvent(res.Events),
-		Data:      res.Data,
-		Log:       res.Log,
-		Info:      res.Info,
 		GasWanted: res.GasWanted,
 		GasUsed:   res.GasUsed,
-		Codespace: res.Codespace,
 	}
 	if res.Error != nil {
 		resp.Error = res.Error.Error()

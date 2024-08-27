@@ -10,9 +10,9 @@ import (
 	"slices"
 	"time"
 
-	coreappmgr "cosmossdk.io/core/app"
 	corecomet "cosmossdk.io/core/comet"
 	corecontext "cosmossdk.io/core/context"
+	coreserver "cosmossdk.io/core/server"
 	"cosmossdk.io/core/store"
 	"cosmossdk.io/core/transaction"
 	"cosmossdk.io/server/v2/appmanager"
@@ -137,8 +137,8 @@ func (d *Driver) handleInitialization(
 	}
 	d.log.Info("Got init chain request", "val", req)
 
-	blockReq := &coreappmgr.BlockRequest[transaction.Tx]{
-		Height: req.Genesis.InitialHeight, // Comet does genesis height - 1, do we need that too?
+	blockReq := &coreserver.BlockRequest[transaction.Tx]{
+		Height: req.Genesis.InitialHeight - 1,
 
 		ChainId:   req.Genesis.ChainID,
 		IsGenesis: true,
@@ -343,7 +343,7 @@ func (d *Driver) handleFinalizations(
 			txs = haveTxs
 		}
 
-		blockReq := &coreappmgr.BlockRequest[transaction.Tx]{
+		blockReq := &coreserver.BlockRequest[transaction.Tx]{
 			Height: fbReq.Header.Height,
 
 			Time: blockTime,
