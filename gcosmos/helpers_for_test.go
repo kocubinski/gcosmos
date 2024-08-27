@@ -273,7 +273,7 @@ func (c Chain) Start(t *testing.T, ctx context.Context, nVals int) ChainAddresse
 			defer wg.Done()
 
 			startCmd := []string{"start"}
-			if !runCometInsteadOfGordian {
+			if !gci.RunCometInsteadOfGordian {
 				// Then include the HTTP server flags.
 				startCmd = append(
 					startCmd,
@@ -299,7 +299,7 @@ func (c Chain) Start(t *testing.T, ctx context.Context, nVals int) ChainAddresse
 	// Now all the goroutines to start the servers should be running.
 	// Gather their reported HTTP addresses.
 	for i := range nVals {
-		if runCometInsteadOfGordian {
+		if gci.RunCometInsteadOfGordian {
 			// Nothing to check in this mode.
 			break
 		}
@@ -369,7 +369,7 @@ func (e CmdEnv) RunWithInputC(ctx context.Context, in io.Reader, args ...string)
 	var cmd *cobra.Command
 
 	// Compile-time flag declared near top of this file.
-	if runCometInsteadOfGordian {
+	if gci.RunCometInsteadOfGordian {
 		cmd = simdcmd.NewRootCmd[transaction.Tx]()
 	} else {
 		cmd = gci.NewSimdRootCmdWithGordian(ctx, e.log)

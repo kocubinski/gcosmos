@@ -14,11 +14,8 @@ import (
 
 	"github.com/rollchains/gordian/internal/gtest"
 	"github.com/stretchr/testify/require"
+	"github.com/rollchains/gordian/gcosmos/internal/gci"
 )
-
-// Cheap toggle at build time to quickly switch to running comet,
-// for cases where the difference in behavior needs to be inspected.
-const runCometInsteadOfGordian = false
 
 func TestRootCmd(t *testing.T) {
 	t.Parallel()
@@ -42,7 +39,7 @@ func TestRootCmd_startWithGordian_singleValidator(t *testing.T) {
 
 	httpAddr := c.Start(t, ctx, 1).HTTP[0]
 
-	if !runCometInsteadOfGordian {
+	if !gci.RunCometInsteadOfGordian {
 		u := "http://" + httpAddr + "/blocks/watermark"
 		// TODO: we might need to delay until we get a non-error HTTP response.
 
@@ -111,7 +108,7 @@ func TestRootCmd_startWithGordian_multipleValidators(t *testing.T) {
 
 	// Each of the interesting validators must report a height beyond the first few blocks.
 	for i := range interestingVals {
-		if runCometInsteadOfGordian {
+		if gci.RunCometInsteadOfGordian {
 			// Nothing to check in this mode.
 			break
 		}
@@ -162,7 +159,7 @@ func TestTx_single_basicSend(t *testing.T) {
 
 	httpAddr := c.Start(t, ctx, 1).HTTP[0]
 
-	if !runCometInsteadOfGordian {
+	if !gci.RunCometInsteadOfGordian {
 		baseURL := "http://" + httpAddr
 
 		// Make sure we are beyond the initial height.
@@ -281,7 +278,7 @@ func TestTx_single_delegate(t *testing.T) {
 
 	httpAddr := c.Start(t, ctx, 1).HTTP[0]
 
-	if !runCometInsteadOfGordian {
+	if !gci.RunCometInsteadOfGordian {
 		baseURL := "http://" + httpAddr
 
 		// Make sure we are beyond the initial height.
@@ -417,7 +414,7 @@ func TestTx_single_addAndRemoveNewValidator(t *testing.T) {
 
 	httpAddr := c.Start(t, ctx, 1).HTTP[0]
 
-	if !runCometInsteadOfGordian {
+	if !gci.RunCometInsteadOfGordian {
 		chainID := t.Name()
 
 		baseURL := "http://" + httpAddr
@@ -750,7 +747,7 @@ func TestTx_multiple_simpleSend(t *testing.T) {
 
 	// Each of the interesting validators must report a height beyond the first few blocks.
 	for i := range interestingVals {
-		if runCometInsteadOfGordian {
+		if gci.RunCometInsteadOfGordian {
 			// Nothing to check in this mode.
 			break
 		}
