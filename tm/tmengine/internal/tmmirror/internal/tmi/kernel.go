@@ -75,6 +75,7 @@ type KernelConfig struct {
 	ProposedHeaderFetcher tmelink.ProposedHeaderFetcher
 
 	GossipStrategyOut chan<- tmelink.NetworkViewUpdate
+	LagStateOut       chan<- tmelink.LagState
 
 	StateMachineRoundEntranceIn <-chan tmeil.StateMachineRoundEntrance
 
@@ -188,6 +189,8 @@ func NewKernel(ctx context.Context, log *slog.Logger, cfg KernelConfig) (*Kernel
 		StateMachineViewManager: newStateMachineViewManager(cfg.StateMachineRoundViewOut),
 
 		GossipViewManager: newGossipViewManager(cfg.GossipStrategyOut),
+
+		LagManager: newLagManager(cfg.LagStateOut),
 	}
 
 	// Have to load the committing view first,
@@ -255,6 +258,8 @@ func (k *Kernel) mainLoop(ctx context.Context, s *kState, wd *gwatchdog.Watchdog
 
 		gsOut := s.GossipViewManager.Output()
 
+		lagOut := s.LagManager.Output()
+
 		select {
 		case <-ctx.Done():
 			k.log.Info(
@@ -294,6 +299,9 @@ func (k *Kernel) mainLoop(ctx context.Context, s *kState, wd *gwatchdog.Watchdog
 		case smOut.Ch <- smOut.Val:
 			smOut.MarkSent()
 
+		case lagOut.Ch <- lagOut.Val:
+			lagOut.MarkSent()
+
 		case ph := <-k.phf.FetchedProposedHeaders:
 			k.addPH(ctx, s, ph)
 
@@ -332,7 +340,7 @@ func (k *Kernel) addPH(ctx context.Context, s *kState, ph tmconsensus.ProposedHe
 	}
 
 	// If we concurrently handled multiple requests for the same proposed header,
-	// the goroutines calling into HandleProposedHEader would have seen the same original view
+	// the goroutines calling into HandleProposedHeader would have seen the same original view
 	// and would both request the same header to be added.
 	// Since those add blocks are serialized into the kernel,
 	// we now need to make sure this isn't a duplicate.
@@ -364,6 +372,11 @@ func (k *Kernel) addPH(ctx context.Context, s *kState, ph tmconsensus.ProposedHe
 		// The rest of the method assumes we merged the proposed block into the current height.
 		return
 	}
+
+	// Assuming for now, if we have merged the proposed block into the current height,
+	// then we are up to date with the network.
+	// There are probably edge cases where that is not true.
+	s.LagManager.SetState(tmelink.LagStatusUpToDate, s.Committing.Height, 0)
 
 	// Also, now that we saved this proposed block,
 	// we need to check if it had commit info for our previous height.
@@ -1258,7 +1271,7 @@ func (k *Kernel) handleStateMachineRoundEntrance(ctx context.Context, s *kState,
 	if vrv == nil {
 		// There is one acceptable condition here -- it was before the committing round.
 		if status == ViewBeforeCommitting {
-			// Then we have to load it from the block store.
+			// Then we have to load it from the header store.
 			ch, err := k.hStore.LoadHeader(ctx, re.H)
 			if err != nil {
 				panic(fmt.Errorf(

@@ -10,6 +10,7 @@ import (
 	"github.com/rollchains/gordian/tm/tmconsensus"
 	"github.com/rollchains/gordian/tm/tmengine/internal/tmeil"
 	"github.com/rollchains/gordian/tm/tmengine/internal/tmmirror/internal/tmi"
+	"github.com/rollchains/gordian/tm/tmengine/tmelink"
 	"github.com/stretchr/testify/require"
 )
 
@@ -281,4 +282,56 @@ func TestKernel_initialStateUpdateToStateMachineUsesVRVClone(t *testing.T) {
 	require.Equal(t, []tmconsensus.ProposedHeader{ph1}, vrv.ProposedHeaders)
 	// And it doesn't have the bogus change we added to our copy of the vote summary.
 	require.Empty(t, vrv.VoteSummary.PrevoteBlockPower)
+}
+
+func TestKernel_lag(t *testing.T) {
+	t.Run("initializing at startup", func(t *testing.T) {
+		t.Parallel()
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		kfx := NewKernelFixture(ctx, t, 4)
+
+		k := kfx.NewKernel()
+		defer k.Wait()
+		defer cancel()
+
+		ls := gtest.ReceiveSoon(t, kfx.LagStateOut)
+		require.Equal(t, tmelink.LagState{
+			Status:           tmelink.LagStatusInitializing,
+			CommittingHeight: 0,
+			NeedHeight:       0,
+		}, ls)
+	})
+
+	t.Run("up to date when new proposed header for voting height received", func(t *testing.T) {
+		t.Parallel()
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		kfx := NewKernelFixture(ctx, t, 4)
+
+		k := kfx.NewKernel()
+		defer k.Wait()
+		defer cancel()
+
+		require.Equal(
+			t,
+			tmelink.LagStatusInitializing,
+			gtest.ReceiveSoon(t, kfx.LagStateOut).Status,
+		)
+
+		ph1 := kfx.Fx.NextProposedHeader([]byte("app_data_1"), 0)
+		kfx.Fx.SignProposal(ctx, &ph1, 0)
+		gtest.SendSoon(t, kfx.AddPHRequests, ph1)
+
+		ls := gtest.ReceiveSoon(t, kfx.LagStateOut)
+		require.Equal(t, tmelink.LagState{
+			Status:           tmelink.LagStatusUpToDate,
+			CommittingHeight: 0,
+			NeedHeight:       0,
+		}, ls)
+	})
 }

@@ -3,6 +3,7 @@ package tmengine
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/rollchains/gordian/gassert"
 	"github.com/rollchains/gordian/gcrypto"
@@ -169,6 +170,22 @@ func WithBlockFinalizationChannel(ch chan<- tmdriver.FinalizeBlockRequest) Opt {
 func WithBlockDataArrivalChannel(ch <-chan tmelink.BlockDataArrival) Opt {
 	return func(_ *Engine, smc *tmstate.StateMachineConfig) error {
 		smc.BlockDataArrivalCh = ch
+		return nil
+	}
+}
+
+// WithLagStateChannel sets the channel that the engine writes to
+// when its lag state changes.
+// This option is not required, but is strongly recommended.
+func WithLagStateChannel(ch chan<- tmelink.LagState) Opt {
+	return func(e *Engine, _ *tmstate.StateMachineConfig) error {
+		if cap(ch) != 0 {
+			// cap(nil) is also 0, notably.
+			// We'll allow a nil ch for now, but one could argue against allowing that.
+			return fmt.Errorf("WithLagStateChannel: capacity of channel must be zero (got %d)", cap(ch))
+		}
+
+		e.mCfg.LagStateOut = ch
 		return nil
 	}
 }

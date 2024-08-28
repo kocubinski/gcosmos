@@ -28,6 +28,7 @@ type KernelFixture struct {
 	// because they are write-only in the config.
 
 	GossipStrategyOut chan tmelink.NetworkViewUpdate
+	LagStateOut       chan tmelink.LagState
 
 	NHRRequests        chan chan tmi.NetworkHeightRound
 	SnapshotRequests   chan tmi.SnapshotRequest
@@ -50,6 +51,7 @@ func NewKernelFixture(ctx context.Context, t *testing.T, nVals int) *KernelFixtu
 
 	// Unbuffered because the kernel needs to know exactly what was received.
 	gso := make(chan tmelink.NetworkViewUpdate)
+	lso := make(chan tmelink.LagState)
 
 	// 1-buffered like production:
 	// "because it is possible that the caller
@@ -86,6 +88,7 @@ func NewKernelFixture(ctx context.Context, t *testing.T, nVals int) *KernelFixtu
 		Fx: fx,
 
 		GossipStrategyOut: gso,
+		LagStateOut:       lso,
 
 		NHRRequests:        nhrRequests,
 		SnapshotRequests:   snapshotRequests,
@@ -111,7 +114,9 @@ func NewKernelFixture(ctx context.Context, t *testing.T, nVals int) *KernelFixtu
 			SignatureScheme:                   fx.SignatureScheme,
 			CommonMessageSignatureProofScheme: fx.CommonMessageSignatureProofScheme,
 
-			GossipStrategyOut:           gso,
+			GossipStrategyOut: gso,
+			LagStateOut:       lso,
+
 			StateMachineRoundEntranceIn: smRoundEntranceIn,
 			StateMachineRoundViewOut:    smViewOut,
 

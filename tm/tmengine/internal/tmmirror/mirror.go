@@ -60,6 +60,7 @@ type MirrorConfig struct {
 	ProposedHeaderFetcher tmelink.ProposedHeaderFetcher
 
 	GossipStrategyOut chan<- tmelink.NetworkViewUpdate
+	LagStateOut       chan<- tmelink.LagState
 
 	StateMachineRoundViewOut chan<- tmeil.StateMachineRoundView
 
@@ -90,6 +91,7 @@ func (c MirrorConfig) toKernelConfig() tmi.KernelConfig {
 		ProposedHeaderFetcher: c.ProposedHeaderFetcher,
 
 		GossipStrategyOut: c.GossipStrategyOut,
+		LagStateOut:       c.LagStateOut,
 
 		StateMachineRoundEntranceIn: c.StateMachineRoundEntranceIn,
 		StateMachineRoundViewOut:    c.StateMachineRoundViewOut,

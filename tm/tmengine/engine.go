@@ -169,7 +169,7 @@ func (e *Engine) validateSettings(smc tmstate.StateMachineConfig) error {
 	}
 
 	if e.gs == nil {
-		err = errors.Join(err, errors.New("no gossip strategy set (use tmengine.WithGossipStrategy[3a])"))
+		err = errors.Join(err, errors.New("no gossip strategy set (use tmengine.WithGossipStrategy)"))
 	}
 
 	if smc.ActionStore == nil && smc.Signer != nil {

@@ -13,6 +13,7 @@ import (
 	"github.com/rollchains/gordian/tm/tmdriver"
 	"github.com/rollchains/gordian/tm/tmengine"
 	"github.com/rollchains/gordian/tm/tmengine/internal/tmstate/tmstatetest"
+	"github.com/rollchains/gordian/tm/tmengine/tmelink"
 	"github.com/rollchains/gordian/tm/tmengine/tmenginetest"
 	"github.com/rollchains/gordian/tm/tmgossip/tmgossiptest"
 	"github.com/rollchains/gordian/tm/tmstore/tmmemstore"
@@ -620,6 +621,56 @@ func TestEngine_plumbing_GossipStrategy(t *testing.T) {
 		require.Equal(t, uint64(2), u.NextRound.Height)
 		require.Equal(t, uint32(1), u.NextRound.Round)
 	})
+}
+
+func TestEngine_plumbing_LagState(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	efx := tmenginetest.NewFixture(ctx, t, 4)
+
+	lagCh := make(chan tmelink.LagState)
+
+	var engine *tmengine.Engine
+	eReady := make(chan struct{})
+	go func() {
+		defer close(eReady)
+		// Don't need signing in this test.
+		om := efx.BaseOptionMap()
+		om["WithLagStateChannel"] = tmengine.WithLagStateChannel(lagCh)
+		engine = efx.MustNewEngine(om.ToSlice()...)
+	}()
+
+	defer func() {
+		cancel()
+		<-eReady
+		engine.Wait()
+	}()
+
+	_ = efx.ConsensusStrategy.ExpectEnterRound(1, 0, nil)
+
+	// Handle chain initialization first to avoid panic in fixture.
+	icReq := gtest.ReceiveSoon(t, efx.InitChainCh)
+	gtest.SendSoon(t, icReq.Resp, tmdriver.InitChainResponse{
+		AppStateHash: []byte("whatever"),
+	})
+
+	// At startup, lag state is initializing.
+	ls := gtest.ReceiveSoon(t, lagCh)
+	require.Equal(t, tmelink.LagState{
+		Status: tmelink.LagStatusInitializing,
+	}, ls)
+
+	ph1 := efx.Fx.NextProposedHeader([]byte("app_state_1"), 0)
+	efx.Fx.SignProposal(ctx, &ph1, 0)
+
+	_ = engine.HandleProposedHeader(ctx, ph1)
+
+	require.Equal(t, tmelink.LagState{
+		Status: tmelink.LagStatusUpToDate,
+	}, gtest.ReceiveSoon(t, lagCh))
 }
 
 func TestEngine_initChain(t *testing.T) {

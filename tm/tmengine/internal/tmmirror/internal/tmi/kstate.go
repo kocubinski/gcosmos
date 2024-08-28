@@ -39,6 +39,10 @@ type kState struct {
 
 	// Manager for views to share with the gossip strategy.
 	GossipViewManager gossipViewManager
+
+	// Manager for lag state, to inform the driver
+	// when we believe we are lagging the network.
+	LagManager lagManager
 }
 
 // FindView finds the view in s matching the given height and round,
