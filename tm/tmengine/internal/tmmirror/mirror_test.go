@@ -14,6 +14,7 @@ import (
 	"github.com/rollchains/gordian/tm/tmengine/internal/tmmirror"
 	"github.com/rollchains/gordian/tm/tmengine/internal/tmmirror/internal/tmi"
 	"github.com/rollchains/gordian/tm/tmengine/internal/tmmirror/tmmirrortest"
+	"github.com/rollchains/gordian/tm/tmengine/tmelink"
 	"github.com/rollchains/gordian/tm/tmengine/tmelink/tmelinktest"
 	"github.com/stretchr/testify/require"
 )
@@ -2845,6 +2846,85 @@ func TestMirror_gossipStrategyOutStripsEmptyNilVotes(t *testing.T) {
 	require.Nil(t, gso.Committing.PrevoteProofs[""])
 	require.Nil(t, gso.Committing.PrecommitProofs[""])
 	require.Equal(t, uint(4), gso.Committing.PrecommitProofs[string(ph1.Header.Hash)].SignatureBitSet().Count())
+}
+
+func TestMirror_replayedHeaders(t *testing.T) {
+	t.Run("at initialization, without any p2p messages", func(t *testing.T) {
+		t.Parallel()
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		mfx := tmmirrortest.NewFixture(ctx, t, 4)
+
+		m := mfx.NewMirror()
+		defer m.Wait()
+		defer cancel()
+
+		require.Equal(t, tmelink.LagStatusInitializing, gtest.ReceiveSoon(
+			t, mfx.LagStateOut,
+		).Status)
+
+		ph1 := mfx.Fx.NextProposedHeader([]byte("app_data_1"), 0)
+		mfx.Fx.SignProposal(ctx, &ph1, 0)
+
+		// Everyone voted for the block.
+		voteMap := map[string][]int{
+			string(ph1.Header.Hash): {0, 1, 2, 3},
+		}
+		precommitProofs1 := mfx.Fx.PrecommitProofMap(ctx, 1, 0, voteMap)
+		mfx.Fx.CommitBlock(ph1.Header, []byte("app_state_height_1"), 0, precommitProofs1)
+
+		ph2 := mfx.Fx.NextProposedHeader([]byte("app_data_2"), 0)
+
+		// Before we replay the block, make sure the header store is empty.
+		_, err := mfx.Cfg.HeaderStore.LoadHeader(ctx, 1)
+		require.ErrorIs(t, err, tmconsensus.HeightUnknownError{Want: 1})
+
+		respCh := make(chan tmelink.ReplayedHeaderResponse, 1)
+		req1 := tmelink.ReplayedHeaderRequest{
+			Header: ph1.Header,
+			Proof:  ph2.Header.PrevCommitProof,
+			Resp:   respCh,
+		}
+
+		gtest.SendSoon(t, mfx.ReplayedHeadersIn, req1)
+		_ = gtest.ReceiveSoon(t, respCh) // Response currently doesn't have anything meaningful.
+
+		// Following the request-response, the header is still not yet in the store.
+		// It's only been switched from the voting view to the committing view.
+		_, err = mfx.Cfg.HeaderStore.LoadHeader(ctx, 1)
+		require.ErrorIs(t, err, tmconsensus.HeightUnknownError{Want: 1})
+
+		// TODO: but 1 should be in the round store now!
+
+		// So, let's replay the next header too.
+		voteMap = map[string][]int{
+			string(ph2.Header.Hash): {0, 1, 2, 3},
+		}
+		precommitProofs2 := mfx.Fx.PrecommitProofMap(ctx, 2, 0, voteMap)
+		mfx.Fx.CommitBlock(ph2.Header, []byte("app_state_height_2"), 0, precommitProofs2)
+
+		ph3 := mfx.Fx.NextProposedHeader([]byte("app_data_3"), 0)
+		respCh = make(chan tmelink.ReplayedHeaderResponse, 1)
+		req2 := tmelink.ReplayedHeaderRequest{
+			Header: ph2.Header,
+			Proof:  ph3.Header.PrevCommitProof,
+			Resp:   respCh,
+		}
+
+		gtest.SendSoon(t, mfx.ReplayedHeadersIn, req2)
+		_ = gtest.ReceiveSoon(t, respCh)
+
+		// Now 2 is in committing and 3 is in voting,
+		// so 1 must be in the header store.
+		h, err := mfx.Cfg.HeaderStore.LoadHeader(ctx, 1)
+		require.NoError(t, err)
+		require.Equal(t, tmconsensus.CommittedHeader{
+			Header: req1.Header,
+			Proof:  req1.Proof,
+		}, h)
+	})
 }
 
 func TestMirror_metrics(t *testing.T) {

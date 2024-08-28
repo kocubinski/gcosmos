@@ -42,7 +42,8 @@ type Kernel struct {
 	phf tmelink.ProposedHeaderFetcher
 	mc  *tmemetrics.Collector
 
-	gossipOutCh chan<- tmelink.NetworkViewUpdate
+	replayedHeadersIn <-chan tmelink.ReplayedHeaderRequest
+	gossipOutCh       chan<- tmelink.NetworkViewUpdate
 
 	stateMachineRoundEntranceIn <-chan tmeil.StateMachineRoundEntrance
 
@@ -74,6 +75,7 @@ type KernelConfig struct {
 
 	ProposedHeaderFetcher tmelink.ProposedHeaderFetcher
 
+	ReplayedHeadersIn <-chan tmelink.ReplayedHeaderRequest
 	GossipStrategyOut chan<- tmelink.NetworkViewUpdate
 	LagStateOut       chan<- tmelink.LagState
 
@@ -151,7 +153,8 @@ func NewKernel(ctx context.Context, log *slog.Logger, cfg KernelConfig) (*Kernel
 
 		// Channels provided through the config,
 		// i.e. channels coordinated by the Engine or Mirror.
-		gossipOutCh: cfg.GossipStrategyOut,
+		replayedHeadersIn: cfg.ReplayedHeadersIn,
+		gossipOutCh:       cfg.GossipStrategyOut,
 
 		stateMachineRoundEntranceIn: cfg.StateMachineRoundEntranceIn,
 
@@ -310,6 +313,9 @@ func (k *Kernel) mainLoop(ctx context.Context, s *kState, wd *gwatchdog.Watchdog
 
 		case act := <-s.StateMachineViewManager.Actions():
 			k.handleStateMachineAction(ctx, s, act)
+
+		case req := <-k.replayedHeadersIn:
+			k.handleReplayedHeader(ctx, s, req)
 
 		case sig := <-wSig:
 			close(sig.Alive)
@@ -797,7 +803,7 @@ func (k *Kernel) checkNextRoundPrecommitViewShift(ctx context.Context, s *kState
 	// so we need to jump voting to that round.
 	// This is a jump, not advance, because we actually don't have
 	// sufficient information to treat the current round as a nil commit.
-	if err := k.jumpVotingRound(ctx, s); err != nil {
+	if err := k.jumpVotingRound(ctx, s, s.NextRound.Round+1); err != nil {
 		return err
 	}
 
@@ -850,7 +856,7 @@ func (k *Kernel) checkPrevoteViewShift(ctx context.Context, s *kState, vID ViewI
 	// so we need to jump voting to that round.
 	// This is a jump, not advance, because we actually don't have
 	// sufficient information to treat the current round as a nil commit.
-	if err := k.jumpVotingRound(ctx, s); err != nil {
+	if err := k.jumpVotingRound(ctx, s, s.NextRound.Round+1); err != nil {
 		return err
 	}
 
@@ -991,18 +997,17 @@ func (k *Kernel) advanceVotingRound(ctx context.Context, s *kState) error {
 	return nil
 }
 
-// jumpVotingRound is called when the kernel needs to increase the voting round by one,
+// jumpVotingRound is called when the kernel needs to increase the voting round by at least one,
 // but this is due to timing without receiving a majority nil vote on the round.
 // Compared to [*Kernel.advanceVotingRound], this sends more information to the state machine
 // indicating the kernel's intent to skip the round.
-func (k *Kernel) jumpVotingRound(ctx context.Context, s *kState) error {
+func (k *Kernel) jumpVotingRound(ctx context.Context, s *kState, newRound uint32) error {
 	h := s.NextRound.Height
-	r := s.NextRound.Round + 1
-	nilPrevote, nilPrecommit, err := k.getInitialNilProofs(h, r, s.NextRound.ValidatorSet)
+	nilPrevote, nilPrecommit, err := k.getInitialNilProofs(h, newRound, s.NextRound.ValidatorSet)
 	if err != nil {
 		return fmt.Errorf(
 			"failed to get initial nil proofs for h=%d/r=%d when jumping voting round",
-			h, r,
+			h, newRound,
 		)
 	}
 
@@ -1454,6 +1459,127 @@ func (k *Kernel) handleStateMachineAction(ctx context.Context, s *kState, act tm
 		// The handler skips sending to a nil channel.
 	}
 	k.addPrecommit(ctx, s, req)
+}
+
+func (k *Kernel) handleReplayedHeader(ctx context.Context, s *kState, req tmelink.ReplayedHeaderRequest) {
+	defer trace.StartRegion(ctx, "handleReplayedHeader").End()
+
+	defer close(req.Resp)
+
+	// TODO: gassert: validate proof (this is supposed to happen before being replayed)
+
+	if req.Header.Height != s.Voting.Height {
+		k.log.Warn(
+			"Received replayed header at unexpected height",
+			"want", s.Voting.Height, "got", req.Header.Height,
+		)
+		return
+	}
+
+	if req.Proof.Round < s.Voting.Round {
+		// There are some edge cases we haven't handled yet with going backwards.
+		// It is a valid case when we saw >2/3 total precommits
+		// and advanced the round due to lack of consensus,
+		// but then a late vote arrives which caused a particular block to be precommitted.
+		panic(fmt.Errorf(
+			"TODO: handle replay for earlier round (exp=%d got=%d)",
+			s.Voting.Round, req.Proof.Round,
+		))
+	}
+
+	if req.Proof.Round > s.Voting.Round {
+		// Later round than we expected.
+		if err := k.jumpVotingRound(ctx, s, req.Proof.Round); err != nil {
+			glog.HRE(k.log, req.Header.Height, req.Proof.Round, err).Warn(
+				"Failed to jump voting round to replayed round",
+			)
+			return
+		}
+	}
+
+	// Now the voting view matches the height and round of the incoming replayed proof.
+	// It is possible that we already saw the incoming header and got stuck leading to a replay.
+	// Make sure we have only one copy.
+	if !slices.ContainsFunc(s.Voting.ProposedHeaders, func(h tmconsensus.ProposedHeader) bool {
+		return bytes.Equal(h.Header.Hash, req.Header.Hash)
+	}) {
+		// Didn't have the hash, so append it...
+		// but we only have a Header, not a proposed Header, so we leave a couple fields blank.
+		// This seems acceptable but there is a chance it could cause something to break.
+		s.Voting.ProposedHeaders = append(s.Voting.ProposedHeaders, tmconsensus.ProposedHeader{
+			Header: req.Header,
+			Round:  req.Proof.Round,
+			// Explicitly missing ProposerPubKey, Annotations, and Signature.
+		})
+	}
+
+	// Now, we don't care about prevotes, since we have precommits.
+	// Do we have an existing precommit proof?
+	// (Again, we might if we started lagging after seeing at least one precommit.)
+	pcp := s.Voting.PrecommitProofs[string(req.Header.Hash)]
+	if pcp == nil {
+		// No precommit data exists, so build it.
+		precommitContent, err := tmconsensus.PrecommitSignBytes(
+			tmconsensus.VoteTarget{
+				Height:    req.Header.Height,
+				Round:     req.Proof.Round,
+				BlockHash: string(req.Header.Hash),
+			},
+			k.sigScheme,
+		)
+		if err != nil {
+			glog.HRE(k.log, req.Header.Height, req.Proof.Round, err).Warn(
+				"Failed to produce precommit sign content for replayed header",
+			)
+			return
+		}
+
+		vals := req.Header.ValidatorSet.Validators
+		if len(vals) == 0 {
+			// TODO: this should be a gassert instead probably?
+			panic("TODO: ValidatorSet must be populated on replayed headers")
+		}
+		pubKeys := tmconsensus.ValidatorsToPubKeys(vals)
+		pubKeyHash := string(req.Header.ValidatorSet.PubKeyHash)
+		pcp, err = k.cmspScheme.New(precommitContent, pubKeys, pubKeyHash)
+		if err != nil {
+			glog.HRE(k.log, req.Header.Height, req.Proof.Round, err).Warn(
+				"Failed to produce empty signature proof",
+			)
+			return
+		}
+
+		// Now that we have reconstituted the proof, reassign it into the map.
+		s.Voting.PrecommitProofs[string(req.Header.Hash)] = pcp
+	}
+
+	for hash, sparseSigs := range req.Proof.Proofs {
+		targetProof, ok := s.Voting.PrecommitProofs[hash]
+		if !ok {
+			// Just a shortcut now to save some time.
+			// Skipping these potentially misses evidence of double signing.
+			k.log.Warn("TODO: store proof for unknown block during replay")
+			continue
+		}
+
+		// TODO: we should probably check the merge result.
+		sparseProof := gcrypto.SparseSignatureProof{
+			PubKeyHash: string(req.Header.ValidatorSet.PubKeyHash),
+			Signatures: sparseSigs,
+		}
+		_ = targetProof.MergeSparse(sparseProof)
+	}
+
+	// Since we are in a replay, we clearly had out-of-date precommit power.
+	// TODO: did we confirm the voting validator set matches replayed?
+	s.Voting.VoteSummary.SetPrecommitPowers(s.Voting.ValidatorSet.Validators, s.Voting.PrecommitProofs)
+
+	if err := k.checkVotingPrecommitViewShift(ctx, s); err != nil {
+		glog.HRE(k.log, s.Voting.Height, s.Voting.Round, err).Error(
+			"Failed to apply replayed header",
+		)
+		return
+	}
 }
 
 // loadInitialView loads the committing or voting RoundView

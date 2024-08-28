@@ -33,8 +33,10 @@ type Fixture struct {
 	StateMachineRoundViewOut chan tmeil.StateMachineRoundView
 
 	GossipStrategyOut chan tmelink.NetworkViewUpdate
+	LagStateOut       chan tmelink.LagState
 
 	StateMachineRoundEntranceIn chan tmeil.StateMachineRoundEntrance
+	ReplayedHeadersIn           chan tmelink.ReplayedHeaderRequest
 
 	Cfg tmmirror.MirrorConfig
 
@@ -44,8 +46,11 @@ type Fixture struct {
 func NewFixture(ctx context.Context, t *testing.T, nVals int) *Fixture {
 	fx := tmconsensustest.NewStandardFixture(nVals)
 	gso := make(chan tmelink.NetworkViewUpdate)
+	lso := make(chan tmelink.LagState)
 	smIn := make(chan tmeil.StateMachineRoundEntrance, 1)
 	smViewOut := make(chan tmeil.StateMachineRoundView) // Unbuffered.
+
+	rhrIn := make(chan tmelink.ReplayedHeaderRequest)
 
 	log := gtest.NewLogger(t)
 	wd, wCtx := gwatchdog.NewNopWatchdog(ctx, log.With("sys", "watchdog"))
@@ -62,8 +67,10 @@ func NewFixture(ctx context.Context, t *testing.T, nVals int) *Fixture {
 		StateMachineRoundViewOut: smViewOut,
 
 		GossipStrategyOut: gso,
+		LagStateOut:       lso,
 
 		StateMachineRoundEntranceIn: smIn,
+		ReplayedHeadersIn:           rhrIn,
 
 		Cfg: tmmirror.MirrorConfig{
 			Store:          tmmemstore.NewMirrorStore(),
@@ -84,10 +91,12 @@ func NewFixture(ctx context.Context, t *testing.T, nVals int) *Fixture {
 			ProposedHeaderFetcher: tmelinktest.NewPHFetcher(0, 0).ProposedHeaderFetcher(),
 
 			GossipStrategyOut: gso,
+			LagStateOut:       lso,
 
 			StateMachineRoundViewOut: smViewOut,
 
 			StateMachineRoundEntranceIn: smIn,
+			ReplayedHeadersIn:           rhrIn,
 
 			Watchdog: wd,
 
