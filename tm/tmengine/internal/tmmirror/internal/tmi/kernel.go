@@ -315,7 +315,18 @@ func (k *Kernel) mainLoop(ctx context.Context, s *kState, wd *gwatchdog.Watchdog
 			k.handleStateMachineAction(ctx, s, act)
 
 		case req := <-k.replayedHeadersIn:
-			k.handleReplayedHeader(ctx, s, req)
+			err := k.handleReplayedHeader(ctx, s, req.Header, req.Proof)
+
+			// Whether nil or not, we send the result back to the driver.
+			// Assuming the response channel is buffered.
+			req.Resp <- tmelink.ReplayedHeaderResponse{
+				Err: err,
+			}
+
+			if err != nil && errors.As(err, new(tmelink.ReplayedHeaderInternalError)) {
+				// For now we will assume the other error types are fine to only send to the driver.
+				panic(fmt.Errorf("TODO: handle internal error from handling replayed block: %w", err))
+			}
 
 		case sig := <-wSig:
 			close(sig.Alive)
@@ -1466,65 +1477,70 @@ func (k *Kernel) handleStateMachineAction(ctx context.Context, s *kState, act tm
 //
 // This essentially copies the functionality of handling a proposed header
 // followed by precommits for the same round.
-func (k *Kernel) handleReplayedHeader(ctx context.Context, s *kState, req tmelink.ReplayedHeaderRequest) {
+func (k *Kernel) handleReplayedHeader(
+	ctx context.Context,
+	s *kState,
+	header tmconsensus.Header,
+	proof tmconsensus.CommitProof,
+) error {
 	defer trace.StartRegion(ctx, "handleReplayedHeader").End()
 
-	// TODO: the response should maybe receive an error instead of simply being closed?
-	defer close(req.Resp)
+	// TODO: validate incoming header and proof.
 
-	// TODO: gassert: validate proof (this is supposed to happen before being replayed)
-
-	if req.Header.Height != s.Voting.Height {
-		k.log.Warn(
-			"Received replayed header at unexpected height",
-			"want", s.Voting.Height, "got", req.Header.Height,
-		)
-		return
+	if header.Height != s.Voting.Height {
+		return tmelink.ReplayedHeaderOutOfSyncError{
+			WantHeight: s.Voting.Height,
+			GotHeight:  header.Height,
+		}
 	}
 
-	if req.Proof.Round < s.Voting.Round {
+	if proof.Round < s.Voting.Round {
 		// There are some edge cases we haven't handled yet with going backwards.
 		// It is a valid case when we saw >2/3 total precommits
 		// and advanced the round due to lack of consensus,
 		// but then a late vote arrives which caused a particular block to be precommitted.
 		panic(fmt.Errorf(
 			"TODO: handle replay for earlier round (exp=%d got=%d)",
-			s.Voting.Round, req.Proof.Round,
+			s.Voting.Round, proof.Round,
 		))
 	}
 
-	if req.Proof.Round > s.Voting.Round {
+	if proof.Round > s.Voting.Round {
 		// Later round than we expected.
-		if err := k.jumpVotingRound(ctx, s, req.Proof.Round); err != nil {
-			glog.HRE(k.log, req.Header.Height, req.Proof.Round, err).Warn(
-				"Failed to jump voting round to replayed round",
-			)
-			return
+		if err := k.jumpVotingRound(ctx, s, proof.Round); err != nil {
+			return tmelink.ReplayedHeaderInternalError{
+				Err: fmt.Errorf(
+					"failed to jump voting round to replayed round: %w",
+					err,
+				),
+			}
 		}
 	}
 
-	h, r := req.Header.Height, req.Proof.Round
+	h, r := header.Height, proof.Round
 
 	// Now the voting view matches the height and round of the incoming replayed proof.
 	// It is possible that we already saw the incoming header and got stuck leading to a replay.
 	// Make sure we have only one copy.
 	if !slices.ContainsFunc(s.Voting.ProposedHeaders, func(ph tmconsensus.ProposedHeader) bool {
-		return bytes.Equal(ph.Header.Hash, req.Header.Hash)
+		return bytes.Equal(ph.Header.Hash, header.Hash)
 	}) {
 		// Didn't have the hash, so append it...
 		// but we only have a Header, not a proposed Header, so we leave a couple fields blank.
 		// This seems acceptable but there is a chance it could cause something to break.
 		fakePH := tmconsensus.ProposedHeader{
-			Header: req.Header,
-			Round:  req.Proof.Round,
+			Header: header,
+			Round:  proof.Round,
 			// Explicitly missing ProposerPubKey, Annotations, and Signature.
 		}
 
 		if err := k.rStore.SaveProposedHeader(ctx, fakePH); err != nil {
-			glog.HRE(k.log, h, r, err).Warn(
-				"Failed to save replayed header to round store; this may cause issues upon restart",
-			)
-			return
+			return tmelink.ReplayedHeaderInternalError{
+				Err: fmt.Errorf(
+					"failed to replay saved header to round store: %w",
+					err,
+				),
+			}
 		}
 
 		s.Voting.ProposedHeaders = append(s.Voting.ProposedHeaders, fakePH)
@@ -1533,43 +1549,47 @@ func (k *Kernel) handleReplayedHeader(ctx context.Context, s *kState, req tmelin
 	// Now, we don't care about prevotes, since we have precommits.
 	// Do we have an existing precommit proof?
 	// (Again, we might if we started lagging after seeing at least one precommit.)
-	pcp := s.Voting.PrecommitProofs[string(req.Header.Hash)]
+	pcp := s.Voting.PrecommitProofs[string(header.Hash)]
 	if pcp == nil {
 		// No precommit data exists, so build it.
 		precommitContent, err := tmconsensus.PrecommitSignBytes(
 			tmconsensus.VoteTarget{
 				Height: h, Round: r,
-				BlockHash: string(req.Header.Hash),
+				BlockHash: string(header.Hash),
 			},
 			k.sigScheme,
 		)
 		if err != nil {
-			glog.HRE(k.log, h, r, err).Warn(
-				"Failed to produce precommit sign content for replayed header",
-			)
-			return
+			return tmelink.ReplayedHeaderInternalError{
+				Err: fmt.Errorf(
+					"failed to produce precommit sign content for replayed header: %w",
+					err,
+				),
+			}
 		}
 
-		vals := req.Header.ValidatorSet.Validators
+		vals := header.ValidatorSet.Validators
 		if len(vals) == 0 {
 			// TODO: this should be a gassert instead probably?
 			panic("TODO: ValidatorSet must be populated on replayed headers")
 		}
 		pubKeys := tmconsensus.ValidatorsToPubKeys(vals)
-		pubKeyHash := string(req.Header.ValidatorSet.PubKeyHash)
+		pubKeyHash := string(header.ValidatorSet.PubKeyHash)
 		pcp, err = k.cmspScheme.New(precommitContent, pubKeys, pubKeyHash)
 		if err != nil {
-			glog.HRE(k.log, h, r, err).Warn(
-				"Failed to produce empty signature proof",
-			)
-			return
+			return tmelink.ReplayedHeaderInternalError{
+				Err: fmt.Errorf(
+					"failed to produce empty signature proof for replayed header: %w",
+					err,
+				),
+			}
 		}
 
 		// Now that we have reconstituted the proof, reassign it into the map.
-		s.Voting.PrecommitProofs[string(req.Header.Hash)] = pcp
+		s.Voting.PrecommitProofs[string(header.Hash)] = pcp
 	}
 
-	for hash, sparseSigs := range req.Proof.Proofs {
+	for hash, sparseSigs := range proof.Proofs {
 		targetProof, ok := s.Voting.PrecommitProofs[hash]
 		if !ok {
 			// Just a shortcut now to save some time.
@@ -1580,7 +1600,7 @@ func (k *Kernel) handleReplayedHeader(ctx context.Context, s *kState, req tmelin
 
 		// TODO: we should probably check the merge result.
 		sparseProof := gcrypto.SparseSignatureProof{
-			PubKeyHash: string(req.Header.ValidatorSet.PubKeyHash),
+			PubKeyHash: string(header.ValidatorSet.PubKeyHash),
 			Signatures: sparseSigs,
 		}
 		_ = targetProof.MergeSparse(sparseProof)
@@ -1594,19 +1614,25 @@ func (k *Kernel) handleReplayedHeader(ctx context.Context, s *kState, req tmelin
 	// we must have added precommits.
 	// Update the store with whatever the new set of precommits is.
 	if err := k.rStore.OverwritePrecommitProofs(ctx, h, r, s.Voting.PrecommitProofs); err != nil {
-		glog.HRE(k.log, h, r, err).Warn(
-			"Failed to save replayed precommits to round store; this may cause issues upon restart",
-		)
-		return
+		return tmelink.ReplayedHeaderInternalError{
+			Err: fmt.Errorf(
+				"failed to save replayed commits to round store: %w",
+				err,
+			),
+		}
 	}
 
 	// TODO: should probably assert that this actually caused a shift.
 	if err := k.checkVotingPrecommitViewShift(ctx, s); err != nil {
-		glog.HRE(k.log, h, r, err).Error(
-			"Failed to apply replayed header",
-		)
-		return
+		return tmelink.ReplayedHeaderInternalError{
+			Err: fmt.Errorf(
+				"failed to apply replayed header: %w",
+				err,
+			),
+		}
 	}
+
+	return nil
 }
 
 // loadInitialView loads the committing or voting RoundView

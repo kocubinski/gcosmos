@@ -2928,7 +2928,8 @@ func TestMirror_replayedHeaders(t *testing.T) {
 		}
 
 		gtest.SendSoon(t, mfx.ReplayedHeadersIn, req2)
-		_ = gtest.ReceiveSoon(t, respCh)
+		require.NoError(t, gtest.ReceiveSoon(t, respCh).Err)
+		gtest.NotSending(t, respCh) // Temporary: ensuring channel is not closed.
 
 		// Now 2 is in committing and 3 is in voting,
 		// so 1 must be in the header store.
@@ -2938,6 +2939,56 @@ func TestMirror_replayedHeaders(t *testing.T) {
 			Header: req1.Header,
 			Proof:  req1.Proof,
 		}, h)
+	})
+
+	t.Run("indicative error when replayed block has wrong height", func(t *testing.T) {
+		t.Parallel()
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		mfx := tmmirrortest.NewFixture(ctx, t, 4)
+
+		m := mfx.NewMirror()
+		defer m.Wait()
+		defer cancel()
+
+		require.Equal(t, tmelink.LagStatusInitializing, gtest.ReceiveSoon(
+			t, mfx.LagStateOut,
+		).Status)
+
+		ph1 := mfx.Fx.NextProposedHeader([]byte("app_data_1"), 0)
+		mfx.Fx.SignProposal(ctx, &ph1, 0)
+
+		// Everyone voted for the block.
+		voteMap := map[string][]int{
+			string(ph1.Header.Hash): {0, 1, 2, 3},
+		}
+		precommitProofs1 := mfx.Fx.PrecommitProofMap(ctx, 1, 0, voteMap)
+		mfx.Fx.CommitBlock(ph1.Header, []byte("app_state_height_1"), 0, precommitProofs1)
+
+		ph2 := mfx.Fx.NextProposedHeader([]byte("app_data_2"), 0)
+		voteMap = map[string][]int{
+			string(ph2.Header.Hash): {0, 1, 2, 3},
+		}
+		precommitProofs2 := mfx.Fx.PrecommitProofMap(ctx, 2, 0, voteMap)
+		mfx.Fx.CommitBlock(ph2.Header, []byte("app_state_height_2"), 0, precommitProofs2)
+
+		ph3 := mfx.Fx.NextProposedHeader([]byte("app_data_3"), 0)
+		respCh := make(chan tmelink.ReplayedHeaderResponse, 1)
+		req2 := tmelink.ReplayedHeaderRequest{
+			Header: ph2.Header,
+			Proof:  ph3.Header.PrevCommitProof,
+			Resp:   respCh,
+		}
+
+		gtest.SendSoon(t, mfx.ReplayedHeadersIn, req2)
+		err := gtest.ReceiveSoon(t, respCh).Err
+
+		require.Equal(t, tmelink.ReplayedHeaderOutOfSyncError{
+			WantHeight: 1,
+			GotHeight:  2,
+		}, err)
 	})
 }
 
