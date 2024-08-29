@@ -34,6 +34,9 @@ type RoundStore interface {
 	// The order of the proposed blocks in the pbs slice is undefined
 	// and may differ from one call to another.
 	//
+	// Note that in the event of replayed blocks during a mirror catchup,
+	// there may be ProposedHeader values without a PubKey or Signature field.
+	//
 	// If there are no proposed blocks or votes at the given height and round,
 	// [tmconsensus.RoundUnknownError] is returned.
 	// If at least one proposed block, prevote, or precommit exists at the height and round,

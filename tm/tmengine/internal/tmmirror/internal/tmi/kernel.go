@@ -1461,9 +1461,15 @@ func (k *Kernel) handleStateMachineAction(ctx context.Context, s *kState, act tm
 	k.addPrecommit(ctx, s, req)
 }
 
+// handleReplayedHeader handles a replayed header,
+// i.e. a header that arrives as part of mirror catchup.
+//
+// This essentially copies the functionality of handling a proposed header
+// followed by precommits for the same round.
 func (k *Kernel) handleReplayedHeader(ctx context.Context, s *kState, req tmelink.ReplayedHeaderRequest) {
 	defer trace.StartRegion(ctx, "handleReplayedHeader").End()
 
+	// TODO: the response should maybe receive an error instead of simply being closed?
 	defer close(req.Resp)
 
 	// TODO: gassert: validate proof (this is supposed to happen before being replayed)
@@ -1497,20 +1503,31 @@ func (k *Kernel) handleReplayedHeader(ctx context.Context, s *kState, req tmelin
 		}
 	}
 
+	h, r := req.Header.Height, req.Proof.Round
+
 	// Now the voting view matches the height and round of the incoming replayed proof.
 	// It is possible that we already saw the incoming header and got stuck leading to a replay.
 	// Make sure we have only one copy.
-	if !slices.ContainsFunc(s.Voting.ProposedHeaders, func(h tmconsensus.ProposedHeader) bool {
-		return bytes.Equal(h.Header.Hash, req.Header.Hash)
+	if !slices.ContainsFunc(s.Voting.ProposedHeaders, func(ph tmconsensus.ProposedHeader) bool {
+		return bytes.Equal(ph.Header.Hash, req.Header.Hash)
 	}) {
 		// Didn't have the hash, so append it...
 		// but we only have a Header, not a proposed Header, so we leave a couple fields blank.
 		// This seems acceptable but there is a chance it could cause something to break.
-		s.Voting.ProposedHeaders = append(s.Voting.ProposedHeaders, tmconsensus.ProposedHeader{
+		fakePH := tmconsensus.ProposedHeader{
 			Header: req.Header,
 			Round:  req.Proof.Round,
 			// Explicitly missing ProposerPubKey, Annotations, and Signature.
-		})
+		}
+
+		if err := k.rStore.SaveProposedHeader(ctx, fakePH); err != nil {
+			glog.HRE(k.log, h, r, err).Warn(
+				"Failed to save replayed header to round store; this may cause issues upon restart",
+			)
+			return
+		}
+
+		s.Voting.ProposedHeaders = append(s.Voting.ProposedHeaders, fakePH)
 	}
 
 	// Now, we don't care about prevotes, since we have precommits.
@@ -1521,14 +1538,13 @@ func (k *Kernel) handleReplayedHeader(ctx context.Context, s *kState, req tmelin
 		// No precommit data exists, so build it.
 		precommitContent, err := tmconsensus.PrecommitSignBytes(
 			tmconsensus.VoteTarget{
-				Height:    req.Header.Height,
-				Round:     req.Proof.Round,
+				Height: h, Round: r,
 				BlockHash: string(req.Header.Hash),
 			},
 			k.sigScheme,
 		)
 		if err != nil {
-			glog.HRE(k.log, req.Header.Height, req.Proof.Round, err).Warn(
+			glog.HRE(k.log, h, r, err).Warn(
 				"Failed to produce precommit sign content for replayed header",
 			)
 			return
@@ -1543,7 +1559,7 @@ func (k *Kernel) handleReplayedHeader(ctx context.Context, s *kState, req tmelin
 		pubKeyHash := string(req.Header.ValidatorSet.PubKeyHash)
 		pcp, err = k.cmspScheme.New(precommitContent, pubKeys, pubKeyHash)
 		if err != nil {
-			glog.HRE(k.log, req.Header.Height, req.Proof.Round, err).Warn(
+			glog.HRE(k.log, h, r, err).Warn(
 				"Failed to produce empty signature proof",
 			)
 			return
@@ -1574,8 +1590,19 @@ func (k *Kernel) handleReplayedHeader(ctx context.Context, s *kState, req tmelin
 	// TODO: did we confirm the voting validator set matches replayed?
 	s.Voting.VoteSummary.SetPrecommitPowers(s.Voting.ValidatorSet.Validators, s.Voting.PrecommitProofs)
 
+	// Since this was a replayed header and we know it was in the voting round,
+	// we must have added precommits.
+	// Update the store with whatever the new set of precommits is.
+	if err := k.rStore.OverwritePrecommitProofs(ctx, h, r, s.Voting.PrecommitProofs); err != nil {
+		glog.HRE(k.log, h, r, err).Warn(
+			"Failed to save replayed precommits to round store; this may cause issues upon restart",
+		)
+		return
+	}
+
+	// TODO: should probably assert that this actually caused a shift.
 	if err := k.checkVotingPrecommitViewShift(ctx, s); err != nil {
-		glog.HRE(k.log, s.Voting.Height, s.Voting.Round, err).Error(
+		glog.HRE(k.log, h, r, err).Error(
 			"Failed to apply replayed header",
 		)
 		return

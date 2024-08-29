@@ -2896,7 +2896,21 @@ func TestMirror_replayedHeaders(t *testing.T) {
 		_, err = mfx.Cfg.HeaderStore.LoadHeader(ctx, 1)
 		require.ErrorIs(t, err, tmconsensus.HeightUnknownError{Want: 1})
 
-		// TODO: but 1 should be in the round store now!
+		// But the fresh data must be in the round store.
+		rs := mfx.Cfg.RoundStore
+		phs, prevotes, precommits, err := rs.LoadRoundState(ctx, 1, 0)
+		require.NoError(t, err)
+		require.Equal(t, []tmconsensus.ProposedHeader{
+			{
+				// We don't store a full header in the round store when replaying blocks,
+				// because we don't expect to have proposer details.
+				Header: ph1.Header,
+			},
+		}, phs)
+		require.Empty(t, prevotes)
+		require.Len(t, precommits, 2) // Block hash and nil.
+		require.Zero(t, precommits[""].SignatureBitSet().Count())
+		require.Equal(t, uint(4), precommits[string(ph1.Header.Hash)].SignatureBitSet().Count())
 
 		// So, let's replay the next header too.
 		voteMap = map[string][]int{
