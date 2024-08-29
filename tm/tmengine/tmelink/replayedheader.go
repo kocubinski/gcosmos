@@ -34,7 +34,15 @@ type ReplayedHeaderResponse struct {
 // On this error type, the driver should note that the source of the header
 // may be maliciously constructing headers.
 type ReplayedHeaderValidationError struct {
-	// TODO
+	Err error
+}
+
+func (e ReplayedHeaderValidationError) Error() string {
+	return "validation of replayed header failed: " + e.Err.Error()
+}
+
+func (e ReplayedHeaderValidationError) Unwrap() error {
+	return e.Err
 }
 
 // ReplayedHeaderOutOfSyncError indicates that the replayed header

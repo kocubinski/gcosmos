@@ -1485,8 +1485,6 @@ func (k *Kernel) handleReplayedHeader(
 ) error {
 	defer trace.StartRegion(ctx, "handleReplayedHeader").End()
 
-	// TODO: validate incoming header and proof.
-
 	if header.Height != s.Voting.Height {
 		return tmelink.ReplayedHeaderOutOfSyncError{
 			WantHeight: s.Voting.Height,
@@ -1518,6 +1516,43 @@ func (k *Kernel) handleReplayedHeader(
 	}
 
 	h, r := header.Height, proof.Round
+
+	// We might have a valid header.
+	// Confirm the hash first,
+	// under the assumption that it is cheaper to validate the hash than the signatures.
+	expHash, err := k.hashScheme.Block(header)
+	if err != nil {
+		// This error case is tricky.
+		// Any valid block ought to be hashable.
+		// So we are going to assume it's a validation error (i.e. a bad input),
+		// not an internal unrecoverable error.
+		return tmelink.ReplayedHeaderValidationError{
+			Err: fmt.Errorf(
+				"failed to build block hash: %w", err,
+			),
+		}
+	}
+
+	if !bytes.Equal(expHash, header.Hash) {
+		// Protect against a maliciously long hash.
+		// If it was longer than our expected hash,
+		// truncate it to the length of our expected hash,
+		// and add an ellipsis.
+		have := header.Hash
+		suffix := ""
+		if len(have) > len(expHash) {
+			have = have[:len(expHash)]
+			suffix = "..."
+		}
+		return tmelink.ReplayedHeaderValidationError{
+			Err: fmt.Errorf(
+				"reported block hash (%x%s) different from expected (%x)",
+				have, suffix, expHash,
+			),
+		}
+	}
+
+	// TODO: validate the signatures before continuing.
 
 	// Now the voting view matches the height and round of the incoming replayed proof.
 	// It is possible that we already saw the incoming header and got stuck leading to a replay.

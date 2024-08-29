@@ -2990,6 +2990,52 @@ func TestMirror_replayedHeaders(t *testing.T) {
 			GotHeight:  2,
 		}, err)
 	})
+
+	t.Run("indicative error when replayed block has wrong hash", func(t *testing.T) {
+		t.Parallel()
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		mfx := tmmirrortest.NewFixture(ctx, t, 4)
+
+		m := mfx.NewMirror()
+		defer m.Wait()
+		defer cancel()
+
+		require.Equal(t, tmelink.LagStatusInitializing, gtest.ReceiveSoon(
+			t, mfx.LagStateOut,
+		).Status)
+
+		ph1 := mfx.Fx.NextProposedHeader([]byte("app_data_1"), 0)
+		ph1.Header.Hash[0]++ // Change the first byte of its hash to make it invalid.
+
+		// Everyone voted for the block with the bad hash.
+		// Shouldn't be possible to happen, but the mirror will bail out
+		// before checking the signatures anyway since the hash is wrong.
+		voteMap := map[string][]int{
+			string(ph1.Header.Hash): {0, 1, 2, 3},
+		}
+		precommitProofs1 := mfx.Fx.PrecommitProofMap(ctx, 1, 0, voteMap)
+		mfx.Fx.CommitBlock(ph1.Header, []byte("app_state_height_1"), 0, precommitProofs1)
+
+		ph2 := mfx.Fx.NextProposedHeader([]byte("app_data_2"), 0)
+
+		// Before we replay the block, make sure the header store is empty.
+		_, err := mfx.Cfg.HeaderStore.LoadHeader(ctx, 1)
+		require.ErrorIs(t, err, tmconsensus.HeightUnknownError{Want: 1})
+
+		respCh := make(chan tmelink.ReplayedHeaderResponse, 1)
+		gtest.SendSoon(t, mfx.ReplayedHeadersIn, tmelink.ReplayedHeaderRequest{
+			Header: ph1.Header,
+			Proof:  ph2.Header.PrevCommitProof,
+			Resp:   respCh,
+		})
+
+		err = gtest.ReceiveSoon(t, respCh).Err
+		require.Error(t, err)
+		require.ErrorAs(t, err, new(tmelink.ReplayedHeaderValidationError))
+	})
 }
 
 func TestMirror_metrics(t *testing.T) {
