@@ -1,4 +1,4 @@
-From 9cd48a2adc44ec89335503f205ece728f66ac916 Mon Sep 17 00:00:00 2001
+From 454f0a63adfe15023ec06d631c9f887c44e3587d Mon Sep 17 00:00:00 2001
 From: Mark Rushakoff <mark@strange.love>
 Date: Wed, 17 Jul 2024 10:49:18 -0400
 Subject: [PATCH 4/7] fix: respect command context in server start
@@ -8,10 +8,10 @@ Subject: [PATCH 4/7] fix: respect command context in server start
  1 file changed, 7 insertions(+), 3 deletions(-)
 
 diff --git a/server/v2/commands.go b/server/v2/commands.go
-index 50a073cd9c..bd2e73ff11 100644
+index a1d89a80dc..244bb6dabd 100644
 --- a/server/v2/commands.go
 +++ b/server/v2/commands.go
-@@ -120,9 +120,13 @@ func createStartCommand[T transaction.Tx](
+@@ -121,9 +121,13 @@ func createStartCommand[T transaction.Tx](
  			go func() {
  				sigCh := make(chan os.Signal, 1)
  				signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
