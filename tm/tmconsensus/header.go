@@ -110,35 +110,6 @@ type ProposedHeader struct {
 	Signature []byte
 }
 
-// BlockFinalization is the set of data resulting from finalizing
-// (read: evaluating and executing) a block.
-type BlockFinalization struct {
-	// The block hash, for an unambiguous reference to which block is in consideration.
-	BlockHash []byte
-
-	// The round in which the block was finalized -- not necessarily the same round
-	// in which it was proposed, if a validator was locked to a specific proposal.
-	//
-	// This is helpful when proposing a block,
-	// to look up the corresponding RoundState and set up the proposed block's PrevCommitProof.
-	Round uint32
-
-	// The hash of the app state after finalizing the block.
-	// The engine uses this as the [Block.PrevAppStateHash] field when proposing a new block.
-	AppStateHash []byte
-
-	// The next validators after evaluating the block.
-	// If this is the finalization for height H,
-	// this will be the NextValidators field for height H+1.
-	NextNextValidators []Validator
-
-	// The original NextValidators field on the block matching BlockHash.
-	// Not overridable.
-	// Offered as convenience for populating Validators and NextValidators
-	// on the subsequent block.
-	NextValidators []Validator
-}
-
 // Annotations are arbitrary data to associate with a [Block] or [ProposedBlock].
 //
 // The Driver annotations are set by the driver
