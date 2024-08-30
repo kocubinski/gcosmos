@@ -1564,61 +1564,56 @@ func (k *Kernel) handleReplayedHeader(
 	// The hash checks out, but we need to ensure that every signature we have is valid.
 	// We must be pessimistic about the validity,
 	// so we will work with a clone of the existing precommit proofs, if we have any.
-	pcp := s.Voting.PrecommitProofs[string(header.Hash)]
-	if pcp == nil {
-		// No precommit data exists, so build it.
-		precommitContent, err := tmconsensus.PrecommitSignBytes(
-			tmconsensus.VoteTarget{
-				Height: h, Round: r,
-				BlockHash: string(header.Hash),
-			},
-			k.sigScheme,
-		)
-		if err != nil {
-			return tmelink.ReplayedHeaderInternalError{
-				Err: fmt.Errorf(
-					"failed to produce precommit sign content for replayed header: %w",
-					err,
-				),
-			}
-		}
-
-		vals := header.ValidatorSet.Validators
-		if len(vals) == 0 {
-			// TODO: this should be a gassert instead probably?
-			panic("TODO: ValidatorSet must be populated on replayed headers")
-		}
-		pubKeys := tmconsensus.ValidatorsToPubKeys(vals)
-		pubKeyHash := string(header.ValidatorSet.PubKeyHash)
-		pcp, err = k.cmspScheme.New(precommitContent, pubKeys, pubKeyHash)
-		if err != nil {
-			return tmelink.ReplayedHeaderInternalError{
-				Err: fmt.Errorf(
-					"failed to produce empty signature proof for replayed header: %w",
-					err,
-				),
-			}
-		}
-	} else {
-		// There were existing proofs, so we need to work from a clone.
-		pcp = pcp.Clone()
-	}
-
-	// Now, determine the result of merging the incoming proofs
-	// into whatever existing proofs we have.
+	tempProofs := make(map[string]gcrypto.CommonMessageSignatureProof, len(proof.Proofs))
 	for hash, sparseSigs := range proof.Proofs {
-		if hash != string(header.Hash) {
-			// TODO: we need to consider every hash, not just the header.
-			// But for the sake of replaying headers,
-			// this is sufficient for the chain to continue.
-			// (We probably have to deal with cloning existing proofs again.)
-			k.log.Warn("TODO: store proof for unknown block during replay")
-			continue
+		// First, set up the local copy of the proof.
+		haveProof := s.Voting.PrecommitProofs[hash]
+		if haveProof == nil {
+			// No precommit data exists, so build it.
+			precommitContent, err := tmconsensus.PrecommitSignBytes(
+				tmconsensus.VoteTarget{
+					Height: h, Round: r,
+					BlockHash: string(hash),
+				},
+				k.sigScheme,
+			)
+			if err != nil {
+				return tmelink.ReplayedHeaderInternalError{
+					Err: fmt.Errorf(
+						"failed to produce precommit sign content for replayed header: %w",
+						err,
+					),
+				}
+			}
+
+			vals := header.ValidatorSet.Validators
+			if len(vals) == 0 {
+				// TODO: this should be a gassert instead probably?
+				panic("TODO: ValidatorSet must be populated on replayed headers")
+			}
+			pubKeys := tmconsensus.ValidatorsToPubKeys(vals)
+			pubKeyHash := string(header.ValidatorSet.PubKeyHash)
+			haveProof, err = k.cmspScheme.New(precommitContent, pubKeys, pubKeyHash)
+			if err != nil {
+				return tmelink.ReplayedHeaderInternalError{
+					Err: fmt.Errorf(
+						"failed to produce empty signature proof for replayed header: %w",
+						err,
+					),
+				}
+			}
+		} else {
+			// There were existing proofs, so we need to work from a clone.
+			haveProof = haveProof.Clone()
 		}
 
+		// Hold on to it in the map for later.
+		tempProofs[hash] = haveProof
+
+		// Now merge the incoming proof with the local copy.
 		// TODO: this should not be hardcoded to pcp,
 		// but it's okay for now while we limit this to only the header's block hash.
-		mergeRes := pcp.MergeSparse(gcrypto.SparseSignatureProof{
+		mergeRes := haveProof.MergeSparse(gcrypto.SparseSignatureProof{
 			PubKeyHash: string(header.ValidatorSet.PubKeyHash),
 			Signatures: sparseSigs,
 		})
@@ -1674,10 +1669,15 @@ func (k *Kernel) handleReplayedHeader(
 	// Now ensure we have majority vote power,
 	// otherwise the replay cannot proceed.
 	var blockPow uint64
-	bs := pcp.SignatureBitSet()
+	bs := tempProofs[string(header.Hash)].SignatureBitSet()
 	for i, ok := bs.NextSet(0); ok && int(i) < len(header.ValidatorSet.Validators); i, ok = bs.NextSet(i + 1) {
 		blockPow += header.ValidatorSet.Validators[int(i)].Power
 	}
+
+	// Arguably we could update the precommit proofs now;
+	// they are valid but insufficient to commit.
+	// We are not doing that now because it still indicates
+	// an improper block replay source.
 
 	maj := tmconsensus.ByzantineMajority(s.Voting.VoteSummary.AvailablePower)
 	if blockPow < maj {
@@ -1689,8 +1689,10 @@ func (k *Kernel) handleReplayedHeader(
 		}
 	}
 
-	// Store the updated proof back into the local set.
-	s.Voting.PrecommitProofs[string(header.Hash)] = pcp
+	// Store the updated proofs back into the long-lived local set.
+	for hash, proof := range tempProofs {
+		s.Voting.PrecommitProofs[hash] = proof
+	}
 
 	// Since we are in a replay, we clearly had out-of-date precommit power.
 	// TODO: did we confirm the voting validator set matches replayed?

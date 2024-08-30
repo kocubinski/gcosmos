@@ -2866,7 +2866,6 @@ func TestMirror_replayedHeaders(t *testing.T) {
 		).Status)
 
 		ph1 := mfx.Fx.NextProposedHeader([]byte("app_data_1"), 0)
-		mfx.Fx.SignProposal(ctx, &ph1, 0)
 
 		// Everyone voted for the block.
 		voteMap := map[string][]int{
@@ -2941,6 +2940,70 @@ func TestMirror_replayedHeaders(t *testing.T) {
 		}, h)
 	})
 
+	t.Run("hashes for other blocks included", func(t *testing.T) {
+		t.Parallel()
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		mfx := tmmirrortest.NewFixture(ctx, t, 8)
+
+		m := mfx.NewMirror()
+		defer m.Wait()
+		defer cancel()
+
+		require.Equal(t, tmelink.LagStatusInitializing, gtest.ReceiveSoon(
+			t, mfx.LagStateOut,
+		).Status)
+
+		ph1Good := mfx.Fx.NextProposedHeader([]byte("app_data_1"), 0)
+		ph1Bad := mfx.Fx.NextProposedHeader([]byte("app_data_1_bad"), 7)
+
+		// Almost everyone votes for the good block.
+		voteMap := map[string][]int{
+			string(ph1Good.Header.Hash): {0, 1, 2, 3, 4, 5},
+			"":                          {6},
+			string(ph1Bad.Header.Hash):  {7},
+		}
+		precommitProofs1 := mfx.Fx.PrecommitProofMap(ctx, 1, 0, voteMap)
+		mfx.Fx.CommitBlock(ph1Good.Header, []byte("app_state_height_1"), 0, precommitProofs1)
+
+		ph2 := mfx.Fx.NextProposedHeader([]byte("app_data_2"), 0)
+
+		// Before we replay the block, make sure the header store is empty.
+		_, err := mfx.Cfg.HeaderStore.LoadHeader(ctx, 1)
+		require.ErrorIs(t, err, tmconsensus.HeightUnknownError{Want: 1})
+
+		respCh := make(chan tmelink.ReplayedHeaderResponse, 1)
+		req1 := tmelink.ReplayedHeaderRequest{
+			Header: ph1Good.Header,
+			Proof:  ph2.Header.PrevCommitProof,
+			Resp:   respCh,
+		}
+
+		gtest.SendSoon(t, mfx.ReplayedHeadersIn, req1)
+		require.NoError(t, gtest.ReceiveSoon(t, respCh).Err)
+
+		// The round store has precommits for the good, bad, and nil blocks.
+		rs := mfx.Cfg.RoundStore
+		phs, prevotes, precommits, err := rs.LoadRoundState(ctx, 1, 0)
+		require.NoError(t, err)
+		require.Equal(t, []tmconsensus.ProposedHeader{
+			{
+				// We don't store a full header in the round store when replaying blocks,
+				// because we don't expect to have proposer details.
+				Header: ph1Good.Header,
+			},
+			// And we don't store the header for the proposed-but-not-committed block,
+			// so phs only contains the one element.
+		}, phs)
+		require.Empty(t, prevotes)
+		require.Len(t, precommits, 3)
+		require.Equal(t, uint(1), precommits[""].SignatureBitSet().Count())
+		require.Equal(t, uint(1), precommits[string(ph1Bad.Header.Hash)].SignatureBitSet().Count())
+		require.Equal(t, uint(6), precommits[string(ph1Good.Header.Hash)].SignatureBitSet().Count())
+	})
+
 	t.Run("indicative error when replayed block has wrong height", func(t *testing.T) {
 		t.Parallel()
 
@@ -2958,7 +3021,6 @@ func TestMirror_replayedHeaders(t *testing.T) {
 		).Status)
 
 		ph1 := mfx.Fx.NextProposedHeader([]byte("app_data_1"), 0)
-		mfx.Fx.SignProposal(ctx, &ph1, 0)
 
 		// Everyone voted for the block.
 		voteMap := map[string][]int{
