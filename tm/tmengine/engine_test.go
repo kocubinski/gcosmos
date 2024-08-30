@@ -657,6 +657,9 @@ func TestEngine_plumbing_LagState(t *testing.T) {
 		AppStateHash: []byte("whatever"),
 	})
 
+	// After we send the response, the engine is ready.
+	_ = gtest.ReceiveSoon(t, eReady)
+
 	// At startup, lag state is initializing.
 	ls := gtest.ReceiveSoon(t, lagCh)
 	require.Equal(t, tmelink.LagState{
