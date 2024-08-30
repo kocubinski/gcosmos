@@ -331,6 +331,9 @@ func (k *Kernel) mainLoop(ctx context.Context, s *kState, wd *gwatchdog.Watchdog
 
 			if err != nil && errors.As(err, new(tmelink.ReplayedHeaderInternalError)) {
 				// For now we will assume the other error types are fine to only send to the driver.
+				// But an internal error is considered unrecoverable.
+				// If we don't panic here, we could alternatively call watchdog.Terminate,
+				// for a clean shutdown.
 				panic(fmt.Errorf("TODO: handle internal error from handling replayed block: %w", err))
 			}
 
@@ -1558,38 +1561,9 @@ func (k *Kernel) handleReplayedHeader(
 		}
 	}
 
-	// TODO: validate the signatures before continuing.
-
-	// Now the voting view matches the height and round of the incoming replayed proof.
-	// It is possible that we already saw the incoming header and got stuck leading to a replay.
-	// Make sure we have only one copy.
-	if !slices.ContainsFunc(s.Voting.ProposedHeaders, func(ph tmconsensus.ProposedHeader) bool {
-		return bytes.Equal(ph.Header.Hash, header.Hash)
-	}) {
-		// Didn't have the hash, so append it...
-		// but we only have a Header, not a proposed Header, so we leave a couple fields blank.
-		// This seems acceptable but there is a chance it could cause something to break.
-		fakePH := tmconsensus.ProposedHeader{
-			Header: header,
-			Round:  proof.Round,
-			// Explicitly missing ProposerPubKey, Annotations, and Signature.
-		}
-
-		if err := k.rStore.SaveProposedHeader(ctx, fakePH); err != nil {
-			return tmelink.ReplayedHeaderInternalError{
-				Err: fmt.Errorf(
-					"failed to replay saved header to round store: %w",
-					err,
-				),
-			}
-		}
-
-		s.Voting.ProposedHeaders = append(s.Voting.ProposedHeaders, fakePH)
-	}
-
-	// Now, we don't care about prevotes, since we have precommits.
-	// Do we have an existing precommit proof?
-	// (Again, we might if we started lagging after seeing at least one precommit.)
+	// The hash checks out, but we need to ensure that every signature we have is valid.
+	// We must be pessimistic about the validity,
+	// so we will work with a clone of the existing precommit proofs, if we have any.
 	pcp := s.Voting.PrecommitProofs[string(header.Hash)]
 	if pcp == nil {
 		// No precommit data exists, so build it.
@@ -1625,27 +1599,98 @@ func (k *Kernel) handleReplayedHeader(
 				),
 			}
 		}
-
-		// Now that we have reconstituted the proof, reassign it into the map.
-		s.Voting.PrecommitProofs[string(header.Hash)] = pcp
+	} else {
+		// There were existing proofs, so we need to work from a clone.
+		pcp = pcp.Clone()
 	}
 
+	// Now, determine the result of merging the incoming proofs
+	// into whatever existing proofs we have.
 	for hash, sparseSigs := range proof.Proofs {
-		targetProof, ok := s.Voting.PrecommitProofs[hash]
-		if !ok {
-			// Just a shortcut now to save some time.
-			// Skipping these potentially misses evidence of double signing.
+		if hash != string(header.Hash) {
+			// TODO: we need to consider every hash, not just the header.
+			// But for the sake of replaying headers,
+			// this is sufficient for the chain to continue.
+			// (We probably have to deal with cloning existing proofs again.)
 			k.log.Warn("TODO: store proof for unknown block during replay")
 			continue
 		}
 
-		// TODO: we should probably check the merge result.
-		sparseProof := gcrypto.SparseSignatureProof{
+		// TODO: this should not be hardcoded to pcp,
+		// but it's okay for now while we limit this to only the header's block hash.
+		mergeRes := pcp.MergeSparse(gcrypto.SparseSignatureProof{
 			PubKeyHash: string(header.ValidatorSet.PubKeyHash),
 			Signatures: sparseSigs,
+		})
+
+		// There are three fields on the merge result.
+		//
+		// We don't care if it was a strict superset.
+		// We also don't care if the signatures were increased;
+		// if they were already at majority power,
+		// we wouldn't be in voting on the block.
+		// If they aren't increased past majority,
+		// we will reject the replay later.
+		if !mergeRes.AllValidSignatures {
+			// But, if any of the signatures were invalid, we reject the replay altogether.
+			return tmelink.ReplayedHeaderValidationError{
+				// TODO: this will need different formatting for nil block.
+				Err: fmt.Errorf(
+					"invalid signature received for block hash %x",
+					hash,
+				),
+			}
 		}
-		_ = targetProof.MergeSparse(sparseProof)
 	}
+
+	// Now the voting view matches the height and round of the incoming replayed proof.
+	// It is possible that we already saw the incoming header and got stuck leading to a replay.
+	// Make sure we have only one copy.
+	if !slices.ContainsFunc(s.Voting.ProposedHeaders, func(ph tmconsensus.ProposedHeader) bool {
+		return bytes.Equal(ph.Header.Hash, header.Hash)
+	}) {
+		// Didn't have the hash, so append it...
+		// but we only have a Header, not a proposed Header, so we leave a couple fields blank.
+		// This seems acceptable but there is a chance it could cause something to break.
+		fakePH := tmconsensus.ProposedHeader{
+			Header: header,
+			Round:  proof.Round,
+			// Explicitly missing ProposerPubKey, Annotations, and Signature.
+			// That is fine, as noted in the documentation for the RoundStore.
+		}
+
+		if err := k.rStore.SaveProposedHeader(ctx, fakePH); err != nil {
+			return tmelink.ReplayedHeaderInternalError{
+				Err: fmt.Errorf(
+					"failed to replay saved header to round store: %w",
+					err,
+				),
+			}
+		}
+
+		s.Voting.ProposedHeaders = append(s.Voting.ProposedHeaders, fakePH)
+	}
+
+	// Now ensure we have majority vote power,
+	// otherwise the replay cannot proceed.
+	var blockPow uint64
+	bs := pcp.SignatureBitSet()
+	for i, ok := bs.NextSet(0); ok && int(i) < len(header.ValidatorSet.Validators); i, ok = bs.NextSet(i + 1) {
+		blockPow += header.ValidatorSet.Validators[int(i)].Power
+	}
+
+	maj := tmconsensus.ByzantineMajority(s.Voting.VoteSummary.AvailablePower)
+	if blockPow < maj {
+		return tmelink.ReplayedHeaderValidationError{
+			Err: fmt.Errorf(
+				"needed at least %d vote power for block with hash %x, but only got %d",
+				maj, header.Hash, blockPow,
+			),
+		}
+	}
+
+	// Store the updated proof back into the local set.
+	s.Voting.PrecommitProofs[string(header.Hash)] = pcp
 
 	// Since we are in a replay, we clearly had out-of-date precommit power.
 	// TODO: did we confirm the voting validator set matches replayed?

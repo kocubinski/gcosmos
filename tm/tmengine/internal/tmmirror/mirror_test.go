@@ -3034,7 +3034,103 @@ func TestMirror_replayedHeaders(t *testing.T) {
 
 		err = gtest.ReceiveSoon(t, respCh).Err
 		require.Error(t, err)
-		require.ErrorAs(t, err, new(tmelink.ReplayedHeaderValidationError))
+		var vErr tmelink.ReplayedHeaderValidationError
+		require.ErrorAs(t, err, &vErr)
+		require.Contains(t, vErr.Error(), fmt.Sprintf("block hash (%x) different from expected", ph1.Header.Hash))
+	})
+
+	t.Run("indicative error when any signature fails verification", func(t *testing.T) {
+		t.Parallel()
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		mfx := tmmirrortest.NewFixture(ctx, t, 4)
+
+		m := mfx.NewMirror()
+		defer m.Wait()
+		defer cancel()
+
+		require.Equal(t, tmelink.LagStatusInitializing, gtest.ReceiveSoon(
+			t, mfx.LagStateOut,
+		).Status)
+
+		ph1 := mfx.Fx.NextProposedHeader([]byte("app_data_1"), 0)
+		voteMap := map[string][]int{
+			string(ph1.Header.Hash): {0, 1, 2, 3},
+		}
+		precommitProofs1 := mfx.Fx.PrecommitProofMap(ctx, 1, 0, voteMap)
+		mfx.Fx.CommitBlock(ph1.Header, []byte("app_state_height_1"), 0, precommitProofs1)
+
+		ph2 := mfx.Fx.NextProposedHeader([]byte("app_data_2"), 0)
+
+		// Before we replay the block, make sure the header store is empty.
+		_, err := mfx.Cfg.HeaderStore.LoadHeader(ctx, 1)
+		require.ErrorIs(t, err, tmconsensus.HeightUnknownError{Want: 1})
+
+		// Corrupt the previous commit proof by just modifying one byte in one signature.
+		// This assumes we are using the tmconsensustest simple signature scheme,
+		// which seems unlikely to change in tests.
+		for _, v := range ph2.Header.PrevCommitProof.Proofs {
+			v[0].Sig[0]++
+			break
+		}
+
+		respCh := make(chan tmelink.ReplayedHeaderResponse, 1)
+		gtest.SendSoon(t, mfx.ReplayedHeadersIn, tmelink.ReplayedHeaderRequest{
+			Header: ph1.Header,
+			Proof:  ph2.Header.PrevCommitProof,
+			Resp:   respCh,
+		})
+
+		err = gtest.ReceiveSoon(t, respCh).Err
+		require.Error(t, err)
+		var vErr tmelink.ReplayedHeaderValidationError
+		require.ErrorAs(t, err, &vErr)
+		require.Contains(t, vErr.Error(), "invalid signature received")
+	})
+
+	t.Run("indicative error when signatures fail to meet power threshold", func(t *testing.T) {
+		t.Parallel()
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		mfx := tmmirrortest.NewFixture(ctx, t, 4)
+
+		m := mfx.NewMirror()
+		defer m.Wait()
+		defer cancel()
+
+		require.Equal(t, tmelink.LagStatusInitializing, gtest.ReceiveSoon(
+			t, mfx.LagStateOut,
+		).Status)
+
+		ph1 := mfx.Fx.NextProposedHeader([]byte("app_data_1"), 0)
+		voteMap := map[string][]int{
+			string(ph1.Header.Hash): {0, 1}, // Only two votes this time instead of all four.
+		}
+		precommitProofs1 := mfx.Fx.PrecommitProofMap(ctx, 1, 0, voteMap)
+
+		// The fixture currently allows us to commit this block,
+		// although maybe it shouldn't.
+		mfx.Fx.CommitBlock(ph1.Header, []byte("app_state_height_1"), 0, precommitProofs1)
+
+		ph2 := mfx.Fx.NextProposedHeader([]byte("app_data_2"), 0)
+
+		respCh := make(chan tmelink.ReplayedHeaderResponse, 1)
+		gtest.SendSoon(t, mfx.ReplayedHeadersIn, tmelink.ReplayedHeaderRequest{
+			Header: ph1.Header,
+			Proof:  ph2.Header.PrevCommitProof,
+			Resp:   respCh,
+		})
+
+		err := gtest.ReceiveSoon(t, respCh).Err
+		require.Error(t, err)
+		var vErr tmelink.ReplayedHeaderValidationError
+		require.ErrorAs(t, err, &vErr)
+		require.Contains(t, vErr.Error(), "needed at least")
+		require.Contains(t, vErr.Error(), "vote power for block with hash")
 	})
 }
 
