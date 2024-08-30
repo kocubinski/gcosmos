@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"testing"
 
+	"github.com/rollchains/gordian/gassert/gasserttest"
 	"github.com/rollchains/gordian/gwatchdog"
 	"github.com/rollchains/gordian/internal/gtest"
 	"github.com/rollchains/gordian/tm/tmconsensus"
@@ -129,6 +130,8 @@ func NewKernelFixture(ctx context.Context, t *testing.T, nVals int) *KernelFixtu
 			AddPrecommitRequests: addPrecommitRequests,
 
 			Watchdog: wd,
+
+			AssertEnv: gasserttest.DefaultEnv(),
 		},
 
 		WatchdogCtx: wCtx,

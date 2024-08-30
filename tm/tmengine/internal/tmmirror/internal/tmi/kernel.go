@@ -22,6 +22,8 @@ import (
 	"github.com/rollchains/gordian/tm/tmstore"
 )
 
+//go:generate go run github.com/rollchains/gordian/gassert/cmd/generate-nodebug kernel_debug.go
+
 type Kernel struct {
 	log *slog.Logger
 
@@ -165,6 +167,8 @@ func NewKernel(ctx context.Context, log *slog.Logger, cfg KernelConfig) (*Kernel
 		addPHRequests:        cfg.AddPHRequests,
 		addPrevoteRequests:   cfg.AddPrevoteRequests,
 		addPrecommitRequests: cfg.AddPrecommitRequests,
+
+		assertEnv: cfg.AssertEnv,
 
 		done: make(chan struct{}),
 	}
@@ -316,6 +320,8 @@ func (k *Kernel) mainLoop(ctx context.Context, s *kState, wd *gwatchdog.Watchdog
 
 		case req := <-k.replayedHeadersIn:
 			err := k.handleReplayedHeader(ctx, s, req.Header, req.Proof)
+
+			invariantReplayedHeaderResponse(k.assertEnv, err)
 
 			// Whether nil or not, we send the result back to the driver.
 			// Assuming the response channel is buffered.
