@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"maps"
 	"path/filepath"
+	"runtime/trace"
 	"slices"
 	"time"
 
@@ -30,6 +31,7 @@ import (
 	"github.com/rollchains/gordian/internal/glog"
 	"github.com/rollchains/gordian/tm/tmconsensus"
 	"github.com/rollchains/gordian/tm/tmdriver"
+	"github.com/rollchains/gordian/tm/tmengine/tmelink"
 )
 
 type DriverConfig struct {
@@ -44,6 +46,8 @@ type DriverConfig struct {
 	InitChainRequests     <-chan tmdriver.InitChainRequest
 	FinalizeBlockRequests <-chan tmdriver.FinalizeBlockRequest
 
+	LagStateUpdates <-chan tmelink.LagState
+
 	TxBuffer *SDKTxBuf
 
 	DataPool *gdatapool.Pool[[]transaction.Tx]
@@ -57,6 +61,13 @@ type Driver struct {
 	txBuf *SDKTxBuf
 
 	pool *gdatapool.Pool[[]transaction.Tx]
+
+	am       *appmanager.AppManager[transaction.Tx]
+	sdkStore *root.Store
+
+	finalizeBlockRequests <-chan tmdriver.FinalizeBlockRequest
+
+	lagStateUpdates <-chan tmelink.LagState
 
 	done chan struct{}
 }
@@ -85,6 +96,12 @@ func NewDriver(
 
 		pool: cfg.DataPool,
 
+		finalizeBlockRequests: cfg.FinalizeBlockRequests,
+		lagStateUpdates:       cfg.LagStateUpdates,
+
+		am:       cfg.AppManager,
+		sdkStore: cfg.Store,
+
 		done: make(chan struct{}),
 	}
 
@@ -94,11 +111,14 @@ func NewDriver(
 }
 
 func (d *Driver) run(
-	lifeCtx context.Context,
+	ctx context.Context,
 	ag *genutiltypes.AppGenesis,
 	txConfig client.TxConfig,
 	cfg DriverConfig,
 ) {
+	ctx, task := trace.NewTask(ctx, "gsi.Driver.run")
+	defer task.End()
+
 	defer close(d.done)
 
 	d.log.Info("Driver starting...")
@@ -107,10 +127,9 @@ func (d *Driver) run(
 	// We are currently assuming we always need to handle init chain,
 	// but we should handle non-initial height.
 	if !d.handleInitialization(
-		lifeCtx,
+		ctx,
 		ag,
 		cfg.ConsensusAuthority,
-		cfg.AppManager,
 		cfg.Store,
 		txConfig,
 		cfg.InitChainRequests,
@@ -118,19 +137,20 @@ func (d *Driver) run(
 		return
 	}
 
-	d.handleFinalizations(lifeCtx, cfg.AppManager, cfg.Store, cfg.FinalizeBlockRequests)
+	d.mainLoop(ctx)
 }
 
 func (d *Driver) handleInitialization(
-	lifeCtx context.Context,
+	ctx context.Context,
 	ag *genutiltypes.AppGenesis,
 	consensusAuthority string,
-	appManager *appmanager.AppManager[transaction.Tx],
 	s *root.Store,
 	txConfig client.TxConfig,
 	initChainCh <-chan tmdriver.InitChainRequest,
 ) bool {
-	req, ok := gchan.RecvC(lifeCtx, d.log, initChainCh, "receiving init chain request")
+	defer trace.StartRegion(ctx, "handleInitialization").End()
+
+	req, ok := gchan.RecvC(ctx, d.log, initChainCh, "receiving init chain request")
 	if !ok {
 		d.log.Warn("Context cancelled before receiving init chain message")
 		return false
@@ -158,7 +178,7 @@ func (d *Driver) handleInitialization(
 
 	// We need a special context for the InitGenesis call,
 	// as the consensus parameters are expected to be a value on the context there.
-	deliverCtx := context.WithValue(lifeCtx, corecontext.InitInfoKey, &consensustypes.MsgUpdateParams{
+	deliverCtx := context.WithValue(ctx, corecontext.InitInfoKey, &consensustypes.MsgUpdateParams{
 		Authority: consensusAuthority,
 		Block: &cometapitypes.BlockParams{
 			// Just setting these to something non-zero for now.
@@ -175,7 +195,7 @@ func (d *Driver) handleInitialization(
 			PubKeyTypes: []string{"ed25519"},
 		},
 	})
-	blockResp, genesisState, err := appManager.InitGenesis(
+	blockResp, genesisState, err := d.am.InitGenesis(
 		deliverCtx, blockReq, appState, codec,
 	)
 	if err != nil {
@@ -184,7 +204,7 @@ func (d *Driver) handleInitialization(
 	}
 
 	// Set the initial state on the transaction buffer.
-	d.txBuf.Initialize(lifeCtx, genesisState)
+	d.txBuf.Initialize(ctx, genesisState)
 
 	// SetInitialVersion followed by WorkingHash,
 	// and passing that hash as the initial app state hash,
@@ -233,7 +253,7 @@ func (d *Driver) handleInitialization(
 		Validators: gVals,
 	}
 	if !gchan.SendC(
-		lifeCtx, d.log,
+		ctx, d.log,
 		req.Resp, resp,
 		"sending init chain response to Gordian",
 	) {
@@ -250,252 +270,268 @@ func (d *Driver) handleInitialization(
 	return true
 }
 
-func (d *Driver) handleFinalizations(
+func (d *Driver) mainLoop(
 	ctx context.Context,
-	appManager *appmanager.AppManager[transaction.Tx],
-	s *root.Store,
-	finalizeBlockRequests <-chan tmdriver.FinalizeBlockRequest,
 ) {
+	defer trace.StartRegion(ctx, "mainLoop").End()
+
 	for {
-		fbReq, ok := gchan.RecvC(
-			ctx, d.log,
-			finalizeBlockRequests,
-			"receiving finalize block request from engine",
-		)
-		if !ok {
-			// Context was cancelled and we already logged, so we're done.
+		select {
+		case <-ctx.Done():
+			d.log.Info("Stopping due to context cancellation", "cause", context.Cause(ctx))
 			return
-		}
 
-		// TODO: the comet implementation does some validation and checking for halt height and time,
-		// which we are not yet doing.
-
-		// TODO: don't hardcode the initial height.
-		const initialHeight = 1
-		if fbReq.Header.Height == initialHeight {
-			appHash, err := s.Commit(store.NewChangeset())
-			if err != nil {
-				d.log.Warn("Failed to commit new changeset for initial height", "err", err)
+		case req := <-d.finalizeBlockRequests:
+			if !d.handleFinalization(ctx, req) {
 				return
 			}
 
-			resp := tmdriver.FinalizeBlockResponse{
-				Height:    fbReq.Header.Height,
-				Round:     fbReq.Round,
-				BlockHash: fbReq.Header.Hash,
-
-				// At genesis, we don't have a block response
-				// from which to extract the next validators.
-				// By design, the validators at height 2 match height 1.
-				Validators:   fbReq.Header.NextValidatorSet.Validators,
-				AppStateHash: appHash,
-			}
-			if !gchan.SendC(
-				ctx, d.log,
-				fbReq.Resp, resp,
-				"sending finalize block response back to engine",
-			) {
-				// Context was cancelled and we already logged, so we're done.
-				return
-			}
-
-			continue
-		}
-
-		cID, err := s.LastCommitID()
-		if err != nil {
-			d.log.Warn(
-				"Failed to get last commit ID prior to handling finalization request",
-				"err", err,
+		case ls := <-d.lagStateUpdates:
+			// TODO: begin fetching blocks for replay
+			// in response to certain lag state updates.
+			d.log.Info(
+				"Received lag state update",
+				"new_lag_status", ls.Status,
+				"committing_height", ls.CommittingHeight,
 			)
-			return
 		}
+	}
+}
 
-		a, err := BlockAnnotationFromBytes(fbReq.Header.Annotations.Driver)
+func (d *Driver) handleFinalization(ctx context.Context, req tmdriver.FinalizeBlockRequest) bool {
+	defer trace.StartRegion(ctx, "handleFinalization").End()
+
+	// TODO: the comet implementation does some validation and checking for halt height and time,
+	// which we are not yet doing.
+
+	// TODO: don't hardcode the initial height.
+	const initialHeight = 1
+	if req.Header.Height == initialHeight {
+		appHash, err := d.sdkStore.Commit(store.NewChangeset())
 		if err != nil {
-			d.log.Warn(
-				"Failed to extract driver annotation from finalize block request",
-				"err", err,
-			)
-			return
-		}
-		blockTime, err := a.BlockTimeAsTime()
-		if err != nil {
-			d.log.Warn(
-				"Failed to parse block time from driver annotation",
-				"err", err,
-			)
-			return
+			d.log.Warn("Failed to commit new changeset for initial height", "err", err)
+			return false
 		}
 
-		var txs []transaction.Tx
+		resp := tmdriver.FinalizeBlockResponse{
+			Height:    req.Header.Height,
+			Round:     req.Round,
+			BlockHash: req.Header.Hash,
 
-		// Guard the call to pool.Have with a zero check,
-		// because we never call Need or SetAvailable on zero.
-		if !gsbd.IsZeroTxDataID(string(fbReq.Header.DataID)) {
-			haveTxs, err, have := d.pool.Have(string(fbReq.Header.DataID))
-			if !have {
-				panic(errors.New("TODO: handle block data not ready during finalization"))
-			}
-			if err != nil {
-				panic(fmt.Errorf("TODO: handle error on retrieved block data during finalization: %w", err))
-			}
-			txs = haveTxs
-		}
-
-		blockReq := &coreserver.BlockRequest[transaction.Tx]{
-			Height: fbReq.Header.Height,
-
-			Time: blockTime,
-
-			Hash:    fbReq.Header.Hash,
-			AppHash: cID.Hash,
-			ChainId: d.chainID,
-			Txs:     txs,
-		}
-
-		// The app manager requires that comet info is set on its context
-		// when dealing with a delivered block.
-		ctx = context.WithValue(ctx, corecontext.CometInfoKey, corecomet.Info{
-			// Somewhat surprisingly, just the presence of the key
-			// without any values populated, is enough to progress past the panic.
-		})
-
-		// The discarded response value appears to include events
-		// which we are not yet using.
-		blockResp, newState, err := appManager.DeliverBlock(ctx, blockReq)
-		if err != nil {
-			d.log.Warn(
-				"Failed to deliver block",
-				"height", blockReq.Height,
-				"err", err,
-			)
-			return
-		}
-
-		// By default, we just use the block's declared next validators block.
-		updatedVals := fbReq.Header.NextValidatorSet.Validators
-		if len(blockResp.ValidatorUpdates) > 0 {
-			// We can never modify a ValdatorSet's validators,
-			// so create a clone.
-			updatedVals = slices.Clone(fbReq.Header.NextValidatorSet.Validators)
-
-			// Make a map of pubkeys that have a power change.
-			// TODO: this doesn't respect key type, and it should.
-			var valsToUpdate = make(map[string]uint64)
-			hasDelete := false
-			for _, vu := range blockResp.ValidatorUpdates {
-				// TODO: vu.Power is an int64, and we are casting it to uint64 here.
-				// There needs to be a safety check on conversion.
-				valsToUpdate[string(vu.PubKey)] = uint64(vu.Power)
-
-				if vu.Power == 0 {
-					// Track whether we need to delete any.
-					// We can avoid an extra iteration or two over the new validators
-					// if we know nobody's power has dropped to zero.
-					hasDelete = true
-				}
-			}
-
-			// Now iterate over all the validators, applying the new powers.
-			for i := range updatedVals {
-				// Is the current validator in the update map?
-				newPow, ok := valsToUpdate[string(updatedVals[i].PubKey.PubKeyBytes())]
-				if !ok {
-					continue
-				}
-
-				// Yes, so reassign its power.
-				updatedVals[i].Power = newPow
-
-				// Delete this entry.
-				delete(valsToUpdate, string(updatedVals[i].PubKey.PubKeyBytes()))
-
-				// Stop iterating if this was the last entry.
-				if len(valsToUpdate) == 0 {
-					break
-				}
-			}
-
-			// If there were any zero powers, delete them first.
-			// That might help avoid growing the slice if we delete some validators
-			// before appending new ones.
-			if hasDelete {
-				updatedVals = slices.DeleteFunc(updatedVals, func(v tmconsensus.Validator) bool {
-					return v.Power == 0
-				})
-			}
-
-			if len(valsToUpdate) > 0 {
-				// We have new validators!
-				// They just go at the end for now,
-				// which is probably not what we want long term.
-				//
-				// At least sort them by pubkey first so if multiple validators are added,
-				// we ensure all participating validators agree on the order of the new ones.
-				for _, pk := range slices.Sorted(maps.Keys(valsToUpdate)) {
-					// Another dangerous int64->uint64 conversion.
-					pow := uint64(valsToUpdate[pk])
-
-					// Another poor assumption that we always use ed25519.
-					pubKey, err := gcrypto.NewEd25519PubKey([]byte(pk))
-					if err != nil {
-						d.log.Warn(
-							"Skipping new validator with invalid public key",
-							"pub_key_bytes", glog.Hex(pk),
-							"power", pow,
-						)
-						continue
-					}
-
-					updatedVals = append(updatedVals, tmconsensus.Validator{
-						PubKey: pubKey, Power: pow,
-					})
-				}
-			}
-		}
-
-		// Rebase the transactions on the new state.
-		// For now, we just discard the invalidated transactions.
-		// We could log them but it isn't clear what exactly should be logged.
-		// Maybe the transaction hash would suffice?
-		if _, err := d.txBuf.Rebase(ctx, newState, txs); err != nil {
-			d.log.Warn("Failed to rebase transaction buffer", "err", err)
-			return
-		}
-
-		stateChanges, err := newState.GetStateChanges()
-		if err != nil {
-			d.log.Warn("Failed to get state changes", "err", err)
-			return
-		}
-		appHash, err := s.Commit(&store.Changeset{Changes: stateChanges})
-		if err != nil {
-			d.log.Warn("Failed to commit state changes", "err", err)
-			return
-		}
-		d.log.Info("Committed change to root store", "height", fbReq.Header.Height, "apphash", glog.Hex(appHash))
-
-		// TODO: There could be updated consensus params that we care about here.
-
-		fbResp := tmdriver.FinalizeBlockResponse{
-			Height:    fbReq.Header.Height,
-			Round:     fbReq.Round,
-			BlockHash: fbReq.Header.Hash,
-
-			Validators: updatedVals,
-
+			// At genesis, we don't have a block response
+			// from which to extract the next validators.
+			// By design, the validators at height 2 match height 1.
+			Validators:   req.Header.NextValidatorSet.Validators,
 			AppStateHash: appHash,
 		}
 		if !gchan.SendC(
 			ctx, d.log,
-			fbReq.Resp, fbResp,
+			req.Resp, resp,
 			"sending finalize block response back to engine",
 		) {
 			// Context was cancelled and we already logged, so we're done.
-			return
+			return false
+		}
+
+		return true
+	}
+
+	cID, err := d.sdkStore.LastCommitID()
+	if err != nil {
+		d.log.Warn(
+			"Failed to get last commit ID prior to handling finalization request",
+			"err", err,
+		)
+		return false
+	}
+
+	a, err := BlockAnnotationFromBytes(req.Header.Annotations.Driver)
+	if err != nil {
+		d.log.Warn(
+			"Failed to extract driver annotation from finalize block request",
+			"err", err,
+		)
+		return false
+	}
+	blockTime, err := a.BlockTimeAsTime()
+	if err != nil {
+		d.log.Warn(
+			"Failed to parse block time from driver annotation",
+			"err", err,
+		)
+		return false
+	}
+
+	var txs []transaction.Tx
+
+	// Guard the call to pool.Have with a zero check,
+	// because we never call Need or SetAvailable on zero.
+	if !gsbd.IsZeroTxDataID(string(req.Header.DataID)) {
+		haveTxs, err, have := d.pool.Have(string(req.Header.DataID))
+		if !have {
+			// We need to make a blocking request to retrieve this data.
+			panic(errors.New("TODO: handle block data not ready during finalization"))
+		}
+		if err != nil {
+			panic(fmt.Errorf("TODO: handle error on retrieved block data during finalization: %w", err))
+		}
+		txs = haveTxs
+	}
+
+	blockReq := &coreserver.BlockRequest[transaction.Tx]{
+		Height: req.Header.Height,
+
+		Time: blockTime,
+
+		Hash:    req.Header.Hash,
+		AppHash: cID.Hash,
+		ChainId: d.chainID,
+		Txs:     txs,
+	}
+
+	// The app manager requires that comet info is set on its context
+	// when dealing with a delivered block.
+	ctx = context.WithValue(ctx, corecontext.CometInfoKey, corecomet.Info{
+		// Somewhat surprisingly, just the presence of the key
+		// without any values populated, is enough to progress past the panic.
+	})
+
+	// The discarded response value appears to include events
+	// which we are not yet using.
+	blockResp, newState, err := d.am.DeliverBlock(ctx, blockReq)
+	if err != nil {
+		d.log.Warn(
+			"Failed to deliver block",
+			"height", blockReq.Height,
+			"err", err,
+		)
+		return false
+	}
+
+	// By default, we just use the block's declared next validators block.
+	updatedVals := req.Header.NextValidatorSet.Validators
+	if len(blockResp.ValidatorUpdates) > 0 {
+		// We can never modify a ValdatorSet's validators,
+		// so create a clone.
+		updatedVals = slices.Clone(req.Header.NextValidatorSet.Validators)
+
+		// Make a map of pubkeys that have a power change.
+		// TODO: this doesn't respect key type, and it should.
+		var valsToUpdate = make(map[string]uint64)
+		hasDelete := false
+		for _, vu := range blockResp.ValidatorUpdates {
+			// TODO: vu.Power is an int64, and we are casting it to uint64 here.
+			// There needs to be a safety check on conversion.
+			valsToUpdate[string(vu.PubKey)] = uint64(vu.Power)
+
+			if vu.Power == 0 {
+				// Track whether we need to delete any.
+				// We can avoid an extra iteration or two over the new validators
+				// if we know nobody's power has dropped to zero.
+				hasDelete = true
+			}
+		}
+
+		// Now iterate over all the validators, applying the new powers.
+		for i := range updatedVals {
+			// Is the current validator in the update map?
+			newPow, ok := valsToUpdate[string(updatedVals[i].PubKey.PubKeyBytes())]
+			if !ok {
+				continue
+			}
+
+			// Yes, so reassign its power.
+			updatedVals[i].Power = newPow
+
+			// Delete this entry.
+			delete(valsToUpdate, string(updatedVals[i].PubKey.PubKeyBytes()))
+
+			// Stop iterating if this was the last entry.
+			if len(valsToUpdate) == 0 {
+				break
+			}
+		}
+
+		// If there were any zero powers, delete them first.
+		// That might help avoid growing the slice if we delete some validators
+		// before appending new ones.
+		if hasDelete {
+			updatedVals = slices.DeleteFunc(updatedVals, func(v tmconsensus.Validator) bool {
+				return v.Power == 0
+			})
+		}
+
+		if len(valsToUpdate) > 0 {
+			// We have new validators!
+			// They just go at the end for now,
+			// which is probably not what we want long term.
+			//
+			// At least sort them by pubkey first so if multiple validators are added,
+			// we ensure all participating validators agree on the order of the new ones.
+			for _, pk := range slices.Sorted(maps.Keys(valsToUpdate)) {
+				// Another dangerous int64->uint64 conversion.
+				pow := uint64(valsToUpdate[pk])
+
+				// Another poor assumption that we always use ed25519.
+				pubKey, err := gcrypto.NewEd25519PubKey([]byte(pk))
+				if err != nil {
+					d.log.Warn(
+						"Skipping new validator with invalid public key",
+						"pub_key_bytes", glog.Hex(pk),
+						"power", pow,
+					)
+					continue
+				}
+
+				updatedVals = append(updatedVals, tmconsensus.Validator{
+					PubKey: pubKey, Power: pow,
+				})
+			}
 		}
 	}
+
+	// Rebase the transactions on the new state.
+	// For now, we just discard the invalidated transactions.
+	// We could log them but it isn't clear what exactly should be logged.
+	// Maybe the transaction hash would suffice?
+	if _, err := d.txBuf.Rebase(ctx, newState, txs); err != nil {
+		d.log.Warn("Failed to rebase transaction buffer", "err", err)
+		return false
+	}
+
+	stateChanges, err := newState.GetStateChanges()
+	if err != nil {
+		d.log.Warn("Failed to get state changes", "err", err)
+		return false
+	}
+	appHash, err := d.sdkStore.Commit(&store.Changeset{Changes: stateChanges})
+	if err != nil {
+		d.log.Warn("Failed to commit state changes", "err", err)
+		return false
+	}
+	d.log.Info("Committed change to root store", "height", req.Header.Height, "apphash", glog.Hex(appHash))
+
+	// TODO: There could be updated consensus params that we care about here.
+
+	fbResp := tmdriver.FinalizeBlockResponse{
+		Height:    req.Header.Height,
+		Round:     req.Round,
+		BlockHash: req.Header.Hash,
+
+		Validators: updatedVals,
+
+		AppStateHash: appHash,
+	}
+	if !gchan.SendC(
+		ctx, d.log,
+		req.Resp, fbResp,
+		"sending finalize block response back to engine",
+	) {
+		// Context was cancelled and we already logged, so we're done.
+		return false
+	}
+
+	return true
 }
 
 func (d *Driver) Wait() {

@@ -32,6 +32,7 @@ import (
 	"github.com/rollchains/gordian/tm/tmconsensus/tmconsensustest"
 	"github.com/rollchains/gordian/tm/tmdriver"
 	"github.com/rollchains/gordian/tm/tmengine"
+	"github.com/rollchains/gordian/tm/tmengine/tmelink"
 	"github.com/rollchains/gordian/tm/tmgossip"
 	"github.com/rollchains/gordian/tm/tmp2p/tmlibp2p"
 	"github.com/rollchains/gordian/tm/tmstore"
@@ -327,6 +328,7 @@ func (c *Component) Start(ctx context.Context) error {
 
 	initChainCh := make(chan tmdriver.InitChainRequest)
 	blockFinCh := make(chan tmdriver.FinalizeBlockRequest)
+	lagStateCh := make(chan tmelink.LagState)
 	d, err := gsi.NewDriver(
 		c.rootCtx,
 		ctx,
@@ -342,6 +344,7 @@ func (c *Component) Start(ctx context.Context) error {
 
 			InitChainRequests:     initChainCh,
 			FinalizeBlockRequests: blockFinCh,
+			LagStateUpdates: lagStateCh,
 
 			TxBuffer: txBuf,
 
@@ -353,12 +356,18 @@ func (c *Component) Start(ctx context.Context) error {
 	}
 	c.driver = d
 
+	// We hold onto the options slice so that we can partially initialize it during Init.
+	// But it doesn't need to live beyond the scope of Start,
+	// so clear the c.opts field to allow the slice to be GCed once the value goes out of scope.
 	opts := c.opts
-	c.opts = nil // Don't need to reference the slice after this, so allow it to be GCed.
+	c.opts = nil
 
 	// Extra options that we couldn't set earlier for whatever reason:
-
-	opts = append(opts, tmengine.WithBlockFinalizationChannel(blockFinCh))
+	opts = append(
+		opts,
+		tmengine.WithBlockFinalizationChannel(blockFinCh),
+		tmengine.WithLagStateChannel(lagStateCh),
+	)
 
 	// We needed the driver before we could make the consensus strategy.
 	c.cStrat = gsi.NewConsensusStrategy(

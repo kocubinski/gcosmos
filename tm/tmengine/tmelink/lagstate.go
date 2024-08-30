@@ -24,6 +24,8 @@ type LagState struct {
 
 type LagStatus uint8
 
+//go:generate go run golang.org/x/tools/cmd/stringer -type LagStatus -trimprefix=LagStatus .
+
 const (
 	// At startup, nothing known yet.
 	LagStatusInitializing LagStatus = iota
