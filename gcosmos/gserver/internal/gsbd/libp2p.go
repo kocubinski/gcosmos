@@ -19,6 +19,8 @@ import (
 	libp2pprotocol "github.com/libp2p/go-libp2p/core/protocol"
 )
 
+// TODO: this prefix needs to change to make it more evidently
+// associated with only the proposer.
 const blockDataV1Prefix = "/gordian/blockdata/v1/"
 
 type Libp2pHost struct {
