@@ -62,6 +62,45 @@ func toJSONProposedHeader(ph tmconsensus.ProposedHeader, reg *gcrypto.Registry) 
 	}
 }
 
+// jsonCommittedHeader is a converted [tmconsensus.CommittedHeader]
+// that can be safely marshalled as JSON.
+type jsonCommittedHeader struct {
+	Header jsonHeader
+
+	Proof jsonCommitProof
+}
+
+func (jch jsonCommittedHeader) ToCommittedHeader(
+	reg *gcrypto.Registry,
+) (tmconsensus.CommittedHeader, error) {
+	h, err := jch.Header.ToHeader(reg)
+	if err != nil {
+		return tmconsensus.CommittedHeader{}, fmt.Errorf(
+			"failed to unmarshal committed header: %w", err,
+		)
+	}
+	p, err := jch.Proof.ToCommitProof()
+	if err != nil {
+		return tmconsensus.CommittedHeader{}, fmt.Errorf(
+			"failed to unmarshal committed header's proof: %w", err,
+		)
+	}
+
+	return tmconsensus.CommittedHeader{
+		Header: h,
+		Proof:  p,
+	}, nil
+}
+
+func toJSONCommittedHeader(
+	ch tmconsensus.CommittedHeader, reg *gcrypto.Registry,
+) jsonCommittedHeader {
+	return jsonCommittedHeader{
+		Header: toJSONHeader(ch.Header, reg),
+		Proof:  toJSONCommitProof(ch.Proof),
+	}
+}
+
 // jsonProposedHeader is a converted [tmconsensus.Header]
 // that can be safely marshalled as JSON.
 type jsonHeader struct {

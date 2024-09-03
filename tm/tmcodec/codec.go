@@ -10,6 +10,7 @@ type Marshaler interface {
 
 	MarshalHeader(tmconsensus.Header) ([]byte, error)
 	MarshalProposedHeader(tmconsensus.ProposedHeader) ([]byte, error)
+	MarshalCommittedHeader(tmconsensus.CommittedHeader) ([]byte, error)
 
 	MarshalPrevoteProof(tmconsensus.PrevoteSparseProof) ([]byte, error)
 	MarshalPrecommitProof(tmconsensus.PrecommitSparseProof) ([]byte, error)
@@ -21,6 +22,7 @@ type Unmarshaler interface {
 
 	UnmarshalHeader([]byte, *tmconsensus.Header) error
 	UnmarshalProposedHeader([]byte, *tmconsensus.ProposedHeader) error
+	UnmarshalCommittedHeader([]byte, *tmconsensus.CommittedHeader) error
 
 	UnmarshalPrevoteProof([]byte, *tmconsensus.PrevoteSparseProof) error
 	UnmarshalPrecommitProof([]byte, *tmconsensus.PrecommitSparseProof) error

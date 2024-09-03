@@ -50,6 +50,22 @@ func (c MarshalCodec) UnmarshalProposedHeader(b []byte, ph *tmconsensus.Proposed
 	return err
 }
 
+func (c MarshalCodec) MarshalCommittedHeader(ch tmconsensus.CommittedHeader) ([]byte, error) {
+	jch := toJSONCommittedHeader(ch, c.CryptoRegistry)
+	return json.Marshal(jch)
+}
+
+func (c MarshalCodec) UnmarshalCommittedHeader(b []byte, ch *tmconsensus.CommittedHeader) error {
+	var jch jsonCommittedHeader
+	err := json.Unmarshal(b, &jch)
+	if err != nil {
+		return err
+	}
+
+	*ch, err = jch.ToCommittedHeader(c.CryptoRegistry)
+	return err
+}
+
 type jsonSparseProof struct {
 	Height     uint64
 	Round      uint32

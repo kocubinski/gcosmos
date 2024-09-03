@@ -22,7 +22,7 @@ type MarshalCodecFactory func() tmcodec.MarshalCodec
 func TestMarshalCodecCompliance(t *testing.T, mcf MarshalCodecFactory) {
 	ctx := context.Background()
 
-	t.Run("proposed blocks, plain blocks, and signed blocks", func(t *testing.T) {
+	t.Run("proposed headers, plain headers, and committed headers", func(t *testing.T) {
 		for _, useInitialHeight := range []bool{true, false} {
 			useInitialHeight := useInitialHeight
 
@@ -66,7 +66,7 @@ func TestMarshalCodecCompliance(t *testing.T, mcf MarshalCodecFactory) {
 
 					mc := mcf()
 
-					t.Run("proposed block", func(t *testing.T) {
+					t.Run("proposed header", func(t *testing.T) {
 						for _, ac := range tmconsensustest.AnnotationCombinations() {
 							ac := ac
 							t.Run(ac.Name, func(t *testing.T) {
@@ -110,7 +110,7 @@ func TestMarshalCodecCompliance(t *testing.T, mcf MarshalCodecFactory) {
 						}
 					})
 
-					t.Run("plain block", func(t *testing.T) {
+					t.Run("plain header", func(t *testing.T) {
 						b, err := mc.MarshalHeader(ph.Header)
 						require.NoError(t, err)
 
@@ -120,8 +120,8 @@ func TestMarshalCodecCompliance(t *testing.T, mcf MarshalCodecFactory) {
 						require.Equal(t, ph.Header, got)
 					})
 
-					t.Run("plain block with annotations", func(t *testing.T) {
-						// Just move the proposed block's annotations over the block's.
+					t.Run("plain header with annotations", func(t *testing.T) {
+						// Just move the proposed header's annotations over the plain header's.
 						ph.Header.Annotations, ph.Annotations = ph.Annotations, tmconsensus.Annotations{}
 
 						b, err := mc.MarshalHeader(ph.Header)
@@ -131,6 +131,31 @@ func TestMarshalCodecCompliance(t *testing.T, mcf MarshalCodecFactory) {
 						require.NoError(t, mc.UnmarshalHeader(b, &got))
 
 						require.Equal(t, ph.Header, got)
+					})
+
+					t.Run("committed header", func(t *testing.T) {
+						fx := tmconsensustest.NewStandardFixture(curVals)
+						voteMap := map[string][]int{
+							string(ph.Header.Hash): {0, 1, 2},
+							"":                     {3}, // Include another vote that isn't for the block.
+						}
+						precommitProofs := fx.PrecommitProofMap(ctx, ph.Header.Height, 0, voteMap)
+						fx.CommitBlock(ph.Header, []byte("app_state_1"), 0, precommitProofs)
+
+						nextPH := fx.NextProposedHeader([]byte("whatever"), 0)
+
+						committedHeader := tmconsensus.CommittedHeader{
+							Header: ph.Header,
+							Proof: nextPH.Header.PrevCommitProof,
+						}
+
+						b, err := mc.MarshalCommittedHeader(committedHeader)
+						require.NoError(t, err)
+
+						var got tmconsensus.CommittedHeader
+						require.NoError(t, mc.UnmarshalCommittedHeader(b, &got))
+
+						require.Equal(t, committedHeader, got)
 					})
 				})
 
