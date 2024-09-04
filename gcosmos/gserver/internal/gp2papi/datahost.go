@@ -16,6 +16,9 @@ import (
 )
 
 type DataHost struct {
+	// We unfortunately store the life context of the DataHost as a field,
+	// because there does not appear to be a way to get
+	// a context associated with a particular stream.
 	ctx context.Context
 
 	log *slog.Logger
@@ -25,6 +28,8 @@ type DataHost struct {
 	hs tmstore.HeaderStore
 
 	codec tmcodec.MarshalCodec
+
+	done chan struct{}
 }
 
 const headerV1HeightPrefix = "/gcosmos/committed_headers/v1/height/"
@@ -42,7 +47,11 @@ func NewDataHost(
 		host:  host,
 		hs:    hs,
 		codec: codec,
+
+		done: make(chan struct{}),
 	}
+
+	go h.waitForCancellation()
 
 	h.host.SetStreamHandlerMatch(
 		libp2pprotocol.ID(headerV1HeightPrefix),
@@ -68,6 +77,19 @@ func NewDataHost(
 	)
 
 	return h
+}
+
+func (h *DataHost) Wait() {
+	<-h.done
+}
+
+func (h *DataHost) waitForCancellation() {
+	// Removing the handler probably isn't strictly necessary,
+	// but this would allow us to dynamically enable the service
+	// without shutting down the whole process.
+	<-h.ctx.Done()
+	h.host.RemoveStreamHandler(libp2pprotocol.ID(headerV1HeightPrefix))
+	close(h.done)
 }
 
 func (h *DataHost) handleCommittedHeaderStream(s libp2pnetwork.Stream) {

@@ -22,6 +22,7 @@ import (
 	"github.com/libp2p/go-libp2p"
 	libp2ppeer "github.com/libp2p/go-libp2p/core/peer"
 	"github.com/rollchains/gordian/gcosmos/gserver/internal/ggrpc"
+	"github.com/rollchains/gordian/gcosmos/gserver/internal/gp2papi"
 	"github.com/rollchains/gordian/gcosmos/gserver/internal/gsbd"
 	"github.com/rollchains/gordian/gcosmos/gserver/internal/gsi"
 	"github.com/rollchains/gordian/gcrypto"
@@ -74,14 +75,16 @@ type Component struct {
 	e      *tmengine.Engine
 	driver *gsi.Driver
 	cStrat *gsi.ConsensusStrategy
+	dh     *gp2papi.DataHost
 
 	seedAddrs string
 
 	httpLn net.Listener
 	grpcLn net.Listener
 
-	ms         tmstore.MirrorStore
+	hs         tmstore.HeaderStore
 	fs         tmstore.FinalizationStore
+	ms         tmstore.MirrorStore
 	httpServer *gsi.HTTPServer
 	grpcServer *ggrpc.GordianGRPC
 }
@@ -193,8 +196,9 @@ func (c *Component) Init(app serverv2.AppI[transaction.Tx], v *viper.Viper, log 
 	rs := tmmemstore.NewRoundStore()
 	vs := tmmemstore.NewValidatorStore(tmconsensustest.SimpleHashScheme{})
 
-	c.ms = ms
 	c.fs = fs
+	c.hs = hs
+	c.ms = ms
 
 	// Is it possible for the genesis path to ever be rooted somewhere else?
 	homeDir := v.GetString("home")
@@ -295,6 +299,17 @@ func (c *Component) Start(ctx context.Context) error {
 	codec := tmjson.MarshalCodec{
 		CryptoRegistry: reg,
 	}
+
+	// TODO: allow c.dh to be conditionally set,
+	// instead of unconditionally assigning it.
+	c.dh = gp2papi.NewDataHost(
+		c.rootCtx,
+		c.log.With("sys", "datahost"),
+		h.Libp2pHost(),
+		c.hs,
+		codec,
+	)
+
 	conn, err := tmlibp2p.NewConnection(
 		c.rootCtx,
 		c.log.With("sys", "libp2pconn"),
@@ -344,7 +359,7 @@ func (c *Component) Start(ctx context.Context) error {
 
 			InitChainRequests:     initChainCh,
 			FinalizeBlockRequests: blockFinCh,
-			LagStateUpdates: lagStateCh,
+			LagStateUpdates:       lagStateCh,
 
 			TxBuffer: txBuf,
 
@@ -455,6 +470,12 @@ func (c *Component) Start(ctx context.Context) error {
 // Stop is called when the SDK is shutting down the server components.
 func (c *Component) Stop(_ context.Context) error {
 	c.cancel(errors.New("stopped via SDK server module"))
+
+	// Stop serving client requests before anything else.
+	if c.dh != nil {
+		c.dh.Wait()
+	}
+
 	if c.e != nil {
 		c.e.Wait()
 	}

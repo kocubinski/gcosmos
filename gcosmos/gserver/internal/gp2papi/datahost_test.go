@@ -74,11 +74,8 @@ func TestDataHost_serveCommittedHeader(t *testing.T) {
 		hs,
 		codec,
 	)
-
-	// We aren't doing anything with the data host value yet.
-	// We could potentially allow it to be removed from the host on a context cancellation.
-	// Other than that, there are not yet really any obvious uses for the returned value.
-	_ = dh
+	defer dh.Wait()
+	defer cancel()
 
 	hostInfo := libp2phost.InfoFromHost(host.Host().Libp2pHost())
 	require.NoError(t, client.Host().Libp2pHost().Connect(ctx, *hostInfo))
