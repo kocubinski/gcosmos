@@ -676,6 +676,78 @@ func TestEngine_plumbing_LagState(t *testing.T) {
 	}, gtest.ReceiveSoon(t, lagCh))
 }
 
+func TestEngine_plumbing_ReplayedHeaders(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	efx := tmenginetest.NewFixture(ctx, t, 4)
+
+	rhCh := make(chan tmelink.ReplayedHeaderRequest)
+
+	var engine *tmengine.Engine
+	eReady := make(chan struct{})
+	go func() {
+		defer close(eReady)
+		// Don't need signing in this test.
+		om := efx.BaseOptionMap()
+		om["WithReplayedHeaderRequestChannel"] = tmengine.WithReplayedHeaderRequestChannel(rhCh)
+		engine = efx.MustNewEngine(om.ToSlice()...)
+	}()
+
+	defer func() {
+		cancel()
+		<-eReady
+		engine.Wait()
+	}()
+
+	_ = efx.ConsensusStrategy.ExpectEnterRound(1, 0, nil)
+
+	// Handle chain initialization first to avoid panic in fixture.
+	icReq := gtest.ReceiveSoon(t, efx.InitChainCh)
+	gtest.SendSoon(t, icReq.Resp, tmdriver.InitChainResponse{
+		AppStateHash: []byte("whatever"),
+	})
+
+	// After we send the response, the engine is ready.
+	_ = gtest.ReceiveSoon(t, eReady)
+
+	// Make a committed header through the fixture.
+	ph1 := efx.Fx.NextProposedHeader([]byte("app_state_1"), 0)
+	efx.Fx.SignProposal(ctx, &ph1, 0)
+	voteMap := map[string][]int{
+		string(ph1.Header.Hash): {0, 1, 2, 3},
+	}
+	precommitProofsMap := efx.Fx.PrecommitProofMap(ctx, 1, 0, voteMap)
+	efx.Fx.CommitBlock(ph1.Header, []byte("app_state_height_1"), 0, precommitProofsMap)
+	ph2 := efx.Fx.NextProposedHeader([]byte("app_state_2"), 0)
+
+	respCh := make(chan tmelink.ReplayedHeaderResponse, 1)
+	gtest.SendSoon(t, rhCh, tmelink.ReplayedHeaderRequest{
+		Header: ph1.Header,
+		Proof:  ph2.Header.PrevCommitProof,
+		Resp:   respCh,
+	})
+
+	// Replayed block is accepted.
+	resp := gtest.ReceiveSoon(t, respCh)
+	require.NoError(t, resp.Err)
+
+	// It won't be present in the header store yet,
+	// since we only shifted it from voting to committing.
+	// But it should be in the round store now.
+	phs, _, precommits, err := efx.RoundStore.LoadRoundState(ctx, 1, 0)
+	require.NoError(t, err)
+	require.Equal(t, []tmconsensus.ProposedHeader{
+		{
+			Header: ph1.Header,
+			// PubKey and Signature missing from round store during replay.
+		},
+	}, phs)
+	require.Equal(t, uint(4), precommits[string(ph1.Header.Hash)].SignatureBitSet().Count())
+}
+
 func TestEngine_initChain(t *testing.T) {
 	t.Run("default startup flow requiring InitChain call, no validator override", func(t *testing.T) {
 		t.Parallel()

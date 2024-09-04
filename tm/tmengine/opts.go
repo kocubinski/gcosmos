@@ -17,6 +17,8 @@ import (
 )
 
 // Opt is an option for the Engine.
+// The underlying function signature for Opt is subject to change at any time.
+// Only Opt values returned by With* functions may be considered stable values.
 type Opt func(*Engine, *tmstate.StateMachineConfig) error
 
 // WithConsensusStrategy sets the engine's consensus strategy.
@@ -186,6 +188,16 @@ func WithLagStateChannel(ch chan<- tmelink.LagState) Opt {
 		}
 
 		e.mCfg.LagStateOut = ch
+		return nil
+	}
+}
+
+// WithReplayedHeaderRequestChannel sets the channel that the engine
+// reads replayed header requests from.
+// This option is not required, but is strongly recommended.
+func WithReplayedHeaderRequestChannel(ch <-chan tmelink.ReplayedHeaderRequest) Opt {
+	return func(e *Engine, _ *tmstate.StateMachineConfig) error {
+		e.mCfg.ReplayedHeadersIn = ch
 		return nil
 	}
 }
