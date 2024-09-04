@@ -178,7 +178,7 @@ func (d *Driver) handleInitialization(
 
 	// We need a special context for the InitGenesis call,
 	// as the consensus parameters are expected to be a value on the context there.
-	deliverCtx := context.WithValue(ctx, corecontext.InitInfoKey, &consensustypes.MsgUpdateParams{
+	deliverCtx := context.WithValue(ctx, corecontext.CometParamsInitInfoKey, &consensustypes.MsgUpdateParams{
 		Authority: consensusAuthority,
 		Block: &cometapitypes.BlockParams{
 			// Just setting these to something non-zero for now.
