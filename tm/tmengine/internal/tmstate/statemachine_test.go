@@ -2629,6 +2629,116 @@ func TestStateMachine_finalization(t *testing.T) {
 	})
 }
 
+func TestStateMachine_notParticipating(t *testing.T) {
+	t.Parallel()
+
+	// Should still receive enter round request.
+
+	// Should not receive consider/choose request
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	sfx := tmstatetest.NewFixture(ctx, t, 4)
+	signer := tmconsensustest.DeterministicValidatorsEd25519(5)[4].Signer
+	// Set the signer as the next one after the set.
+	sfx.Cfg.Signer = tmconsensus.PassthroughSigner{
+		Signer:          signer,
+		SignatureScheme: sfx.Fx.SignatureScheme,
+	}
+
+	sm := sfx.NewStateMachine()
+	defer sm.Wait()
+	defer cancel()
+
+	// We still expect round entrances to happen.
+	// But the actions channel is nil,
+	// indicating that we will never send an actoin to the mirror layer.
+	re := gtest.ReceiveSoon(t, sfx.RoundEntranceOutCh)
+	require.True(t, signer.PubKey().Equal(re.PubKey))
+	require.Nil(t, re.Actions)
+
+	cStrat := sfx.CStrat
+	_ = cStrat.ExpectEnterRound(1, 0, nil)
+
+	vrv := sfx.EmptyVRV(1, 0)
+	re.Response <- tmeil.RoundEntranceResponse{VRV: vrv} // No PrevBlockHash at initial height.
+
+	// New proposed header arrives.
+	ph := sfx.Fx.NextProposedHeader([]byte("app_data_1"), 1)
+
+	vrv = vrv.Clone()
+	vrv.ProposedHeaders = []tmconsensus.ProposedHeader{ph}
+	vrv.Version++
+
+	gtest.SendSoon(t, sfx.RoundViewInCh, tmeil.StateMachineRoundView{VRV: vrv})
+
+	// We still allow consider and choose calls, even when not participating.
+	// The driver may perform certain optimistic actions
+	// based on its perceived likelihood of a block being committed.
+	considerReq := gtest.ReceiveSoon(t, cStrat.ConsiderProposedBlocksRequests)
+	require.Equal(t, []string{string(ph.Header.Hash)}, considerReq.Reason.NewProposedBlocks)
+
+	// Send a not-ready signal back.
+	gtest.SendSoon(t, considerReq.ChoiceError, tmconsensus.ErrProposedBlockChoiceNotReady)
+
+	// Now the timer elapses and the consensus strategy must choose a proposed block.
+	require.NoError(t, sfx.RoundTimer.ElapseProposalTimer(1, 0))
+	choosePBReq := gtest.ReceiveSoon(t, cStrat.ChooseProposedBlockRequests)
+	require.Equal(t, []tmconsensus.ProposedHeader{ph}, choosePBReq.Input)
+
+	// Now the consensus strategy chooses.
+	// Since we asserted that the actions channel was nil before,
+	// we are indirectly testing that the state machine
+	// is not attempting to send on that channel.
+	gtest.SendSoon(t, choosePBReq.ChoiceHash, string(ph.Header.Hash))
+
+	// Now the network prevotes for the block.
+	vrv = sfx.Fx.UpdateVRVPrevotes(ctx, vrv, map[string][]int{string(ph.Header.Hash): {0, 1, 2, 3}})
+	gtest.SendSoon(t, sfx.RoundViewInCh, tmeil.StateMachineRoundView{VRV: vrv})
+
+	// Then the rest of the precommits arrive.
+	vrv = sfx.Fx.UpdateVRVPrecommits(ctx, vrv, map[string][]int{string(ph.Header.Hash): {0, 1, 2, 3}})
+	gtest.SendSoon(t, sfx.RoundViewInCh, tmeil.StateMachineRoundView{VRV: vrv})
+
+	// This causes a finalize block request.
+	finReq := gtest.ReceiveSoon(t, sfx.FinalizeBlockRequests)
+
+	require.Equal(t, ph.Header, finReq.Header)
+	require.Zero(t, finReq.Round)
+
+	// There is no outstanding send on the decide precommit requests,
+	// as we are not participating.
+	// gtest.NotSenNotSending(t, cStrat.DecidePrecommitRequests)
+
+	// Since we are finalizing, the commit wait timer is underway.
+	sfx.RoundTimer.RequireActiveCommitWaitTimer(t, 1, 0)
+
+	// The driver responds.
+	finReq.Resp <- tmdriver.FinalizeBlockResponse{
+		Height: 1, Round: 0,
+		BlockHash: ph.Header.Hash,
+
+		Validators: sfx.Fx.Vals(),
+
+		AppStateHash: []byte("app_state_1"),
+	}
+
+	// We don't have a synchronization point for the finalization being stored.
+	// So, if we elapse the commit wait timer...
+	require.NoError(t, sfx.RoundTimer.ElapseCommitWaitTimer(1, 0))
+
+	// Then the state machine will have completed the round,
+	// and it will submit a new action set to the mirror.
+	re2 := gtest.ReceiveSoon(t, sfx.RoundEntranceOutCh)
+	require.Equal(t, uint64(2), re2.H)
+	require.Zero(t, re2.R)
+	require.True(t, signer.PubKey().Equal(re2.PubKey))
+
+	// And the actions channel is still nil on the next round entrance too.
+	require.Nil(t, re2.Actions)
+}
+
 func TestStateMachine_followerMode(t *testing.T) {
 	t.Run("happy path at initial height", func(t *testing.T) {
 		t.Parallel()

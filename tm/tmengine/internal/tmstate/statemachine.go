@@ -433,8 +433,17 @@ func (m *StateMachine) sendInitialActionSet(ctx context.Context) (
 
 		Response: make(chan tmeil.RoundEntranceResponse, 1),
 	}
+	// We always send the pubkey if we have one.
 	if m.signer != nil {
 		initRE.PubKey = m.signer.PubKey()
+	}
+
+	// And we only populate the actions channel if we are participating,
+	// i.e. we are a validator in the current set.
+	// Although we set the rest of the rlc values later,
+	// we need the current validator set now to determine participation.
+	rlc.CurValSet = m.genesis.ValidatorSet
+	if m.isParticipating(&rlc) {
 		initRE.Actions = make(chan tmeil.StateMachineRoundAction, 3)
 	}
 	rer, ok = gchan.ReqResp(
@@ -467,8 +476,6 @@ func (m *StateMachine) sendInitialActionSet(ctx context.Context) (
 		// Also assuming it's safe to take the reference of the genesis validators.
 		rlc.PrevFinNextValSet = m.genesis.ValidatorSet
 		rlc.PrevFinAppStateHash = string(m.genesis.CurrentAppStateHash)
-
-		rlc.CurValSet = m.genesis.ValidatorSet
 
 		// For now, set the previous block hash as the genesis pseudo-block's hash.
 		// But maybe it would be better if the mirror generated this
@@ -932,7 +939,7 @@ func (m *StateMachine) recordPrevote(
 	rlc *tsi.RoundLifecycle,
 	targetHash string,
 ) (ok bool) {
-	if m.signer != nil {
+	if m.isParticipating(rlc) {
 		// Record to the action store first.
 		h, r := rlc.H, rlc.R
 		vt := tmconsensus.VoteTarget{
@@ -1024,7 +1031,7 @@ func (m *StateMachine) recordPrecommit(
 	rlc *tsi.RoundLifecycle,
 	targetHash string,
 ) (ok bool) {
-	if m.signer == nil {
+	if !m.isParticipating(rlc) {
 		return true
 	}
 
@@ -1470,6 +1477,8 @@ func (m *StateMachine) advance(
 	// but we might find out otherwise when we receive the round entrance response.
 	if m.signer != nil {
 		re.PubKey = m.signer.PubKey()
+	}
+	if m.isParticipating(rlc) {
 		re.Actions = make(chan tmeil.StateMachineRoundAction, 3)
 	}
 
@@ -1598,4 +1607,20 @@ func (m *StateMachine) rejectMismatchedProposedHeaders(
 	}
 
 	return slices.Clip(out)
+}
+
+// isParticipating reports whether m has a signer that is part of the current validator set
+// according to rlc.
+func (m *StateMachine) isParticipating(rlc *tsi.RoundLifecycle) bool {
+	if m.signer == nil {
+		// Can't participate if we can't sign.
+		m.log.Info("Not participating; signer==nil")
+		return false
+	}
+
+	key := m.signer.PubKey()
+	return slices.ContainsFunc(rlc.CurValSet.Validators, func(v tmconsensus.Validator) bool {
+		eq := v.PubKey.Equal(key)
+		return eq
+	})
 }
