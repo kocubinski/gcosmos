@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -63,6 +64,10 @@ type Chain struct {
 	RootCmds []CmdEnv
 
 	FixedAddresses []string
+
+	// Path to a canonical genesis.
+	// This file must be treated as read-only.
+	CanonicalGenesisPath string
 }
 
 func ConfigureChain(t *testing.T, ctx context.Context, cfg ChainConfig) Chain {
@@ -187,7 +192,9 @@ func ConfigureChain(t *testing.T, ctx context.Context, cfg ChainConfig) Chain {
 		writers[i-1] = f
 	}
 
-	origGF, err := os.Open(filepath.Join(rootCmds[0].homeDir, "config", "genesis.json"))
+	origGenesisPath := filepath.Join(rootCmds[0].homeDir, "config", "genesis.json")
+
+	origGF, err := os.Open(origGenesisPath)
 	require.NoError(t, err)
 	defer origGF.Close()
 
@@ -207,22 +214,33 @@ func ConfigureChain(t *testing.T, ctx context.Context, cfg ChainConfig) Chain {
 		RootCmds: rootCmds,
 
 		FixedAddresses: fixedAddresses,
+
+		CanonicalGenesisPath: origGenesisPath,
 	}
 }
 
 type ChainAddresses struct {
 	HTTP []string
 	// TODO: this can also include GRPC when we need it.
+
+	// File containing the address of the seed node.
+	// Only populated for chains with multiple validators.
+	P2PSeedPath string
 }
 
 func (c Chain) Start(t *testing.T, ctx context.Context, nVals int) ChainAddresses {
 	t.Helper()
+
+	ca := ChainAddresses{
+		HTTP: make([]string, nVals),
+	}
 
 	addrDir := t.TempDir()
 	var seedAddrs string
 	if nVals > 1 {
 		// We only need to start a seed node when there are multiple validators.
 		p2pSeedPath := filepath.Join(addrDir, "p2p.seed.txt")
+		ca.P2PSeedPath = p2pSeedPath
 
 		seedDone := make(chan struct{})
 		go func() {
@@ -292,10 +310,6 @@ func (c Chain) Start(t *testing.T, ctx context.Context, nVals int) ChainAddresse
 	}
 	t.Cleanup(wg.Wait)
 
-	ca := ChainAddresses{
-		HTTP: make([]string, nVals),
-	}
-
 	// Now all the goroutines to start the servers should be running.
 	// Gather their reported HTTP addresses.
 	for i := range nVals {
@@ -331,6 +345,76 @@ func (c Chain) Start(t *testing.T, ctx context.Context, nVals int) ChainAddresse
 	}
 
 	return ca
+}
+
+var lateNodeCounter int32
+
+func AddLateNode(
+	t *testing.T,
+	ctx context.Context,
+	chainID string,
+	canonicalGenesisPath string,
+	seedPath string,
+) (httpAddrFile string) {
+	t.Helper()
+
+	if chainID == "" {
+		panic("test setup issue: chainID must not be empty")
+	}
+
+	lateIdx := atomic.AddInt32(&lateNodeCounter, 1)
+	log := gtest.NewLogger(t).With("late_val_idx", lateIdx)
+
+	e := NewRootCmd(t, log)
+	valName := fmt.Sprintf("late_val_%d", lateIdx)
+
+	e.Run("init", valName, "--chain-id", chainID).NoError(t)
+
+	src, err := os.Open(canonicalGenesisPath)
+	require.NoError(t, err)
+	defer src.Close()
+
+	dst, err := os.Create(filepath.Join(e.homeDir, "config", "genesis.json"))
+	require.NoError(t, err)
+	defer dst.Close()
+
+	_, err = io.Copy(dst, src)
+	require.NoError(t, err)
+	_ = src.Close()
+	_ = dst.Close()
+
+	// Have to modify the config to not bind to 9090,
+	// just like in ConfigureChain.
+	e.Run("config", "set", "app", "grpc.address", "localhost:0", "--skip-validate").NoError(t)
+
+	// Assuming it's okay to place junk files in the chain home.
+	httpAddrFile = filepath.Join(e.homeDir, "http_addr.txt")
+
+	seedAddrs, err := os.ReadFile(seedPath)
+	require.NoError(t, err)
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+
+		startCmd := []string{"start"}
+		if !gci.RunCometInsteadOfGordian {
+			startCmd = append(
+				startCmd,
+				"--g-http-addr", "127.0.0.1:0",
+				"--g-http-addr-file", httpAddrFile,
+
+				"--g-seed-addrs", string(bytes.TrimSuffix(seedAddrs, []byte("\n"))),
+			)
+		}
+
+		_ = e.RunC(ctx, startCmd...)
+	}()
+	t.Cleanup(func() {
+		<-done
+	})
+
+	return httpAddrFile
 }
 
 func NewRootCmd(

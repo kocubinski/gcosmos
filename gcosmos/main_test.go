@@ -81,8 +81,9 @@ func TestRootCmd_startWithGordian_multipleValidators(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	chainID := t.Name()
 	c := ConfigureChain(t, ctx, ChainConfig{
-		ID:    t.Name(),
+		ID:    chainID,
 		NVals: totalVals,
 
 		// Due to an outstanding and undocumented SDK bug,
@@ -104,7 +105,8 @@ func TestRootCmd_startWithGordian_multipleValidators(t *testing.T) {
 		},
 	})
 
-	httpAddrs := c.Start(t, ctx, interestingVals).HTTP
+	ca := c.Start(t, ctx, interestingVals)
+	httpAddrs := ca.HTTP
 
 	// Each of the interesting validators must report a height beyond the first few blocks.
 	for i := range interestingVals {
@@ -140,6 +142,18 @@ func TestRootCmd_startWithGordian_multipleValidators(t *testing.T) {
 
 		require.GreaterOrEqualf(t, maxHeight, uint(4), "checking max block height on validator at index %d", i)
 	}
+
+	t.Run("adding a new validator catches up", func(t *testing.T) {
+		t.Skip("not ready yet")
+
+		if gci.RunCometInsteadOfGordian {
+			t.Skip("skipping due to not testing Gordian")
+		}
+		defer cancel()
+
+		lateHTTPAddr := AddLateNode(t, ctx, chainID, c.CanonicalGenesisPath, ca.P2PSeedPath)
+		_ = lateHTTPAddr
+	})
 }
 
 func TestTx_single_basicSend(t *testing.T) {
