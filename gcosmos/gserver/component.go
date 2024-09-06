@@ -20,6 +20,8 @@ import (
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/codec"
 	"github.com/libp2p/go-libp2p"
+	libp2pevent "github.com/libp2p/go-libp2p/core/event"
+	libp2pnetwork "github.com/libp2p/go-libp2p/core/network"
 	libp2ppeer "github.com/libp2p/go-libp2p/core/peer"
 	"github.com/rollchains/gordian/gcosmos/gserver/internal/ggrpc"
 	"github.com/rollchains/gordian/gcosmos/gserver/internal/gp2papi"
@@ -333,6 +335,46 @@ func (c *Component) Start(ctx context.Context) error {
 		c.log.With("d_sys", "block_retriever"), h.Libp2pHost(), c.txc,
 	)
 
+	const enableHeaderSyncClient = false // TODO: enable
+	var rhCh chan tmelink.ReplayedHeaderRequest
+	var headerSyncClient *gp2papi.HeaderSyncClient
+	if enableHeaderSyncClient {
+		rhCh = make(chan tmelink.ReplayedHeaderRequest)
+		headerSyncClient = gp2papi.NewHeaderSyncClient(
+			ctx,
+			c.log.With("d_sys", "header_sync_client"),
+			h.Libp2pHost(),
+			codec,
+			rhCh,
+		)
+
+		sub, err := h.Libp2pHost().EventBus().Subscribe(new(libp2pevent.EvtPeerConnectednessChanged))
+		if err != nil {
+			return fmt.Errorf("failed to subscribe to libp2p host's peer connectedness events: %w", err)
+		}
+		go func() {
+			defer sub.Close()
+
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case e := <-sub.Out():
+					switch e := e.(type) {
+					case libp2pevent.EvtPeerConnectednessChanged:
+						if e.Connectedness == libp2pnetwork.Connected {
+							headerSyncClient.AddPeer(ctx, e.Peer)
+						} else if e.Connectedness == libp2pnetwork.NotConnected {
+							headerSyncClient.RemovePeer(ctx, e.Peer)
+						}
+					default:
+						c.log.Warn("Unknown peer connectedness event type", "type", fmt.Sprintf("%T", e))
+					}
+				}
+			}
+		}()
+	}
+
 	const nWorkers = 4 // TODO: don't hardcode this.
 	pool := gsi.NewDataPool(
 		ctx,
@@ -364,6 +406,8 @@ func (c *Component) Start(ctx context.Context) error {
 			TxBuffer: txBuf,
 
 			DataPool: pool,
+
+			HeaderSyncClient: headerSyncClient,
 		},
 	)
 	if err != nil {
@@ -382,6 +426,7 @@ func (c *Component) Start(ctx context.Context) error {
 		opts,
 		tmengine.WithBlockFinalizationChannel(blockFinCh),
 		tmengine.WithLagStateChannel(lagStateCh),
+		tmengine.WithReplayedHeaderRequestChannel(rhCh),
 	)
 
 	// We needed the driver before we could make the consensus strategy.

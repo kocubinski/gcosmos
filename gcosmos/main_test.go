@@ -149,10 +149,60 @@ func TestRootCmd_startWithGordian_multipleValidators(t *testing.T) {
 		if gci.RunCometInsteadOfGordian {
 			t.Skip("skipping due to not testing Gordian")
 		}
+
+		localCtx, cancel := context.WithCancel(ctx)
 		defer cancel()
 
-		lateHTTPAddr := AddLateNode(t, ctx, chainID, c.CanonicalGenesisPath, ca.P2PSeedPath)
-		_ = lateHTTPAddr
+		lateHTTPAddrFile := AddLateNode(t, localCtx, chainID, c.CanonicalGenesisPath, ca.P2PSeedPath)
+		var httpAddr string
+
+		deadline := time.Now().Add(10 * time.Second)
+		for time.Now().Before(deadline) {
+			b, err := os.ReadFile(lateHTTPAddrFile)
+			if err != nil {
+				time.Sleep(100 * time.Millisecond)
+				continue
+			}
+
+			s, ok := strings.CutSuffix(string(b), "\n")
+			if !ok {
+				time.Sleep(100 * time.Millisecond)
+				continue
+			}
+
+			httpAddr = s
+			break
+		}
+
+		if httpAddr == "" {
+			t.Fatal("did not read http address from file before deadline")
+		}
+
+		u := "http://" + httpAddr + "/blocks/watermark"
+		// TODO: we might need to delay until we get a non-error HTTP response.
+
+		deadline = time.Now().Add(10 * time.Second)
+		var maxHeight uint
+		for time.Now().Before(deadline) {
+			resp, err := http.Get(u)
+			require.NoError(t, err)
+			require.Equal(t, http.StatusOK, resp.StatusCode)
+
+			var m map[string]uint
+			require.NoError(t, json.NewDecoder(resp.Body).Decode(&m))
+			resp.Body.Close()
+
+			maxHeight = m["VotingHeight"]
+			if maxHeight < 4 {
+				time.Sleep(100 * time.Millisecond)
+				continue
+			}
+
+			// We got at least to height 4, so quit the loop.
+			break
+		}
+
+		require.GreaterOrEqual(t, maxHeight, uint(4), "late-started server did not reach minimum height")
 	})
 }
 

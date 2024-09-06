@@ -3,6 +3,7 @@ package gp2papi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"strconv"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	libp2pnetwork "github.com/libp2p/go-libp2p/core/network"
 	libp2pprotocol "github.com/libp2p/go-libp2p/core/protocol"
 	"github.com/rollchains/gordian/tm/tmcodec"
+	"github.com/rollchains/gordian/tm/tmconsensus"
 	"github.com/rollchains/gordian/tm/tmstore"
 )
 
@@ -132,9 +134,14 @@ func (h *DataHost) handleCommittedHeaderStream(s libp2pnetwork.Stream) {
 	if err != nil {
 		// TODO: There are probably certain cases we do want to expose.
 		// For now, just mask it.
-		_ = json.NewEncoder(s).Encode(JSONResult{
-			Err: "failed to load header at height",
-		})
+		var res JSONResult
+		if errors.As(err, new(tmconsensus.HeightUnknownError)) {
+			// Special string that the client recognizes.
+			res.Err = "height unknown"
+		} else {
+			res.Err = "failed to load header at height"
+		}
+		_ = json.NewEncoder(s).Encode(res)
 		return
 	}
 

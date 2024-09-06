@@ -24,6 +24,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/server"
 	genutiltypes "github.com/cosmos/cosmos-sdk/x/genutil/types"
 	"github.com/rollchains/gordian/gcosmos/gccodec"
+	"github.com/rollchains/gordian/gcosmos/gserver/internal/gp2papi"
 	"github.com/rollchains/gordian/gcosmos/gserver/internal/gsbd"
 	"github.com/rollchains/gordian/gcrypto"
 	"github.com/rollchains/gordian/gdriver/gdatapool"
@@ -51,6 +52,8 @@ type DriverConfig struct {
 	TxBuffer *SDKTxBuf
 
 	DataPool *gdatapool.Pool[[]transaction.Tx]
+
+	HeaderSyncClient *gp2papi.HeaderSyncClient
 }
 
 type Driver struct {
@@ -61,6 +64,8 @@ type Driver struct {
 	txBuf *SDKTxBuf
 
 	pool *gdatapool.Pool[[]transaction.Tx]
+
+	hsClient *gp2papi.HeaderSyncClient
 
 	am       *appmanager.AppManager[transaction.Tx]
 	sdkStore *root.Store
@@ -95,6 +100,8 @@ func NewDriver(
 		txBuf: cfg.TxBuffer,
 
 		pool: cfg.DataPool,
+
+		hsClient: cfg.HeaderSyncClient,
 
 		finalizeBlockRequests: cfg.FinalizeBlockRequests,
 		lagStateUpdates:       cfg.LagStateUpdates,
@@ -287,13 +294,9 @@ func (d *Driver) mainLoop(
 			}
 
 		case ls := <-d.lagStateUpdates:
-			// TODO: begin fetching blocks for replay
-			// in response to certain lag state updates.
-			d.log.Info(
-				"Received lag state update",
-				"new_lag_status", ls.Status,
-				"committing_height", ls.CommittingHeight,
-			)
+			if !d.handleLagStateUpdate(ctx, ls) {
+				return
+			}
 		}
 	}
 }
@@ -529,6 +532,34 @@ func (d *Driver) handleFinalization(ctx context.Context, req tmdriver.FinalizeBl
 	) {
 		// Context was cancelled and we already logged, so we're done.
 		return false
+	}
+
+	return true
+}
+
+func (d *Driver) handleLagStateUpdate(ctx context.Context, ls tmelink.LagState) bool {
+	defer trace.StartRegion(ctx, "handleLagStateUpdate").End()
+
+	// TODO: remove this nil check once the header sync client is fully integrated.
+	if d.hsClient == nil {
+		return true
+	}
+
+	switch ls.Status {
+	case tmelink.LagStatusInitializing,
+		tmelink.LagStatusAssumedBehind,
+		tmelink.LagStatusKnownMissing:
+		if !d.hsClient.ResumeFetching(ctx, ls.CommittingHeight+1, ls.NeedHeight) {
+			return false
+		}
+	case tmelink.LagStatusUpToDate:
+		if !d.hsClient.PauseFetching(ctx) {
+			return false
+		}
+	default:
+		panic(fmt.Errorf(
+			"BUG: received unknown lag status %q", ls.Status,
+		))
 	}
 
 	return true

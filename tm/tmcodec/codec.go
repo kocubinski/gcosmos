@@ -4,7 +4,6 @@ import (
 	"github.com/rollchains/gordian/tm/tmconsensus"
 )
 
-// Marshal serializes tmconsensus values to byte slices.
 type Marshaler interface {
 	MarshalConsensusMessage(ConsensusMessage) ([]byte, error)
 
@@ -16,7 +15,6 @@ type Marshaler interface {
 	MarshalPrecommitProof(tmconsensus.PrecommitSparseProof) ([]byte, error)
 }
 
-// Marshal deserializes byte slices into tmconsensus values.
 type Unmarshaler interface {
 	UnmarshalConsensusMessage([]byte, *ConsensusMessage) error
 
