@@ -385,36 +385,42 @@ func TestMirror_HandleProposedHeader(t *testing.T) {
 		require.Equal(t, []tmconsensus.ProposedHeader{ph1}, gso.Voting.ProposedHeaders)
 
 		// Present in the network view inspection.
-		var vnv tmconsensus.VersionedRoundView
-		require.NoError(t, m.VotingView(ctx, &vnv))
+		var vrv tmconsensus.VersionedRoundView
+		require.NoError(t, m.VotingView(ctx, &vrv))
 
 		// Slightly difficult to assert the nil-only vote proofs, so separately assert them
 		// and then remove them from the large require.Equal call.
-		require.Len(t, vnv.PrevoteProofs, 1)
-		_, ok := vnv.PrevoteProofs[""]
+		require.Len(t, vrv.PrevoteProofs, 1)
+		_, ok := vrv.PrevoteProofs[""]
 		require.True(t, ok)
-		vnv.PrevoteProofs = nil
+		vrv.PrevoteProofs = nil
 
-		require.Len(t, vnv.PrecommitProofs, 1)
-		_, ok = vnv.PrecommitProofs[""]
+		require.Len(t, vrv.PrecommitProofs, 1)
+		_, ok = vrv.PrecommitProofs[""]
 		require.True(t, ok)
-		vnv.PrecommitProofs = nil
+		vrv.PrecommitProofs = nil
 
 		vs := tmconsensus.NewVoteSummary()
 		vs.SetAvailablePower(mfx.Fx.Vals())
 
 		require.Equal(t, tmconsensus.VersionedRoundView{
 			RoundView: tmconsensus.RoundView{
-				Height:       1,
-				Round:        0,
+				Height: 1,
+				Round:  0,
+
 				ValidatorSet: mfx.Fx.ValSet(),
+
+				PrevCommitProof: tmconsensus.CommitProof{
+					// At initial height, needs an empty but non-nil proof.
+					Proofs: map[string][]gcrypto.SparseSignature{},
+				},
 
 				ProposedHeaders: []tmconsensus.ProposedHeader{ph1},
 
 				VoteSummary: vs,
 			},
 			Version: 2, // Initially 1, then add a prevote (2).
-		}, vnv)
+		}, vrv)
 
 		// And present in the round store.
 		phs, _, _, err := mfx.Cfg.RoundStore.LoadRoundState(ctx, 1, 0)
@@ -710,6 +716,8 @@ func TestMirror_HandlePrevoteProofs(t *testing.T) {
 				Round:        0,
 				ValidatorSet: mfx.Fx.ValSet(),
 
+				PrevCommitProof: tmconsensus.CommitProof{Proofs: map[string][]gcrypto.SparseSignature{}},
+
 				ProposedHeaders: []tmconsensus.ProposedHeader{ph1},
 
 				PrevoteProofs: fullPrevoteProofMap,
@@ -791,6 +799,8 @@ func TestMirror_HandlePrevoteProofs(t *testing.T) {
 			Height:       1,
 			Round:        0,
 			ValidatorSet: mfx.Fx.ValSet(),
+
+			PrevCommitProof: tmconsensus.CommitProof{Proofs: map[string][]gcrypto.SparseSignature{}},
 
 			ProposedHeaders: []tmconsensus.ProposedHeader{ph1},
 
@@ -874,6 +884,8 @@ func TestMirror_HandlePrecommitProofs(t *testing.T) {
 				Height:       1,
 				Round:        0,
 				ValidatorSet: mfx.Fx.ValSet(),
+
+				PrevCommitProof: tmconsensus.CommitProof{Proofs: map[string][]gcrypto.SparseSignature{}},
 
 				ProposedHeaders: []tmconsensus.ProposedHeader{ph1},
 

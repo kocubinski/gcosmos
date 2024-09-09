@@ -20,6 +20,8 @@ type RoundView struct {
 
 	ValidatorSet ValidatorSet
 
+	PrevCommitProof CommitProof
+
 	ProposedHeaders []ProposedHeader
 
 	PrevoteProofs, PrecommitProofs map[string]gcrypto.CommonMessageSignatureProof
@@ -52,6 +54,8 @@ func (v *RoundView) Clone() RoundView {
 
 		ValidatorSet: v.ValidatorSet,
 
+		PrevCommitProof: v.PrevCommitProof.Clone(),
+
 		ProposedHeaders: slices.Clone(v.ProposedHeaders),
 
 		PrevoteProofs:   prevoteClone,
@@ -66,6 +70,10 @@ func (v *RoundView) Clone() RoundView {
 // This is helpful for reusing RoundView values to avoid unnecessary memory allocations.
 func (v *RoundView) Reset() {
 	v.Height = 0
+
+	v.PrevCommitProof.Round = 0
+	v.PrevCommitProof.PubKeyHash = ""
+	clear(v.PrevCommitProof.Proofs)
 
 	v.ValidatorSet = ValidatorSet{}
 

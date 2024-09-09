@@ -20,8 +20,9 @@ const (
 	RVPrevotes
 	RVPrecommits
 	RVVoteSummary
+	RVPrevCommitProof
 
-	RVAll = (RVValidators | RVProposedBlocks | RVPrevotes | RVPrecommits | RVVoteSummary)
+	RVAll = (RVValidators | RVProposedBlocks | RVPrevotes | RVPrecommits | RVVoteSummary | RVPrevCommitProof)
 )
 
 // ViewLookupRequest is a request to copy a view from the kernel,

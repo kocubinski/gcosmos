@@ -1,6 +1,10 @@
 package tmconsensus
 
-import "github.com/rollchains/gordian/gcrypto"
+import (
+	"bytes"
+
+	"github.com/rollchains/gordian/gcrypto"
+)
 
 // Header is the logical representation of a block header.
 // The header may go through transformations,
@@ -65,6 +69,29 @@ type CommitProof struct {
 
 	// Keyed by block hash, or an empty string for nil block.
 	Proofs map[string][]gcrypto.SparseSignature
+}
+
+// Clone returns a new copy of CommitProof with identical values
+// but without any references to p.
+func (p CommitProof) Clone() CommitProof {
+	cloneProofs := make(map[string][]gcrypto.SparseSignature, len(p.Proofs))
+	for hash, sigs := range p.Proofs {
+		cloneSigs := make([]gcrypto.SparseSignature, len(sigs))
+		for i, sig := range sigs {
+			cloneSigs[i] = gcrypto.SparseSignature{
+				KeyID: bytes.Clone(sig.KeyID),
+				Sig:   bytes.Clone(sig.Sig),
+			}
+		}
+
+		cloneProofs[hash] = cloneSigs
+	}
+
+	return CommitProof{
+		Round:      p.Round,
+		PubKeyHash: p.PubKeyHash,
+		Proofs:     cloneProofs,
+	}
 }
 
 // CommittedHeader is a header and the proof that it was committed.

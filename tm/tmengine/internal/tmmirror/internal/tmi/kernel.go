@@ -128,6 +128,44 @@ func NewKernel(ctx context.Context, log *slog.Logger, cfg KernelConfig) (*Kernel
 		}
 	}
 
+	// Load the round state for the committing round,
+	// in order to populate the initial previous commit proof.
+	var committingProof tmconsensus.CommitProof
+	_, _, precommits, err := cfg.RoundStore.LoadRoundState(ctx, nhr.CommittingHeight, nhr.CommittingRound)
+	if err == nil {
+		committingProof = tmconsensus.CommitProof{
+			Round:  nhr.CommittingRound,
+			Proofs: make(map[string][]gcrypto.SparseSignature, len(precommits)),
+		}
+
+		isFirst := true
+		for hash, proof := range precommits {
+			sparse := proof.AsSparse()
+			committingProof.Proofs[hash] = sparse.Signatures
+			if isFirst {
+				committingProof.PubKeyHash = sparse.PubKeyHash
+				isFirst = false
+			} else {
+				if sparse.PubKeyHash != committingProof.PubKeyHash {
+					panic(fmt.Errorf(
+						"CORRUPT STATE IN ROUND STORE: differing pub key hashes %x and %x in commit proofs",
+						sparse.PubKeyHash, committingProof.PubKeyHash,
+					))
+				}
+			}
+		}
+	} else if errors.As(err, new(tmconsensus.RoundUnknownError)) {
+		// Assuming that means we are voting at initial height.
+		committingProof = tmconsensus.CommitProof{
+			// Proofs must be non-nil in the special case of initial height.
+			Proofs: map[string][]gcrypto.SparseSignature{},
+		}
+	} else {
+		return nil, fmt.Errorf(
+			"cannot initialize mirror kernel: failed to load committing round state: %w", err,
+		)
+	}
+
 	initialValSet, err := tmconsensus.NewValidatorSet(cfg.InitialValidators, cfg.HashScheme)
 	if err != nil {
 		return nil, fmt.Errorf(
@@ -344,8 +382,9 @@ func (k *Kernel) mainLoop(ctx context.Context, s *kState, wd *gwatchdog.Watchdog
 }
 
 // addPH adds a proposed header to the current round state.
-// This is called both from a direct add proposed header request (from the Mirror layer)
-// and from an out-of-band fetched proposed header's arrival.
+// This is called from a direct add proposed header request (from the Mirror layer),
+// from an out-of-band fetched proposed header's arrival,
+// and from handling the state machine action of proposing a header.
 func (k *Kernel) addPH(ctx context.Context, s *kState, ph tmconsensus.ProposedHeader) {
 	defer trace.StartRegion(ctx, "addPH").End()
 
@@ -1103,6 +1142,28 @@ func (k *Kernel) copySnapshotView(src tmconsensus.VersionedRoundView, dst *tmcon
 		dst.ProposedHeaders = append(dst.ProposedHeaders[:0], src.ProposedHeaders...)
 	} else {
 		dst.ProposedHeaders = dst.ProposedHeaders[:0]
+	}
+
+	if (fields & RVPrevCommitProof) > 0 {
+		dst.PrevCommitProof.Round = src.PrevCommitProof.Round
+		dst.PrevCommitProof.PubKeyHash = src.PrevCommitProof.PubKeyHash
+		if dst.PrevCommitProof.Proofs == nil {
+			dst.PrevCommitProof.Proofs = make(map[string][]gcrypto.SparseSignature, len(src.PrevCommitProof.Proofs))
+		} else {
+			// Ensure we don't merge with existing values.
+			clear(dst.PrevCommitProof.Proofs)
+		}
+
+		for hash, sigs := range src.PrevCommitProof.Proofs {
+			clonedSigs := make([]gcrypto.SparseSignature, len(sigs))
+			for i, sig := range sigs {
+				clonedSigs[i] = gcrypto.SparseSignature{
+					KeyID: bytes.Clone(sig.KeyID),
+					Sig:   bytes.Clone(sig.Sig),
+				}
+			}
+			dst.PrevCommitProof.Proofs[hash] = clonedSigs
+		}
 	}
 
 	// Clear the prevote maps regardless of whether we are populating them.
