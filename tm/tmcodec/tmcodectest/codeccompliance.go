@@ -37,39 +37,94 @@ func TestMarshalCodecCompliance(t *testing.T, mcf MarshalCodecFactory) {
 
 					const curVals = 4
 					fx := tmconsensustest.NewStandardFixture(curVals)
-					ph := fx.NextProposedHeader([]byte("app_data"), 0)
+					getPH := func() (tmconsensus.ProposedHeader, tmconsensus.Header) {
+						ph := fx.NextProposedHeader([]byte("app_data"), 0)
 
-					// Add a validator to the next validator set,
-					// to ensure we are correctly serializing and deserializing that set
-					// separately from the current validators.
-					var err error
-					ph.Header.NextValidatorSet, err = tmconsensus.NewValidatorSet(
-						tmconsensustest.DeterministicValidatorsEd25519(curVals+1).Vals(),
-						fx.HashScheme,
-					)
-					require.NoError(t, err)
-					fx.RecalculateHash(&ph.Header)
+						// Add a validator to the next validator set,
+						// to ensure we are correctly serializing and deserializing that set
+						// separately from the current validators.
+						var err error
+						ph.Header.NextValidatorSet, err = tmconsensus.NewValidatorSet(
+							tmconsensustest.DeterministicValidatorsEd25519(curVals+1).Vals(),
+							fx.HashScheme,
+						)
+						require.NoError(t, err)
+						fx.RecalculateHash(&ph.Header)
 
-					fx.SignProposal(ctx, &ph, 0)
-
-					prevHeader := ph.Header
-
-					if !useInitialHeight {
-						vt := tmconsensus.VoteTarget{Height: 1, Round: 0, BlockHash: string(ph.Header.Hash)}
-						fx.CommitBlock(ph.Header, []byte("app_hash"), 0, map[string]gcrypto.CommonMessageSignatureProof{
-							string(ph.Header.Hash): fx.PrecommitSignatureProof(ctx, vt, nil, []int{0, 1, 2, 3}),
-						})
-
-						ph = fx.NextProposedHeader([]byte("app_data_2"), 0)
 						fx.SignProposal(ctx, &ph, 0)
+
+						prevHeader := ph.Header
+
+						if !useInitialHeight {
+							vt := tmconsensus.VoteTarget{Height: 1, Round: 0, BlockHash: string(ph.Header.Hash)}
+							fx.CommitBlock(ph.Header, []byte("app_hash"), 0, map[string]gcrypto.CommonMessageSignatureProof{
+								string(ph.Header.Hash): fx.PrecommitSignatureProof(ctx, vt, nil, []int{0, 1, 2, 3}),
+							})
+
+							ph = fx.NextProposedHeader([]byte("app_data_2"), 0)
+							fx.SignProposal(ctx, &ph, 0)
+						}
+						return ph, prevHeader
 					}
 
 					mc := mcf()
 
-					t.Run("proposed header", func(t *testing.T) {
+					t.Run("full proposed header", func(t *testing.T) {
 						for _, ac := range tmconsensustest.AnnotationCombinations() {
 							ac := ac
 							t.Run(ac.Name, func(t *testing.T) {
+								ph, prevHeader := getPH()
+								if !useInitialHeight {
+									activePrecommit := fx.PrecommitSignatureProof(
+										ctx,
+										tmconsensus.VoteTarget{Height: 1, Round: 0, BlockHash: string(prevHeader.Hash)},
+										nil,
+										[]int{0, 1, 2},
+									)
+									nilPrecommit := fx.PrecommitSignatureProof(
+										ctx,
+										tmconsensus.VoteTarget{Height: 1, Round: 0},
+										nil,
+										[]int{3},
+									)
+
+									proof := tmconsensus.CommitProof{
+										Round: 0,
+
+										PubKeyHash: nilPrecommit.AsSparse().PubKeyHash,
+
+										Proofs: map[string][]gcrypto.SparseSignature{
+											string(prevHeader.Hash): activePrecommit.AsSparse().Signatures,
+											"":                      nilPrecommit.AsSparse().Signatures,
+										},
+									}
+									ph.Header.PrevCommitProof = proof
+
+									ph.Annotations = ac.Annotations
+								}
+
+								b, err := mc.MarshalProposedHeader(ph)
+								require.NoError(t, err)
+
+								var got tmconsensus.ProposedHeader
+								require.NoError(t, mc.UnmarshalProposedHeader(b, &got))
+
+								require.Equal(t, ph, got)
+							})
+						}
+					})
+
+					t.Run("replayed proposed header", func(t *testing.T) {
+						for _, ac := range tmconsensustest.AnnotationCombinations() {
+							ac := ac
+							t.Run(ac.Name, func(t *testing.T) {
+								ph, prevHeader := getPH()
+
+								// Replayed proposed headers are missing these two fields,
+								// so we need to ensure they are still marshaled correctly.
+								ph.ProposerPubKey = nil
+								ph.Signature = nil
+
 								if !useInitialHeight {
 									activePrecommit := fx.PrecommitSignatureProof(
 										ctx,
@@ -111,6 +166,7 @@ func TestMarshalCodecCompliance(t *testing.T, mcf MarshalCodecFactory) {
 					})
 
 					t.Run("plain header", func(t *testing.T) {
+						ph, _ := getPH()
 						b, err := mc.MarshalHeader(ph.Header)
 						require.NoError(t, err)
 
@@ -121,6 +177,7 @@ func TestMarshalCodecCompliance(t *testing.T, mcf MarshalCodecFactory) {
 					})
 
 					t.Run("plain header with annotations", func(t *testing.T) {
+						ph, _ := getPH()
 						// Just move the proposed header's annotations over the plain header's.
 						ph.Header.Annotations, ph.Annotations = ph.Annotations, tmconsensus.Annotations{}
 
@@ -134,6 +191,8 @@ func TestMarshalCodecCompliance(t *testing.T, mcf MarshalCodecFactory) {
 					})
 
 					t.Run("committed header", func(t *testing.T) {
+						ph, _ := getPH()
+
 						fx := tmconsensustest.NewStandardFixture(curVals)
 						voteMap := map[string][]int{
 							string(ph.Header.Hash): {0, 1, 2},
@@ -146,7 +205,7 @@ func TestMarshalCodecCompliance(t *testing.T, mcf MarshalCodecFactory) {
 
 						committedHeader := tmconsensus.CommittedHeader{
 							Header: ph.Header,
-							Proof: nextPH.Header.PrevCommitProof,
+							Proof:  nextPH.Header.PrevCommitProof,
 						}
 
 						b, err := mc.MarshalCommittedHeader(committedHeader)

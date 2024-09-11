@@ -31,11 +31,14 @@ func (jph jsonProposedHeader) ToProposedHeader(
 		)
 	}
 
-	pubKey, err := reg.Unmarshal(jph.ProposerPubKey)
-	if err != nil {
-		return tmconsensus.ProposedHeader{}, fmt.Errorf(
-			"failed to unmarshal proposer pubkey: %w", err,
-		)
+	var pubKey gcrypto.PubKey
+	if jph.ProposerPubKey != nil {
+		pubKey, err = reg.Unmarshal(jph.ProposerPubKey)
+		if err != nil {
+			return tmconsensus.ProposedHeader{}, fmt.Errorf(
+				"failed to unmarshal proposer pubkey: %w", err,
+			)
+		}
 	}
 
 	return tmconsensus.ProposedHeader{
@@ -51,15 +54,18 @@ func (jph jsonProposedHeader) ToProposedHeader(
 }
 
 func toJSONProposedHeader(ph tmconsensus.ProposedHeader, reg *gcrypto.Registry) jsonProposedHeader {
-	return jsonProposedHeader{
-		Header:         toJSONHeader(ph.Header, reg),
-		Round:          ph.Round,
-		ProposerPubKey: reg.Marshal(ph.ProposerPubKey),
-		Signature:      ph.Signature,
+	jph := jsonProposedHeader{
+		Header:    toJSONHeader(ph.Header, reg),
+		Round:     ph.Round,
+		Signature: ph.Signature,
 
 		UserAnnotation:   ph.Annotations.User,
 		DriverAnnotation: ph.Annotations.Driver,
 	}
+	if ph.ProposerPubKey != nil {
+		jph.ProposerPubKey = reg.Marshal(ph.ProposerPubKey)
+	}
+	return jph
 }
 
 // jsonCommittedHeader is a converted [tmconsensus.CommittedHeader]
