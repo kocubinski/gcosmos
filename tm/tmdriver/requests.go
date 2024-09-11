@@ -49,8 +49,9 @@ type FinalizeBlockResponse struct {
 	BlockHash []byte
 
 	// The resulting validators after evaluating the block.
-	// If we are finalizing block at height H,
-	// this value will be used as the NextValidators field in block at height H+1.
+	// If we are finalizing the block at height H,
+	// this value will be used as the NextValidators field in block at height H+1,
+	// thereby becoming the current validators at height H+2.
 	Validators []tmconsensus.Validator
 
 	// The app state after evaluating the block.

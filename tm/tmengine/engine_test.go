@@ -748,6 +748,217 @@ func TestEngine_plumbing_ReplayedHeaders(t *testing.T) {
 	require.Equal(t, uint(4), precommits[string(ph1.Header.Hash)].SignatureBitSet().Count())
 }
 
+func TestEngine_wiring_validatorChanges(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Begin with two validators, and on the first finalization we will add a third.
+	efx := tmenginetest.NewFixture(ctx, t, 2)
+	origValSet := efx.Fx.ValSet()
+
+	var engine *tmengine.Engine
+	eReady := make(chan struct{})
+	go func() {
+		defer close(eReady)
+		engine = efx.MustNewEngine(efx.SigningOptionMap().ToSlice()...)
+	}()
+
+	defer func() {
+		cancel()
+		<-eReady
+		engine.Wait()
+	}()
+
+	erc1Ch := efx.ConsensusStrategy.ExpectEnterRound(1, 0, nil)
+
+	icReq := gtest.ReceiveSoon(t, efx.InitChainCh)
+
+	gtest.SendSoon(t, icReq.Resp, tmdriver.InitChainResponse{
+		AppStateHash: []byte("app_state_0"),
+	})
+
+	_ = gtest.ReceiveSoon(t, eReady)
+
+	erc1 := gtest.ReceiveSoon(t, erc1Ch)
+	require.True(t, origValSet.Equal(erc1.RV.ValidatorSet))
+
+	// Our state machine proposes a header.
+	// (Drain the gossip strategy updates first.
+	_ = gtest.ReceiveSoon(t, efx.GossipStrategy.Updates)
+	gtest.SendSoon(t, erc1.ProposalOut, tmconsensus.Proposal{
+		DataID: "app_data_1",
+	})
+
+	// That proposed header gets gossiped out.
+	u := gtest.ReceiveSoon(t, efx.GossipStrategy.Updates)
+	require.NotNil(t, u.Voting)
+	require.Len(t, u.Voting.ProposedHeaders, 1)
+	ph1 := u.Voting.ProposedHeaders[0]
+
+	// It has the same data ID that we supplied,
+	// and the previous commit proofs are empty since this is initial height.
+	require.Equal(t, "app_data_1", string(ph1.Header.DataID))
+	require.NotNil(t, ph1.Header.PrevCommitProof.Proofs)
+	require.Empty(t, ph1.Header.PrevCommitProof.Proofs)
+
+	consReq1 := gtest.ReceiveSoon(t, efx.ConsensusStrategy.ConsiderProposedBlocksRequests)
+	require.Equal(t, []tmconsensus.ProposedHeader{ph1}, consReq1.PHs)
+	require.Equal(t, []string{string(ph1.Header.Hash)}, consReq1.Reason.NewProposedBlocks)
+
+	// Our consensus strategy chooses the header we just proposed.
+	gtest.SendSoon(t, consReq1.ChoiceHash, string(ph1.Header.Hash))
+
+	// And now the network receives the other validator's prevote for ph1.
+	extPrevotes1 := efx.Fx.SparsePrevoteProofMap(ctx, 1, 0, map[string][]int{
+		string(ph1.Header.Hash): {1},
+	})
+	extPrevotes1SparseProof := tmconsensus.PrevoteSparseProof{
+		Height: 1, Round: 0,
+		PubKeyHash: string(origValSet.PubKeyHash),
+		Proofs:     extPrevotes1,
+	}
+	require.Equal(t, tmconsensus.HandleVoteProofsAccepted, engine.HandlePrevoteProofs(ctx, extPrevotes1SparseProof))
+
+	// Everyone has prevoted, so our consensus strategy needs to decide its precommit.
+	dReq1 := gtest.ReceiveSoon(t, efx.ConsensusStrategy.DecidePrecommitRequests)
+	require.Equal(t, dReq1.Input.TotalPrevotePower, dReq1.Input.AvailablePower)
+	require.Equal(t, string(ph1.Header.Hash), dReq1.Input.MostVotedPrevoteHash)
+	gtest.SendSoon(t, dReq1.ChoiceHash, string(ph1.Header.Hash))
+
+	// Then the network receives the other precommit.
+	extPrecommits1 := efx.Fx.SparsePrecommitProofMap(ctx, 1, 0, map[string][]int{
+		string(ph1.Header.Hash): {1},
+	})
+	extPrecommits1SparseProof := tmconsensus.PrecommitSparseProof{
+		Height: 1, Round: 0,
+		PubKeyHash: string(origValSet.PubKeyHash),
+		Proofs:     extPrecommits1,
+	}
+	require.Equal(t, tmconsensus.HandleVoteProofsAccepted, engine.HandlePrecommitProofs(ctx, extPrecommits1SparseProof))
+
+	// This causes a finalization request.
+	finReq1 := gtest.ReceiveSoon(t, efx.FinalizeBlockRequests)
+	require.Equal(t, ph1.Header, finReq1.Header)
+	require.Zero(t, finReq1.Round)
+
+	threeVals := tmconsensustest.DeterministicValidatorsEd25519(3).Vals()
+	threeValSet, err := tmconsensus.NewValidatorSet(threeVals, efx.Fx.HashScheme)
+	require.NoError(t, err)
+
+	gtest.SendSoon(t, finReq1.Resp, tmdriver.FinalizeBlockResponse{
+		Height:    1,
+		Round:     0,
+		BlockHash: ph1.Header.Hash,
+
+		Validators: threeVals,
+
+		AppStateHash: []byte("app_state_1"),
+	})
+
+	// Expect round 2 to start as we finish the commit wait timer.
+	erc2Ch := efx.ConsensusStrategy.ExpectEnterRound(2, 0, nil)
+	require.NoError(t, efx.RoundTimer.ElapseCommitWaitTimer(1, 0))
+
+	erc2 := gtest.ReceiveSoon(t, erc2Ch)
+	require.True(t, origValSet.Equal(erc2.RV.ValidatorSet))
+	require.Equal(t, string(origValSet.PubKeyHash), erc2.RV.PrevCommitProof.PubKeyHash)
+
+	// Now we do everything we did at height 1, again.
+	// First our state machine proposes a block.
+	_ = gtest.ReceiveSoon(t, efx.GossipStrategy.Updates)
+	gtest.SendSoon(t, erc2.ProposalOut, tmconsensus.Proposal{
+		DataID: "app_data_2",
+	})
+
+	// That proposed header gets gossiped out.
+	u = gtest.ReceiveSoon(t, efx.GossipStrategy.Updates)
+	require.NotNil(t, u.Voting)
+	require.Len(t, u.Voting.ProposedHeaders, 1)
+	ph2 := u.Voting.ProposedHeaders[0]
+
+	require.Equal(t, string(ph1.Header.Hash), string(ph2.Header.PrevBlockHash))
+	require.Equal(t, uint64(2), ph2.Header.Height)
+
+	require.Zero(t, ph2.Header.PrevCommitProof.Round)
+	require.Equal(t, string(origValSet.PubKeyHash), ph2.Header.PrevCommitProof.PubKeyHash)
+	// Two because we have the empty nil proof.
+	// Seems unnecessary. We should probably strip that out.
+	// I'm sure we are stripping them in at least one other place.
+	require.Len(t, ph2.Header.PrevCommitProof.Proofs, 2)
+	require.NotNil(t, ph2.Header.PrevCommitProof.Proofs[""])
+	require.NotNil(t, ph2.Header.PrevCommitProof.Proofs[string(ph1.Header.Hash)])
+	// TODO: verify individual signatures?
+
+	require.True(t, origValSet.Equal(ph2.Header.ValidatorSet))
+	require.True(t, threeValSet.Equal(ph2.Header.NextValidatorSet))
+
+	require.Equal(t, "app_data_2", string(ph2.Header.DataID))
+	require.Equal(t, "app_state_1", string(ph2.Header.PrevAppStateHash))
+
+	// We choose the header we proposed.
+	consReq2 := gtest.ReceiveSoon(t, efx.ConsensusStrategy.ConsiderProposedBlocksRequests)
+	require.Equal(t, []tmconsensus.ProposedHeader{ph2}, consReq2.PHs)
+	require.Equal(t, []string{string(ph2.Header.Hash)}, consReq2.Reason.NewProposedBlocks)
+	gtest.SendSoon(t, consReq2.ChoiceHash, string(ph2.Header.Hash))
+
+	// The other validator prevotes for the same header.
+	extPrevotes2 := efx.Fx.SparsePrevoteProofMap(ctx, 2, 0, map[string][]int{
+		string(ph2.Header.Hash): {1},
+	})
+	extPrevotes2SparseProof := tmconsensus.PrevoteSparseProof{
+		Height: 2, Round: 0,
+		PubKeyHash: string(origValSet.PubKeyHash),
+		Proofs:     extPrevotes2,
+	}
+	require.Equal(t, tmconsensus.HandleVoteProofsAccepted, engine.HandlePrevoteProofs(ctx, extPrevotes2SparseProof))
+
+	// Now we decide our precommit.
+	dReq2 := gtest.ReceiveSoon(t, efx.ConsensusStrategy.DecidePrecommitRequests)
+	require.Equal(t, dReq2.Input.TotalPrevotePower, dReq2.Input.AvailablePower)
+	require.Equal(t, string(ph2.Header.Hash), dReq2.Input.MostVotedPrevoteHash)
+	gtest.SendSoon(t, dReq2.ChoiceHash, string(ph2.Header.Hash))
+
+	// And the network receives the external precommit too.
+	extPrecommits2 := efx.Fx.SparsePrecommitProofMap(ctx, 2, 0, map[string][]int{
+		string(ph2.Header.Hash): {1},
+	})
+	extPrecommits2SparseProof := tmconsensus.PrecommitSparseProof{
+		Height: 2, Round: 0,
+		PubKeyHash: string(origValSet.PubKeyHash),
+		Proofs:     extPrecommits2,
+	}
+	require.Equal(t, tmconsensus.HandleVoteProofsAccepted, engine.HandlePrecommitProofs(ctx, extPrecommits2SparseProof))
+
+	// So now we have another finalization request.
+	finReq2 := gtest.ReceiveSoon(t, efx.FinalizeBlockRequests)
+	require.Equal(t, ph2.Header, finReq2.Header)
+	require.Zero(t, finReq2.Round)
+
+	fourVals := tmconsensustest.DeterministicValidatorsEd25519(4).Vals()
+
+	gtest.SendSoon(t, finReq2.Resp, tmdriver.FinalizeBlockResponse{
+		Height:    2,
+		Round:     0,
+		BlockHash: ph2.Header.Hash,
+
+		Validators: fourVals,
+
+		AppStateHash: []byte("app_state_2"),
+	})
+
+	// Expect round 3 to start as we finish the commit wait timer.
+	erc3Ch := efx.ConsensusStrategy.ExpectEnterRound(3, 0, nil)
+	require.NoError(t, efx.RoundTimer.ElapseCommitWaitTimer(2, 0))
+
+	// This is the main thing we wanted to verify in this test:
+	// the changed validator set does not leak incorrectly into the previous commit proof.
+	erc3 := gtest.ReceiveSoon(t, erc3Ch)
+	require.True(t, threeValSet.Equal(erc3.RV.ValidatorSet))
+	require.Equal(t, string(origValSet.PubKeyHash), erc3.RV.PrevCommitProof.PubKeyHash)
+}
+
 func TestEngine_initChain(t *testing.T) {
 	t.Run("default startup flow requiring InitChain call, no validator override", func(t *testing.T) {
 		t.Parallel()

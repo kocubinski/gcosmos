@@ -328,7 +328,7 @@ func TestMarshalCodecCompliance(t *testing.T, mcf MarshalCodecFactory) {
 			populate func(m *tmcodec.ConsensusMessage)
 		}{
 			{
-				name: "with proposed block",
+				name: "with proposed header",
 				populate: func(m *tmcodec.ConsensusMessage) {
 					fx := tmconsensustest.NewStandardFixture(3)
 

@@ -13,14 +13,17 @@ func _() {
 	_ = x[HandleProposedHeaderSignerUnrecognized-3]
 	_ = x[HandleProposedHeaderBadBlockHash-4]
 	_ = x[HandleProposedHeaderBadSignature-5]
-	_ = x[HandleProposedHeaderRoundTooOld-6]
-	_ = x[HandleProposedHeaderRoundTooFarInFuture-7]
-	_ = x[HandleProposedHeaderInternalError-8]
+	_ = x[HandleProposedHeaderBadPrevCommitProofPubKeyHash-6]
+	_ = x[HandleProposedHeaderBadPrevCommitProofSignature-7]
+	_ = x[HandleProposedHeaderBadPrevCommitVoteCount-8]
+	_ = x[HandleProposedHeaderRoundTooOld-9]
+	_ = x[HandleProposedHeaderRoundTooFarInFuture-10]
+	_ = x[HandleProposedHeaderInternalError-11]
 }
 
-const _HandleProposedHeaderResult_name = "AcceptedAlreadyStoredSignerUnrecognizedBadBlockHashBadSignatureRoundTooOldRoundTooFarInFutureInternalError"
+const _HandleProposedHeaderResult_name = "AcceptedAlreadyStoredSignerUnrecognizedBadBlockHashBadSignatureBadPrevCommitProofPubKeyHashBadPrevCommitProofSignatureBadPrevCommitVoteCountRoundTooOldRoundTooFarInFutureInternalError"
 
-var _HandleProposedHeaderResult_index = [...]uint8{0, 8, 21, 39, 51, 63, 74, 93, 106}
+var _HandleProposedHeaderResult_index = [...]uint8{0, 8, 21, 39, 51, 63, 91, 118, 140, 151, 170, 183}
 
 func (i HandleProposedHeaderResult) String() string {
 	i -= 1

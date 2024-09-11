@@ -30,6 +30,8 @@ type RoundLifecycle struct {
 	// Used when proposing a block.
 	CurValSet tmconsensus.ValidatorSet
 
+	// PrevVRV is the most recently seen versioned round view.
+	// (It should probably just be renamed to VRV -- "previous" seems to imply earlier, not "just seen").
 	// A non-nil PrevVRV indicates that the round lifecycle is handling live votes.
 	// If nil, that indicates the round lifecycle is in replay mode.
 	PrevVRV             *tmconsensus.VersionedRoundView

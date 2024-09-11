@@ -46,8 +46,16 @@ const (
 	// Our calculation of the block hash was different from what the block reported.
 	HandleProposedHeaderBadBlockHash
 
-	// Signature verification on the proposed block failed.
+	// Signature verification on the proposed header failed.
 	HandleProposedHeaderBadSignature
+
+	// Something was wrong with the header's PrevCommitProof.
+	// It could be a validator pub key mismatch,
+	// an invalid signature in the proof,
+	// or an incorrect amount of votes (e.g. less than majority for the committing block).
+	HandleProposedHeaderBadPrevCommitProofPubKeyHash
+	HandleProposedHeaderBadPrevCommitProofSignature
+	HandleProposedHeaderBadPrevCommitVoteCount
 
 	// Proposed block had older height or round than our current view of the world.
 	HandleProposedHeaderRoundTooOld

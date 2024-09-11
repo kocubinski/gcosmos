@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/rollchains/gordian/gassert/gasserttest"
+	"github.com/rollchains/gordian/gcrypto"
 	"github.com/rollchains/gordian/gwatchdog"
 	"github.com/rollchains/gordian/internal/gtest"
 	"github.com/rollchains/gordian/tm/tmconsensus"
@@ -125,6 +126,11 @@ func (f *Fixture) EmptyVRV(h uint64, r uint32) tmconsensus.VersionedRoundView {
 			Height:       h,
 			Round:        r,
 			ValidatorSet: valSet,
+
+			PrevCommitProof: tmconsensus.CommitProof{
+				// Everything assumes an initial empty VRV has a non-nil Proofs.
+				Proofs: map[string][]gcrypto.SparseSignature{},
+			},
 
 			VoteSummary: vs,
 		},

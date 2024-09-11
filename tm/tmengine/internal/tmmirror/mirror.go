@@ -27,6 +27,8 @@ type Mirror struct {
 
 	k *tmi.Kernel
 
+	initialHeight uint64
+
 	hashScheme tmconsensus.HashScheme
 	sigScheme  tmconsensus.SignatureScheme
 	cmspScheme gcrypto.CommonMessageSignatureProofScheme
@@ -151,6 +153,8 @@ func NewMirror(
 
 		k: k,
 
+		initialHeight: cfg.InitialHeight,
+
 		hashScheme: cfg.HashScheme,
 		sigScheme:  cfg.SignatureScheme,
 		cmspScheme: cfg.CommonMessageSignatureProofScheme,
@@ -177,6 +181,20 @@ func (m *Mirror) Wait() {
 // is usually a poor, clunky experience.
 type NetworkHeightRound = tmi.NetworkHeightRound
 
+// HandleProposedHeader satisfies the [tmconsensus.ConsensusHandler] interface.
+//
+// The [tmengine.Engine] also has a HandleProposedHeader method with a matching signature;
+// calling that method on the Engine just delegates to the engine's mirror,
+// i.e. this method.
+//
+// This method first makes a "check proposed header" request to the kernel
+// to do some very lightweight validation determining whether the
+// proposed header may be applied.
+// If that lightweight validation passes, this method does a more thorough check,
+// confirming correct signatures, before requesting that the kernel
+// actually adds the proposed header.
+// This minimizes time spent in the kernel's main loop,
+// by spending the time in this method instead.
 func (m *Mirror) HandleProposedHeader(ctx context.Context, ph tmconsensus.ProposedHeader) tmconsensus.HandleProposedHeaderResult {
 	defer trace.StartRegion(ctx, "HandleProposedHeader").End()
 
@@ -185,7 +203,7 @@ RESTART:
 		PH:   ph,
 		Resp: make(chan tmi.PHCheckResponse, 1),
 	}
-	resp, ok := gchan.ReqResp(
+	checkResp, ok := gchan.ReqResp(
 		ctx, m.log,
 		m.phCheckRequests, req,
 		req.Resp,
@@ -195,7 +213,7 @@ RESTART:
 		return tmconsensus.HandleProposedHeaderInternalError
 	}
 
-	if resp.Status == tmi.PHCheckAlreadyHaveSignature {
+	if checkResp.Status == tmi.PHCheckAlreadyHaveSignature {
 		// Easy early return case.
 		// We will say it's already stored.
 		// Note, this is only a lightweight signature comparison,
@@ -206,7 +224,7 @@ RESTART:
 		return tmconsensus.HandleProposedHeaderAlreadyStored
 	}
 
-	switch resp.Status {
+	switch checkResp.Status {
 	case tmi.PHCheckAcceptable:
 		// Okay.
 	case tmi.PHCheckSignerUnrecognized:
@@ -214,14 +232,14 @@ RESTART:
 		return tmconsensus.HandleProposedHeaderSignerUnrecognized
 	case tmi.PHCheckNextHeight:
 		// Special case: we make an additional request to the kernel if the PH is for the next height.
-		m.backfillCommitForNextHeightPE(ctx, req.PH, *resp.VotingRoundView)
+		m.backfillCommitForNextHeightPE(ctx, req.PH, *checkResp.VotingRoundView)
 		goto RESTART // TODO: find a cleaner way to apply the proposed block after backfilling commit.
 	case tmi.PHCheckRoundTooOld:
 		return tmconsensus.HandleProposedHeaderRoundTooOld
 	case tmi.PHCheckRoundTooFarInFuture:
 		return tmconsensus.HandleProposedHeaderRoundTooFarInFuture
 	default:
-		panic(fmt.Errorf("TODO: handle PHCheck status %s", resp.Status))
+		panic(fmt.Errorf("TODO: handle PHCheck status %s", checkResp.Status))
 	}
 
 	// Arbitrarily choosing to validate the block hash before the signature.
@@ -241,9 +259,74 @@ RESTART:
 	if err != nil {
 		return tmconsensus.HandleProposedHeaderInternalError
 	}
-	if !resp.ProposerPubKey.Verify(signContent, ph.Signature) {
+	if !checkResp.ProposerPubKey.Verify(signContent, ph.Signature) {
 		return tmconsensus.HandleProposedHeaderBadSignature
 	}
+
+	// Now, make sure that the proposed header's PrevCommitProof matches
+	// what we think the previous commit is supposed to be.
+	// The easiest thing to check first is the validator hash.
+	if string(checkResp.PrevValidatorSet.PubKeyHash) != ph.Header.PrevCommitProof.PubKeyHash {
+		return tmconsensus.HandleProposedHeaderBadPrevCommitProofPubKeyHash
+	}
+
+	// Now confirm that every signature is valid.
+	// This approach is potentially expensive,
+	// and I don't like that it happens on an uncontrolled path.
+	// There are likely some optimizations we can make to only do this work once
+	// and cache the results.
+	rawProofs := make(map[string]gcrypto.CommonMessageSignatureProof, len(ph.Header.PrevCommitProof.Proofs))
+	pubKeys := tmconsensus.ValidatorsToPubKeys(checkResp.PrevValidatorSet.Validators)
+	for hash, sigs := range ph.Header.PrevCommitProof.Proofs {
+		// TODO: should we reject if len(sigs) == 0? Probably yes?
+
+		vt := tmconsensus.VoteTarget{
+			Height: ph.Header.Height - 1,
+
+			// We just pull this from the incoming previous commit proof,
+			// as opposed to getting it from the kernel somehow,
+			// because it is part of the signature.
+			// If the round is wrong then the signatures will be invalid.
+			Round: ph.Header.PrevCommitProof.Round,
+
+			BlockHash: hash,
+		}
+		msg, err := tmconsensus.PrecommitSignBytes(vt, m.sigScheme)
+		if err != nil {
+			m.log.Warn(
+				"Failed to build precommit sign bytes",
+				// TODO: what fields would add pertinent information here?
+				"err", err,
+			)
+			return tmconsensus.HandleProposedHeaderInternalError
+		}
+		proof, err := m.cmspScheme.New(msg, pubKeys, string(checkResp.PrevValidatorSet.PubKeyHash))
+		if err != nil {
+			m.log.Warn(
+				"Failed to build common message signature proof when handling proposed header",
+				// TODO: what fields would add pertinent information here?
+				"err", err,
+			)
+			return tmconsensus.HandleProposedHeaderInternalError
+		}
+
+		sparseProof := gcrypto.SparseSignatureProof{
+			PubKeyHash: ph.Header.PrevCommitProof.PubKeyHash,
+			Signatures: sigs,
+		}
+		if res := proof.MergeSparse(sparseProof); !res.AllValidSignatures {
+			m.log.Warn(
+				"Failed to merge sparse proof",
+				"prev_pub_key_hash", glog.Hex(checkResp.PrevValidatorSet.PubKeyHash),
+				"incoming_pub_key_hash", glog.Hex(ph.Header.PrevCommitProof.PubKeyHash),
+			)
+			return tmconsensus.HandleProposedHeaderBadPrevCommitProofSignature
+		}
+
+		rawProofs[hash] = proof
+	}
+
+	// TODO: confirm that we have majority voting power on the previous block hash.
 
 	// The hash matches and the proposed header was signed by a validator we know,
 	// so we can accept the message.

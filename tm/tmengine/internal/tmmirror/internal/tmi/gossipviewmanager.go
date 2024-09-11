@@ -32,7 +32,6 @@ func (m *gossipViewManager) Output() gossipStrategyOutput {
 	// If we don't hit any of those checks, the output channel will be nil,
 	// so that case will not be considered in the select.
 
-
 	if !m.Committing.HasBeenSent() {
 		o.Ch = m.out
 

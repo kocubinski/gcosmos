@@ -103,7 +103,7 @@ func (a *valShuffleApp) kernel(
 	}
 
 	// Then we have to finalize blocks repeatedly.
-	pcg := rand.NewPCG(0, 0)
+	pcg := rand.NewPCG(0, 0) // Initial seed doesn't matter because we are going to re-seed every height.
 	rng := rand.New(pcg)
 	for {
 		select {

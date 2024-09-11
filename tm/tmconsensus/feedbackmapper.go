@@ -29,7 +29,10 @@ func (m AcceptAllValidFeedbackMapper) HandleProposedHeader(
 
 	case HandleProposedHeaderSignerUnrecognized,
 		HandleProposedHeaderBadSignature,
-		HandleProposedHeaderBadBlockHash:
+		HandleProposedHeaderBadBlockHash,
+		HandleProposedHeaderBadPrevCommitProofPubKeyHash,
+		HandleProposedHeaderBadPrevCommitProofSignature,
+		HandleProposedHeaderBadPrevCommitVoteCount:
 		return gexchange.FeedbackRejected
 
 	default:
@@ -94,7 +97,10 @@ func (m DropDuplicateFeedbackMapper) HandleProposedHeader(
 
 	case HandleProposedHeaderSignerUnrecognized,
 		HandleProposedHeaderBadSignature,
-		HandleProposedHeaderBadBlockHash:
+		HandleProposedHeaderBadBlockHash,
+		HandleProposedHeaderBadPrevCommitProofPubKeyHash,
+		HandleProposedHeaderBadPrevCommitProofSignature,
+		HandleProposedHeaderBadPrevCommitVoteCount:
 		return gexchange.FeedbackRejected
 
 	default:

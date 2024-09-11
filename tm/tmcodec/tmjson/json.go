@@ -156,7 +156,9 @@ func (jh jsonHeader) ToHeader(
 	}
 
 	var proof tmconsensus.CommitProof
-	if len(jh.PrevCommitProof.PubKeyHash) > 0 {
+	if jh.PrevCommitProof.PubKeyHash != nil {
+		// Often this would check length > 0,
+		// but in this case, a non-nil map at initial height is meaningful.
 		var err error
 		proof, err = jh.PrevCommitProof.ToCommitProof()
 		if err != nil {

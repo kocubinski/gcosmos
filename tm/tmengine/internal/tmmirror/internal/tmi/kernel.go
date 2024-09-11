@@ -245,12 +245,15 @@ func NewKernel(ctx context.Context, log *slog.Logger, cfg KernelConfig) (*Kernel
 			// Error assumed to be already formatted correctly.
 			return nil, err
 		}
+
+		// TODO: we should be setting the previous commit proof on the committing view here.
 	}
 
 	if err := k.loadInitialVotingView(ctx, &initState); err != nil {
 		// Error assumed to be already formatted correctly.
 		return nil, err
 	}
+	initState.Voting.RoundView.PrevCommitProof = committingProof
 
 	if err := k.updateObservers(ctx, &initState); err != nil {
 		return nil, err
@@ -330,7 +333,7 @@ func (k *Kernel) mainLoop(ctx context.Context, s *kState, wd *gwatchdog.Watchdog
 			k.sendPHCheckResponse(ctx, s, req)
 
 		case ph := <-k.addPHRequests:
-			k.addPH(ctx, s, ph)
+			k.addProposedHeader(ctx, s, ph)
 
 		case req := <-k.addPrevoteRequests:
 			k.addPrevote(ctx, s, req)
@@ -348,7 +351,7 @@ func (k *Kernel) mainLoop(ctx context.Context, s *kState, wd *gwatchdog.Watchdog
 			lagOut.MarkSent()
 
 		case ph := <-k.phf.FetchedProposedHeaders:
-			k.addPH(ctx, s, ph)
+			k.addProposedHeader(ctx, s, ph)
 
 		case re := <-k.stateMachineRoundEntranceIn:
 			k.handleStateMachineRoundEntrance(ctx, s, re)
@@ -381,12 +384,12 @@ func (k *Kernel) mainLoop(ctx context.Context, s *kState, wd *gwatchdog.Watchdog
 	}
 }
 
-// addPH adds a proposed header to the current round state.
+// addProposedHeader adds a proposed header to the current round state.
 // This is called from a direct add proposed header request (from the Mirror layer),
 // from an out-of-band fetched proposed header's arrival,
 // and from handling the state machine action of proposing a header.
-func (k *Kernel) addPH(ctx context.Context, s *kState, ph tmconsensus.ProposedHeader) {
-	defer trace.StartRegion(ctx, "addPH").End()
+func (k *Kernel) addProposedHeader(ctx context.Context, s *kState, ph tmconsensus.ProposedHeader) {
+	defer trace.StartRegion(ctx, "addProposedHeader").End()
 
 	// Before any other work, cancel an outstanding fetch for this PH.
 	if cancel, ok := s.InFlightFetchPHs[string(ph.Header.Hash)]; ok {
@@ -394,7 +397,7 @@ func (k *Kernel) addPH(ctx context.Context, s *kState, ph tmconsensus.ProposedHe
 		delete(s.InFlightFetchPHs, string(ph.Header.Hash))
 	}
 
-	vrv, viewID, _ := s.FindView(ph.Header.Height, ph.Round, "(*Kernel).addPH")
+	vrv, viewID, _ := s.FindView(ph.Header.Height, ph.Round, "(*Kernel).addProposedHeader")
 	if vrv == nil {
 		k.log.Info(
 			"Dropping proposed block that did not match a view (may have been received immediately before a view shift)",
@@ -1252,6 +1255,11 @@ func (k *Kernel) sendViewLookupResponse(ctx context.Context, s *kState, req View
 	req.Resp <- resp
 }
 
+// sendPHCheckResponse responds to a PHCheckRequest.
+// The Mirror sends a check request prior to attempting to add the proposed header.
+// This is the kernel's opportunity to perform validation
+// and send feedback to the mirror layer, as [*Kernel.addProposedHeader]
+// is unable to provide feedback.
 func (k *Kernel) sendPHCheckResponse(ctx context.Context, s *kState, req PHCheckRequest) {
 	defer trace.StartRegion(ctx, "sendPHCheckResponse").End()
 
@@ -1272,7 +1280,9 @@ func (k *Kernel) sendPHCheckResponse(ctx context.Context, s *kState, req PHCheck
 		if pbRound < committingRound {
 			resp.Status = PHCheckRoundTooOld
 		} else if pbRound == committingRound {
-			k.setPHCheckStatus(req, &resp, s.Committing)
+			// It's unusual to receive a proposed block for the committing view's height,
+			// but it's not impossible that we've received it particularly late.
+			k.setPHCheckStatus(s, req, &resp, s.Committing, ViewIDCommitting)
 		} else {
 			panic(fmt.Errorf(
 				"TODO: handle proposed block with round (%d) beyond committing round (%d)",
@@ -1283,9 +1293,9 @@ func (k *Kernel) sendPHCheckResponse(ctx context.Context, s *kState, req PHCheck
 		if pbRound < votingRound {
 			resp.Status = PHCheckRoundTooOld
 		} else if pbRound == votingRound {
-			k.setPHCheckStatus(req, &resp, s.Voting)
+			k.setPHCheckStatus(s, req, &resp, s.Voting, ViewIDVoting)
 		} else if pbRound == votingRound+1 {
-			k.setPHCheckStatus(req, &resp, s.NextRound)
+			k.setPHCheckStatus(s, req, &resp, s.NextRound, ViewIDNextRound)
 		} else {
 			panic(fmt.Errorf(
 				"TODO: handle proposed block with round (%d) beyond voting round (%d)",
@@ -1314,10 +1324,15 @@ func (k *Kernel) sendPHCheckResponse(ctx context.Context, s *kState, req PHCheck
 	req.Resp <- resp
 }
 
+// setPHCheckStatus is called from [*Kernel.sendPHCheckResponse] on proposed headers
+// that are possibly acceptable.
+// This is the final layer of validation before reporting whether the proposed header can be accepted.
 func (k *Kernel) setPHCheckStatus(
+	s *kState,
 	req PHCheckRequest,
 	resp *PHCheckResponse,
 	vrv tmconsensus.VersionedRoundView,
+	vID ViewID,
 ) {
 	alreadyHaveSignature := slices.ContainsFunc(vrv.ProposedHeaders, func(havePH tmconsensus.ProposedHeader) bool {
 		return bytes.Equal(havePH.Signature, req.PH.Signature)
@@ -1343,6 +1358,31 @@ func (k *Kernel) setPHCheckStatus(
 			resp.Status = PHCheckAcceptable
 			resp.ProposerPubKey = proposerPubKey
 		}
+	}
+
+	if resp.Status != PHCheckAcceptable {
+		// Only look up the PrevBlockHash if the signature was valid.
+		return
+	}
+
+	if req.PH.Header.Height == k.initialHeight {
+		// Explicitly leave the previous block hash and previous validator set empty
+		// if this is a proposed header for the initial height.
+		return
+	}
+
+	switch vID {
+	case ViewIDCommitting:
+		// We already know which block is committing, so the previous block hash
+		// must match what our committing header says.
+		resp.PrevBlockHash = s.CommittingHeader.PrevBlockHash
+		// TODO: this needs to set resp.PrevValidatorSet,
+		// but we don't have that for the committing view connected to state anywhere.
+	case ViewIDVoting, ViewIDNextRound:
+		resp.PrevBlockHash = s.CommittingHeader.Hash
+		resp.PrevValidatorSet = s.CommittingHeader.ValidatorSet
+	default:
+		panic(fmt.Errorf("BUG: setPHCheckStatus called with invalid view ID %s", vID))
 	}
 }
 
@@ -1407,9 +1447,9 @@ func (k *Kernel) handleStateMachineAction(ctx context.Context, s *kState, act tm
 			))
 		}
 
-		// addPH works directly on the proposed block without any feedback to the caller,
+		// addProposedHeader works directly on the proposed block without any feedback to the caller,
 		// so we are fine to call that directly here.
-		k.addPH(ctx, s, act.PH)
+		k.addProposedHeader(ctx, s, act.PH)
 		return
 	}
 

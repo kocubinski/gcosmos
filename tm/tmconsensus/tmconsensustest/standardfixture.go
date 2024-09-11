@@ -57,6 +57,11 @@ func NewStandardFixture(numVals int) *StandardFixture {
 		CommonMessageSignatureProofScheme: gcrypto.SimpleCommonMessageSignatureProofScheme,
 
 		HashScheme: SimpleHashScheme{},
+
+		prevCommitProof: tmconsensus.CommitProof{
+			// This map is expected to be empty, not nil, for the initial height.
+			Proofs: map[string][]gcrypto.SparseSignature{},
+		},
 	}
 }
 

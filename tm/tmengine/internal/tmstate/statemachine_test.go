@@ -1011,6 +1011,153 @@ func TestStateMachine_enterRoundProposal(t *testing.T) {
 			})
 		}
 	})
+
+	t.Run("changing validator sets", func(t *testing.T) {
+		t.Parallel()
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		// Begin with two validators, and the first finalization will add another.
+		sfx := tmstatetest.NewFixture(ctx, t, 2)
+
+		sm := sfx.NewStateMachine()
+		defer sm.Wait()
+		defer cancel()
+
+		// We're going to need this a bit later in the test.
+		origValSet := sfx.Fx.ValSet()
+
+		re := gtest.ReceiveSoon(t, sfx.RoundEntranceOutCh)
+
+		vrv := sfx.EmptyVRV(1, 0)
+
+		// Set up consensus strategy expectation before mocking the response.
+		cStrat := sfx.CStrat
+		ercCh := cStrat.ExpectEnterRound(1, 0, nil)
+
+		gtest.SendSoon(t, re.Response, tmeil.RoundEntranceResponse{VRV: vrv})
+
+		erc := gtest.ReceiveSoon(t, ercCh)
+
+		require.Equal(t, 1, cap(erc.ProposalOut))
+		gtest.SendSoon(t, erc.ProposalOut, tmconsensus.Proposal{
+			DataID: "app_data_1",
+		})
+
+		// Synchronize on the action output.
+		sentPH1 := gtest.ReceiveSoon(t, re.Actions).PH
+
+		// Now the proposed block should be in the action store.
+		ra, err := sfx.Cfg.ActionStore.Load(ctx, 1, 0)
+		require.NoError(t, err)
+
+		gotPH1 := ra.ProposedHeader
+		require.Equal(t, sentPH1, gotPH1)
+
+		// Now the mirrror re-plays the proposed header to the state machine.
+		vrv = vrv.Clone()
+		vrv.ProposedHeaders = []tmconsensus.ProposedHeader{sentPH1}
+		vrv.Version++
+		gtest.SendSoon(t, sfx.RoundViewInCh, tmeil.StateMachineRoundView{VRV: vrv})
+
+		// Consider/choose the same proposed header we just sent.
+		consReq := gtest.ReceiveSoon(t, cStrat.ConsiderProposedBlocksRequests)
+		require.Equal(t, vrv.ProposedHeaders, consReq.PHs)
+		gtest.SendSoon(t, consReq.ChoiceHash, string(sentPH1.Header.Hash))
+
+		// This gets sent to the actions channel.
+		a := gtest.ReceiveSoon(t, re.Actions)
+		require.Equal(t, string(sentPH1.Header.Hash), a.Prevote.TargetHash)
+		require.NotEmpty(t, a.Prevote.Sig)
+
+		// The other validator sends a prevote and a precommit.
+		// Maybe this is a bit invalid but it should be fine for this test.
+		vrv = sfx.Fx.UpdateVRVPrevotes(ctx, vrv, map[string][]int{
+			string(gotPH1.Header.Hash): {0, 1}, // Everyone else already prevoted for the block.
+		})
+		vrv = sfx.Fx.UpdateVRVPrecommits(ctx, vrv, map[string][]int{
+			string(gotPH1.Header.Hash): {1},
+		})
+		gtest.SendSoon(t, sfx.RoundViewInCh, tmeil.StateMachineRoundView{VRV: vrv})
+
+		// Decide the precommit.
+		dReq := gtest.ReceiveSoon(t, cStrat.DecidePrecommitRequests)
+		gtest.SendSoon(t, dReq.ChoiceHash, string(sentPH1.Header.Hash))
+
+		// The state machine sends another action.
+		a = gtest.ReceiveSoon(t, re.Actions)
+		require.Equal(t, string(sentPH1.Header.Hash), a.Precommit.TargetHash)
+		require.NotEmpty(t, a.Precommit.Sig)
+
+		// Now the mirror receives that action and sends back the updated (full) precommits.
+		vrv = sfx.Fx.UpdateVRVPrecommits(ctx, vrv, map[string][]int{
+			string(gotPH1.Header.Hash): {0, 1},
+		})
+		gtest.SendSoon(t, sfx.RoundViewInCh, tmeil.StateMachineRoundView{VRV: vrv})
+
+		// Since everyone precommitted the same block, the state machine can finalize.
+		finReq := gtest.ReceiveSoon(t, sfx.FinalizeBlockRequests)
+		require.Equal(t, gotPH1.Header, finReq.Header)
+		require.Zero(t, finReq.Round)
+
+		threeVals := tmconsensustest.DeterministicValidatorsEd25519(3).Vals()
+		gtest.SendSoon(t, finReq.Resp, tmdriver.FinalizeBlockResponse{
+			Height:    1,
+			BlockHash: gotPH1.Header.Hash,
+
+			Validators: threeVals,
+
+			AppStateHash: []byte("app_state_1"),
+		})
+
+		// And after sending the finalization response, elapse the commit wait timer,
+		// so that we soon advance to the next height.
+		require.NoError(t, sfx.RoundTimer.ElapseCommitWaitTimer(1, 0))
+
+		re2 := gtest.ReceiveSoon(t, sfx.RoundEntranceOutCh)
+		require.Equal(t, uint64(2), re2.H)
+		require.Zero(t, re2.R)
+		require.True(t, sfx.Cfg.Signer.PubKey().Equal(re2.PubKey))
+		require.NotNil(t, re2.Actions)
+
+		// Configure the fixture to send the vrv for height 2.
+		sfx.Fx.CommitBlock(gotPH1.Header, []byte("app_state_1"), 0, map[string]gcrypto.CommonMessageSignatureProof{
+			string(gotPH1.Header.Hash): sfx.Fx.PrecommitSignatureProof(ctx, tmconsensus.VoteTarget{
+				Height:    1,
+				Round:     0,
+				BlockHash: string(gotPH1.Header.Hash),
+			}, nil, []int{0, 1}),
+		})
+
+		// Use the fixture to make the proposed header, only to get its previous commit proof,
+		// which the mirror needs to include in its round entrance response to the state machine.
+		ignorePH2 := sfx.Fx.NextProposedHeader([]byte("ignore"), 1)
+
+		vrv = sfx.EmptyVRV(2, 0)
+		vrv.PrevCommitProof = ignorePH2.Header.PrevCommitProof
+
+		// Enter round dance.
+		ercCh = cStrat.ExpectEnterRound(2, 0, nil)
+		gtest.SendSoon(t, re2.Response, tmeil.RoundEntranceResponse{VRV: vrv})
+		erc = gtest.ReceiveSoon(t, ercCh)
+
+		// Now the state machine, or consensus strategy, proposes another header.
+		gtest.SendSoon(t, erc.ProposalOut, tmconsensus.Proposal{
+			DataID: "app_data_2",
+		})
+
+		// This causes the state machine to send a proposed header action.
+		sentPH2 := gtest.ReceiveSoon(t, re2.Actions).PH
+		require.Equal(t, uint64(2), sentPH2.Header.Height)
+		require.Zero(t, sentPH2.Round)
+
+		require.True(t, sentPH2.Header.ValidatorSet.Equal(origValSet))
+
+		threeValSet, err := tmconsensus.NewValidatorSet(threeVals, sfx.Fx.HashScheme)
+		require.NoError(t, err)
+		require.True(t, sentPH2.Header.NextValidatorSet.Equal(threeValSet))
+	})
 }
 
 func TestStateMachine_proposedHeaderFiltering(t *testing.T) {
@@ -1957,7 +2104,7 @@ func TestStateMachine_unexpectedSteps(t *testing.T) {
 		// And there is a finalization.
 		finReq := gtest.ReceiveSoon(t, sfx.FinalizeBlockRequests)
 		require.Equal(t, ph1.Header, finReq.Header)
-		require.Zero(t, ph1.Round)
+		require.Zero(t, finReq.Round)
 
 		// Now we get the view update with the last precommit.
 		vrv = sfx.Fx.UpdateVRVPrecommits(ctx, vrv, map[string][]int{
@@ -2552,9 +2699,6 @@ func TestStateMachine_finalization(t *testing.T) {
 		re = gtest.ReceiveSoon(t, sfx.RoundEntranceOutCh)
 		require.Equal(t, uint64(2), re.H)
 
-		vrv = sfx.EmptyVRV(2, 0)
-		re.Response <- tmeil.RoundEntranceResponse{VRV: vrv}
-
 		sfx.Fx.CommitBlock(ph1.Header, []byte("state_1"), 0, map[string]gcrypto.CommonMessageSignatureProof{
 			string(ph1.Header.Hash): sfx.Fx.PrecommitSignatureProof(ctx, tmconsensus.VoteTarget{
 				Height:    1,
@@ -2563,6 +2707,11 @@ func TestStateMachine_finalization(t *testing.T) {
 			}, nil, []int{0, 1, 2}),
 		})
 		ph2 := sfx.Fx.NextProposedHeader([]byte("app_data_2"), 0)
+
+		vrv = sfx.EmptyVRV(2, 0)
+		vrv.PrevCommitProof = ph2.Header.PrevCommitProof.Clone()
+		re.Response <- tmeil.RoundEntranceResponse{VRV: vrv}
+
 		sfx.Fx.SignProposal(ctx, &ph2, 0)
 		vrv = vrv.Clone()
 		vrv.ProposedHeaders = []tmconsensus.ProposedHeader{ph2}
@@ -2595,9 +2744,6 @@ func TestStateMachine_finalization(t *testing.T) {
 		re = gtest.ReceiveSoon(t, sfx.RoundEntranceOutCh)
 		require.Equal(t, uint64(3), re.H)
 
-		vrv = sfx.EmptyVRV(3, 0)
-		re.Response <- tmeil.RoundEntranceResponse{VRV: vrv}
-
 		sfx.Fx.CommitBlock(ph2.Header, []byte("state_2"), 0, map[string]gcrypto.CommonMessageSignatureProof{
 			string(ph2.Header.Hash): sfx.Fx.PrecommitSignatureProof(ctx, tmconsensus.VoteTarget{
 				Height:    2,
@@ -2606,6 +2752,11 @@ func TestStateMachine_finalization(t *testing.T) {
 			}, nil, []int{0, 1, 2}),
 		})
 		ph3 := sfx.Fx.NextProposedHeader([]byte("app_data_3"), 0)
+
+		vrv = sfx.EmptyVRV(3, 0)
+		vrv.PrevCommitProof = ph3.Header.PrevCommitProof.Clone()
+		re.Response <- tmeil.RoundEntranceResponse{VRV: vrv}
+
 		sfx.Fx.SignProposal(ctx, &ph3, 0)
 		vrv = vrv.Clone()
 		vrv.ProposedHeaders = []tmconsensus.ProposedHeader{ph3}
@@ -3678,11 +3829,22 @@ func TestStateMachine_metrics(t *testing.T) {
 	}
 	require.NoError(t, sfx.RoundTimer.ElapseCommitWaitTimer(1, 0))
 
+	vt := tmconsensus.VoteTarget{
+		Height:    1,
+		BlockHash: string(ph1.Header.Hash),
+	}
+	sfx.Fx.CommitBlock(ph1.Header, []byte("app_state_1"), 0, map[string]gcrypto.CommonMessageSignatureProof{
+		string(ph1.Header.Hash): sfx.Fx.PrecommitSignatureProof(ctx, vt, nil, []int{0, 1, 2, 3}),
+	})
+	ph2 := sfx.Fx.NextProposedHeader([]byte("app_data_2"), 1)
+	vrv = sfx.EmptyVRV(2, 0)
+	vrv.PrevCommitProof = ph2.Header.PrevCommitProof.Clone()
+
 	// Don't inspect the metrics again until after the state machine enters the next round.
 	enter2Ch := cStrat.ExpectEnterRound(2, 0, nil)
 
 	re = gtest.ReceiveSoon(t, sfx.RoundEntranceOutCh)
-	re.Response <- tmeil.RoundEntranceResponse{VRV: sfx.EmptyVRV(2, 0)}
+	re.Response <- tmeil.RoundEntranceResponse{VRV: vrv}
 
 	_ = gtest.ReceiveSoon(t, enter2Ch)
 

@@ -166,6 +166,11 @@ func (s *kState) ShiftVotingToCommitting(nhd nextHeightDetails) {
 
 	newHeight := s.Voting.Height + 1
 
+	commitProofs := make(map[string][]gcrypto.SparseSignature, len(s.Committing.PrecommitProofs))
+	for hash, proof := range s.Committing.PrecommitProofs {
+		commitProofs[hash] = proof.AsSparse().Signatures
+	}
+
 	// If we had NextHeight, we might use that here.
 	// But we don't yet, so just clear out the voting view.
 	s.Voting = tmconsensus.VersionedRoundView{
@@ -174,6 +179,12 @@ func (s *kState) ShiftVotingToCommitting(nhd nextHeightDetails) {
 			Round:  0,
 
 			ValidatorSet: nhd.ValidatorSet,
+
+			PrevCommitProof: tmconsensus.CommitProof{
+				Round:      s.Committing.Round,
+				PubKeyHash: string(s.Committing.ValidatorSet.PubKeyHash),
+				Proofs:     commitProofs,
+			},
 
 			PrevoteProofs: map[string]gcrypto.CommonMessageSignatureProof{
 				"": nhd.Round0NilPrevote,
@@ -197,6 +208,7 @@ func (s *kState) ShiftVotingToCommitting(nhd nextHeightDetails) {
 	s.NextRound.Height = newHeight
 	s.NextRound.Round = 1
 	s.NextRound.ValidatorSet = nhd.ValidatorSet
+	s.NextRound.PrevCommitProof = s.Voting.PrevCommitProof.Clone()
 	s.NextRound.PrevoteVersion = 1
 	s.NextRound.PrecommitVersion = 1
 	s.NextRound.VoteSummary.AvailablePower = s.Voting.VoteSummary.AvailablePower

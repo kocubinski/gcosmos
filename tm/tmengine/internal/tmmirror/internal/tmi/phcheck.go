@@ -17,6 +17,19 @@ type PHCheckResponse struct {
 	// so that the calling goroutine can validate the proposed header signature.
 	ProposerPubKey gcrypto.PubKey
 
+	// If the status is PHCheckAcceptable -- which can only happen when
+	// the proposed header matches the voting or committing heights --
+	// this is the hash of the previous block.
+	// If the proposed height is committing, this is the hash of the committed block.
+	// If the proposed height is voting, then this is the hash of the committing view's block.
+	//
+	// This byte slice must not be modified.
+	PrevBlockHash []byte
+
+	// The validator set corresponding to the PrevBlockHash.
+	// This value must also not be modified.
+	PrevValidatorSet tmconsensus.ValidatorSet
+
 	// If the status is PHCheckNextHeight, this is a clone of the voting view.
 	VotingRoundView *tmconsensus.RoundView
 }

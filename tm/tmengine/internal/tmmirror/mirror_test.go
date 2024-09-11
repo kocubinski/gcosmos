@@ -473,7 +473,7 @@ func TestMirror_HandleProposedHeader(t *testing.T) {
 		ph03 := mfx.Fx.NextProposedHeader([]byte("app_data_0_3"), 3)
 		mfx.Fx.SignProposal(ctx, &ph03, 3)
 
-		mfx.CommitInitialHeight(ctx, []byte("app_data_1"), 0, []int{0, 1, 2, 3})
+		mfx.CommitInitialHeight(ctx, []byte("app_state_1"), 3, []int{0, 1, 2, 3})
 
 		m := mfx.NewMirror()
 		defer m.Wait()
@@ -1986,6 +1986,8 @@ func TestMirror_stateMachineActions(t *testing.T) {
 		// Propose header at height 2.
 		ph2 := mfx.Fx.NextProposedHeader([]byte("app_data_2"), 0)
 		mfx.Fx.SignProposal(ctx, &ph2, 0)
+		require.Len(t, ph2.Header.PrevCommitProof.Proofs, 1) // Height 2 has the commit proof for 1.
+		require.NotNil(t, ph2.Header.PrevCommitProof.Proofs[string(ph2.Header.PrevBlockHash)])
 
 		require.Equal(t, tmconsensus.HandleProposedHeaderAccepted, m.HandleProposedHeader(ctx, ph2))
 
@@ -2010,6 +2012,7 @@ func TestMirror_stateMachineActions(t *testing.T) {
 		cv := gso.Committing
 		require.NotNil(t, cv)
 		require.Equal(t, uint64(2), cv.Height)
+		require.Len(t, cv.PrevCommitProof.Proofs, 1)
 
 		// Now height 1 is fully committed.
 		cb, err := mfx.Cfg.HeaderStore.LoadHeader(ctx, 1)
@@ -2028,7 +2031,7 @@ func TestMirror_stateMachineActions(t *testing.T) {
 
 		rer := gtest.ReceiveSoon(t, re.Response)
 
-		// The whole VRV is blank.
+		// The whole VRV in the round entrance is blank, because we got a committed header replay.
 		require.Zero(t, rer.VRV.Height)
 
 		// But the committed header matches what was in the store.

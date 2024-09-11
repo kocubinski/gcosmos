@@ -1126,7 +1126,7 @@ func (m *StateMachine) recordProposedBlock(
 
 			Height: h,
 
-			// TODO: previous commit proof. This should come from the mirror.
+			PrevCommitProof: rlc.PrevVRV.RoundView.PrevCommitProof,
 
 			ValidatorSet:     rlc.CurValSet,
 			NextValidatorSet: rlc.PrevFinNextValSet,
@@ -1614,7 +1614,6 @@ func (m *StateMachine) rejectMismatchedProposedHeaders(
 func (m *StateMachine) isParticipating(rlc *tsi.RoundLifecycle) bool {
 	if m.signer == nil {
 		// Can't participate if we can't sign.
-		m.log.Info("Not participating; signer==nil")
 		return false
 	}
 

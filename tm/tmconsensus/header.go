@@ -26,8 +26,7 @@ type Header struct {
 	// besides the committed one and nil.
 	PrevCommitProof CommitProof
 
-	// The validators for this block,
-	// and validators for the next block
+	// The validators for this block and the next block.
 	ValidatorSet, NextValidatorSet ValidatorSet
 
 	// ID of the data for this block.
