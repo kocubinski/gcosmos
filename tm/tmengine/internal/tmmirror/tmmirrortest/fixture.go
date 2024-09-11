@@ -173,6 +173,19 @@ func (f *Fixture) CommitInitialHeight(
 		panic(fmt.Errorf("failed to overwrite precommit proofs: %w", err))
 	}
 
+	// The kernel saves committing blocks to the header store,
+	// so do that here too.
+	if err := f.Cfg.HeaderStore.SaveHeader(ctx, tmconsensus.CommittedHeader{
+		Header: pb.Header,
+		Proof: tmconsensus.CommitProof{
+			Round:      0,
+			PubKeyHash: string(pb.Header.ValidatorSet.PubKeyHash),
+			Proofs:     f.Fx.SparsePrecommitProofMap(ctx, f.Cfg.InitialHeight, 0, voteMap),
+		},
+	}); err != nil {
+		panic(fmt.Errorf("failed to save header: %w", err))
+	}
+
 	// And mark the mirror store's updated height/round.
 	if err := f.Cfg.Store.SetNetworkHeightRound(tmmirror.NetworkHeightRound{
 		CommittingHeight: f.Cfg.InitialHeight,

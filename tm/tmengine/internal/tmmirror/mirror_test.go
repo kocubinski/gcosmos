@@ -3,6 +3,7 @@ package tmmirror_test
 import (
 	"context"
 	"fmt"
+	"maps"
 	"testing"
 
 	"github.com/rollchains/gordian/gcrypto"
@@ -1211,9 +1212,17 @@ func TestMirror_CommitToBlockStore(t *testing.T) {
 	}))
 
 	// Now on height 2, we have a committing view at height 1.
-	// Nothing should be in the header store yet.
-	_, err := mfx.Cfg.HeaderStore.LoadHeader(ctx, 1)
-	require.ErrorIs(t, err, tmconsensus.HeightUnknownError{Want: 1})
+	// So, the subjective commit for 1 should be in the header store.
+	h, err := mfx.Cfg.HeaderStore.LoadHeader(ctx, 1)
+	require.NoError(t, err)
+	require.Equal(t, tmconsensus.CommittedHeader{
+		Header: ph1.Header,
+		Proof: tmconsensus.CommitProof{
+			Round:      0,
+			PubKeyHash: keyHash,
+			Proofs:     mfx.Fx.SparsePrecommitProofMap(ctx, 1, 0, voteMap1),
+		},
+	}, h)
 
 	// Now propose and commit height 2.
 	ph2 := mfx.Fx.NextProposedHeader([]byte("app_data_2"), 0)
@@ -2014,9 +2023,22 @@ func TestMirror_stateMachineActions(t *testing.T) {
 		require.Equal(t, uint64(2), cv.Height)
 		require.Len(t, cv.PrevCommitProof.Proofs, 1)
 
-		// Now height 1 is fully committed.
-		cb, err := mfx.Cfg.HeaderStore.LoadHeader(ctx, 1)
+		// Now height 1 is fully committed (from the fixture).
+		ch1, err := mfx.Cfg.HeaderStore.LoadHeader(ctx, 1)
 		require.NoError(t, err)
+
+		// And height 2 is committed since we went through normal flow.
+		ch2, err := mfx.Cfg.HeaderStore.LoadHeader(ctx, 2)
+		require.NoError(t, err)
+		proofClone := maps.Clone(gso.Voting.PrevCommitProof.Proofs)
+		delete(proofClone, "") // TODO: the empty nil proof probably shouldn't be sent to gso in the first place.
+		require.Equal(t, tmconsensus.CommittedHeader{
+			Header: ph2.Header,
+			Proof: tmconsensus.CommitProof{
+				PubKeyHash: gso.Voting.PrevCommitProof.PubKeyHash,
+				Proofs:     proofClone,
+			},
+		}, ch2)
 
 		// So, if the state machine starts up now at height 1, by first sending its round entrance...
 		actionCh := make(chan tmeil.StateMachineRoundAction, 3)
@@ -2035,7 +2057,7 @@ func TestMirror_stateMachineActions(t *testing.T) {
 		require.Zero(t, rer.VRV.Height)
 
 		// But the committed header matches what was in the store.
-		require.Equal(t, cb, rer.CH)
+		require.Equal(t, ch1, rer.CH)
 
 		// Then if the state machine does all its work behind the scenes
 		// and then enters height 2:
@@ -2905,10 +2927,13 @@ func TestMirror_replayedHeaders(t *testing.T) {
 		gtest.SendSoon(t, mfx.ReplayedHeadersIn, req1)
 		_ = gtest.ReceiveSoon(t, respCh) // Response currently doesn't have anything meaningful.
 
-		// Following the request-response, the header is still not yet in the store.
-		// It's only been switched from the voting view to the committing view.
-		_, err = mfx.Cfg.HeaderStore.LoadHeader(ctx, 1)
-		require.ErrorIs(t, err, tmconsensus.HeightUnknownError{Want: 1})
+		// Now we have a committing header.
+		h, err := mfx.Cfg.HeaderStore.LoadHeader(ctx, 1)
+		require.NoError(t, err)
+		require.Equal(t, tmconsensus.CommittedHeader{
+			Header: ph1.Header,
+			Proof:  req1.Proof,
+		}, h)
 
 		// But the fresh data must be in the round store.
 		rs := mfx.Cfg.RoundStore
@@ -2946,12 +2971,12 @@ func TestMirror_replayedHeaders(t *testing.T) {
 		gtest.NotSending(t, respCh) // Temporary: ensuring channel is not closed.
 
 		// Now 2 is in committing and 3 is in voting,
-		// so 1 must be in the header store.
-		h, err := mfx.Cfg.HeaderStore.LoadHeader(ctx, 1)
+		// so 2 must be in the header store.
+		h, err = mfx.Cfg.HeaderStore.LoadHeader(ctx, 2)
 		require.NoError(t, err)
 		require.Equal(t, tmconsensus.CommittedHeader{
-			Header: req1.Header,
-			Proof:  req1.Proof,
+			Header: req2.Header,
+			Proof:  req2.Proof,
 		}, h)
 	})
 

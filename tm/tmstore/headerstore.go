@@ -7,7 +7,10 @@ import (
 )
 
 // HeaderStore is the store that the Engine's Mirror uses for committed block headers.
-// The committed headers always lag the voting round by two heights.
+// The committed headers always lag the voting round by one height.
+// The subsequent header's PrevCommitProof field is the canonical proof.
+// But while the engine is still voting on that height,
+// the [RoundStore] contains the most up to date previous commit proof for the committing header.
 //
 // The proofs associated with the committed headers must be considered subjective.
 // That is, while the proof is expected to represent >2/3 voting power for the header,

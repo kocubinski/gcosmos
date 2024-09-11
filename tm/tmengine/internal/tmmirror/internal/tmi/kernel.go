@@ -769,9 +769,11 @@ func (k *Kernel) checkVotingPrecommitViewShift(ctx context.Context, s *kState) e
 
 	// It was a precommit for a non-nil block.
 	hasPH := false
+	var votedHeader tmconsensus.Header
 	for _, ph := range vrv.ProposedHeaders {
 		if string(ph.Header.Hash) == committingHash {
 			hasPH = true
+			votedHeader = ph.Header
 			break
 		}
 	}
@@ -787,31 +789,12 @@ func (k *Kernel) checkVotingPrecommitViewShift(ctx context.Context, s *kState) e
 		return nil
 	}
 
-	var votedHeader tmconsensus.Header
-	for _, ph := range s.Voting.ProposedHeaders {
-		if string(ph.Header.Hash) == committingHash {
-			votedHeader = ph.Header
-			break
-		}
-	}
 	if votedHeader.Hash == nil {
 		// Still the zero value, which is an unsolved problem for now.
 		panic(fmt.Errorf(
 			"BUG: missed update; needed to fetch missing proposed block with hash %x",
 			committingHash,
 		))
-	}
-
-	// We are about to shift the voting view to committing,
-	// but first we need to persist the currently committing block.
-	if s.CommittingHeader.Height >= k.initialHeight {
-		ch := tmconsensus.CommittedHeader{
-			Header: s.CommittingHeader,
-			Proof:  votedHeader.PrevCommitProof,
-		}
-		if err := k.hStore.SaveHeader(ctx, ch); err != nil {
-			return fmt.Errorf("failed to save newly committed header: %w", err)
-		}
 	}
 
 	// TODO: gassert: verify incoming validator set's hashes.
@@ -833,6 +816,14 @@ func (k *Kernel) checkVotingPrecommitViewShift(ctx context.Context, s *kState) e
 	nhd.VotedHeader = votedHeader
 
 	s.ShiftVotingToCommitting(nhd)
+
+	// Since we have a new committing header,
+	// we store the subjective proof in the header store now.
+	if err := k.saveCurrentCommittingHeader(ctx, s); err != nil {
+		// Error message is already wrapped.
+		return err
+	}
+
 	if err := k.updateObservers(ctx, s); err != nil {
 		return err
 	}
@@ -842,6 +833,35 @@ func (k *Kernel) checkVotingPrecommitViewShift(ctx context.Context, s *kState) e
 		"height", s.CommittingHeader.Height-1, "hash", glog.Hex(s.CommittingHeader.PrevBlockHash),
 		"next_committing_height", s.CommittingHeader.Height, "next_committing_hash", glog.Hex(s.CommittingHeader.Hash),
 	)
+
+	return nil
+}
+
+// saveCurrentCommittingHeader saves s.CommittingHeader to the header store.
+func (k *Kernel) saveCurrentCommittingHeader(ctx context.Context, s *kState) error {
+	proof := s.Voting.PrevCommitProof
+
+	// TODO: gassert: confirm the voting proof is sufficient.
+
+	// If there is an empty nil proof, we don't want to persist that.
+	// We don't expect any non-nil hashes to be empty.
+	// TODO: it would probably be better to identify where the empty proof is originating
+	// and just stop adding it, instead of retroactively cloning and deleting.
+	// If we really can't stop adding it for some reason,
+	// this could potentially switch to a pool of proof maps instead,
+	// to avoid some allocations.
+	if sigs, ok := proof.Proofs[""]; ok && len(sigs) == 0 {
+		proof.Proofs = maps.Clone(proof.Proofs)
+		delete(proof.Proofs, "")
+	}
+
+	ch := tmconsensus.CommittedHeader{
+		Header: s.CommittingHeader,
+		Proof:  proof,
+	}
+	if err := k.hStore.SaveHeader(ctx, ch); err != nil {
+		return fmt.Errorf("failed to save newly committed header: %w", err)
+	}
 
 	return nil
 }
