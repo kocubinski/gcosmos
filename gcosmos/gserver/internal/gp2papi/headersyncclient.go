@@ -288,7 +288,6 @@ func (c *HeaderSyncClient) doFetch(ctx context.Context, height uint64, p libp2pp
 	}
 
 	if res.Err != "" {
-
 		if res.Err == "height unknown" {
 			// Special case of the height isn't ready.
 			// Assume we trust this peer.

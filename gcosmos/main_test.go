@@ -144,8 +144,6 @@ func TestRootCmd_startWithGordian_multipleValidators(t *testing.T) {
 	}
 
 	t.Run("adding a new validator catches up", func(t *testing.T) {
-		t.Skip("not ready yet")
-
 		if gci.RunCometInsteadOfGordian {
 			t.Skip("skipping due to not testing Gordian")
 		}
