@@ -7,11 +7,10 @@ package gserver
 import (
 	"github.com/rollchains/gordian/tm/tmengine"
 	"github.com/spf13/pflag"
-	"github.com/spf13/viper"
 )
 
 func addAssertRuleFlag(fs *pflag.FlagSet) {}
 
-func getAssertEngineOpt(v *viper.Viper) (_ tmengine.Opt, _ error) {
+func getAssertEngineOpt(cfg map[string]any) (_ tmengine.Opt, _ error) {
 	return
 }

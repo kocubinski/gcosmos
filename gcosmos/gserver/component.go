@@ -16,8 +16,8 @@ import (
 	cosmoslog "cosmossdk.io/log"
 	serverv2 "cosmossdk.io/server/v2"
 	"cosmossdk.io/store/v2/root"
+	cometconfig "github.com/cometbft/cometbft/config"
 	"github.com/cometbft/cometbft/privval"
-	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/codec"
 	"github.com/libp2p/go-libp2p"
 	libp2pevent "github.com/libp2p/go-libp2p/core/event"
@@ -42,7 +42,6 @@ import (
 	"github.com/rollchains/gordian/tm/tmstore/tmmemstore"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
-	"github.com/spf13/viper"
 )
 
 //go:generate go run github.com/rollchains/gordian/gassert/cmd/generate-nodebug component_debug.go
@@ -115,7 +114,7 @@ func (c *Component) Name() string {
 }
 
 // Init is called early in the SDK server component lifecycle, before Start.
-func (c *Component) Init(app serverv2.AppI[transaction.Tx], v *viper.Viper, log cosmoslog.Logger) error {
+func (c *Component) Init(app serverv2.AppI[transaction.Tx], cfg map[string]any, log cosmoslog.Logger) error {
 	if c.log == nil {
 		l, ok := log.Impl().(*slog.Logger)
 		if !ok {
@@ -126,19 +125,19 @@ func (c *Component) Init(app serverv2.AppI[transaction.Tx], v *viper.Viper, log 
 
 	// It's somewhat likely that a user could misconfigure the assertion rules in a debug build,
 	// so check those before doing any other heavy lifting.
-	assertOpt, err := getAssertEngineOpt(v)
+	assertOpt, err := getAssertEngineOpt(cfg)
 	if err != nil {
 		return fmt.Errorf("failed to build assertion environment: %w", err)
 	}
 
 	// Maybe set up the HTTP server.
-	if httpAddr := v.GetString(httpAddrFlag); httpAddr != "" {
+	if httpAddr, ok := cfg[httpAddrFlag].(string); ok && httpAddr != "" {
 		ln, err := net.Listen("tcp", httpAddr)
 		if err != nil {
 			return fmt.Errorf("failed to listen for HTTP on %q: %w", httpAddr, err)
 		}
 
-		if f := v.GetString(httpAddrFileFlag); f != "" {
+		if f, ok := cfg[httpAddrFileFlag].(string); ok && f != "" {
 			// TODO: we should probably track this file and delete it on shutdown.
 			addr := ln.Addr().String() + "\n"
 			if err := os.WriteFile(f, []byte(addr), 0600); err != nil {
@@ -150,7 +149,7 @@ func (c *Component) Init(app serverv2.AppI[transaction.Tx], v *viper.Viper, log 
 	}
 
 	// Maybe set up the GRPC server.
-	if grpcAddrFlag := v.GetString(grpcAddrFlag); grpcAddrFlag != "" {
+	if grpcAddrFlag, ok := cfg[grpcAddrFlag].(string); ok && grpcAddrFlag != "" {
 		ln, err := net.Listen("tcp", grpcAddrFlag)
 		if err != nil {
 			return fmt.Errorf("failed to listen for gRPC on %q: %w", grpcAddrFlag, err)
@@ -159,7 +158,9 @@ func (c *Component) Init(app serverv2.AppI[transaction.Tx], v *viper.Viper, log 
 		c.grpcLn = ln
 	}
 
-	c.seedAddrs = v.GetString(seedAddrsFlag)
+	if sa, ok := cfg[seedAddrsFlag].(string); ok {
+		c.seedAddrs = sa
+	}
 	if c.seedAddrs == "" {
 		c.log.Warn("No seed addresses provided; relying on incoming connections to discover peers")
 	}
@@ -171,7 +172,12 @@ func (c *Component) Init(app serverv2.AppI[transaction.Tx], v *viper.Viper, log 
 	// but we need to to call LoadFilePV,
 	// to get to the FilePVKey,
 	// which gives us the PrivKey.
-	cometConfig := client.GetConfigFromViper(v)
+	homeDir := cfg["home"].(string)
+	cometConfig := cometconfig.DefaultConfig().SetRoot(homeDir)
+	if err := serverv2.UnmarshalSubConfig(cfg, "", &cometConfig); err != nil {
+		return fmt.Errorf("failed to unmarshal comet config (to get private key info): %w", err)
+	}
+
 	fpv := privval.LoadFilePV(cometConfig.PrivValidatorKeyFile(), cometConfig.PrivValidatorStateFile())
 	privKey := fpv.Key.PrivKey
 	if privKey.Type() != "ed25519" {
@@ -203,7 +209,6 @@ func (c *Component) Init(app serverv2.AppI[transaction.Tx], v *viper.Viper, log 
 	c.ms = ms
 
 	// Is it possible for the genesis path to ever be rooted somewhere else?
-	homeDir := v.GetString("home")
 	genesisPath := filepath.Join(homeDir, "config", "genesis.json")
 	gf, err := os.Open(genesisPath)
 	if err != nil {
@@ -572,6 +577,12 @@ const (
 	seedAddrsFlag = "g-seed-addrs"
 )
 
+// StartCmdFlags satisfies the optional [serverv2.HasStartFlags] interface,
+// which adds the returned flagset to the flags for "$app start".
+//
+// The configured values are then available in the config map passed to [*Component.Init];
+// the flag names are top level keys in the config map,
+// with values corresponding to the command line flag values.
 func (c *Component) StartCmdFlags() *pflag.FlagSet {
 	flags := pflag.NewFlagSet("gserver", pflag.ExitOnError)
 

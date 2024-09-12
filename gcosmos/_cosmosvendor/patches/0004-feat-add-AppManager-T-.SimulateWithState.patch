@@ -1,7 +1,7 @@
-From c90adb8442177aa748c22a0fdfcb2c648eca51e1 Mon Sep 17 00:00:00 2001
+From 8875ce124adf1ca6cef3a25b84efd17c2c53e2e5 Mon Sep 17 00:00:00 2001
 From: Mark Rushakoff <mark@strange.love>
 Date: Mon, 29 Jul 2024 11:57:21 -0400
-Subject: [PATCH 5/7] feat: add (AppManager[T]).SimulateWithState
+Subject: [PATCH 4/6] feat: add (AppManager[T]).SimulateWithState
 
 I think we can use simulation to determine whether an incoming
 transaction is acceptable, but if we had any prior transactions, they
