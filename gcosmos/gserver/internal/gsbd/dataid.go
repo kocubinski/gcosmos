@@ -2,7 +2,6 @@ package gsbd
 
 import (
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -38,28 +37,48 @@ func TxsHash(txs []transaction.Tx) [txsHashSize]byte {
 	return out
 }
 
+// DataID returns a string formatted as:
+//
+//	HEIGHT:ROUND:NUM_TXs:DATA_LEN:HASH(TXs)
+//
+// Where the HEIGHT, ROUND, and NUM_TXs are written as decimal numbers in ASCII,
+// so that they are easily human-readable.
+// DATA_LEN is the length of the raw data in bytes,
+// encoded in lowercase hexadecimal to slightly shorten the data ID,
+// and because it is less important that this value is human-readable.
+// HASH(TXs) is the blake2b hash of the concatenation
+// of every transaction in txs, formatted as lowercase hex-encoded bytes.
 func DataID(
 	height uint64,
 	round uint32,
+	dataLen uint32,
 	txs []transaction.Tx,
 ) string {
 	if len(txs) == 0 {
+		if dataLen != 0 {
+			panic(fmt.Errorf("BUG: got dataLen=%d with 0 transactions", dataLen))
+		}
+
 		return fmt.Sprintf("%d:%d%s", height, round, zeroHashSuffix)
 	}
 
-	return fmt.Sprintf("%d:%d:%d:%x", height, round, len(txs), TxsHash(txs))
+	return fmt.Sprintf("%d:%d:%d:%x:%x", height, round, len(txs), dataLen, TxsHash(txs))
 }
 
 func ParseDataID(id string) (
 	height uint64, round uint32,
 	nTxs int,
+	dataLen uint32,
 	txsHash [txsHashSize]byte,
 	err error,
 ) {
 	if hr, ok := strings.CutSuffix(id, zeroHashSuffix); ok {
 		parts := strings.SplitN(hr, ":", 3) // Yes, 3, not 2.
 		if len(parts) != 2 {
-			err = errors.New("invalid data ID format; expected HEIGHT:ROUND:N_TXS:TXS_HASH")
+			// Should be left with only height and round.
+			err = fmt.Errorf(
+				"invalid data ID format; expected HEIGHT:ROUND:N_TXS:DATA_LEN:TXS_HASH; got %q", id,
+			)
 			return
 		}
 
@@ -77,15 +96,18 @@ func ParseDataID(id string) (
 		}
 		round = uint32(u64)
 
-		// nTxs is already initialized to zero, don't need to reassign.
+		// nTxs and dataLen are already initialized to zero, don't need to reassign.
+
 		copy(txsHash[:], zeroHash)
 
 		return
 	}
 
-	parts := strings.SplitN(id, ":", 5) // Yes, 5, not 4.
-	if len(parts) != 4 {
-		err = errors.New("invalid data ID format; expected HEIGHT:ROUND:N_TXS:TXS_HASH")
+	parts := strings.SplitN(id, ":", 6) // Yes, 6, not 5.
+	if len(parts) != 5 {
+		err = fmt.Errorf(
+			"invalid data ID format; expected HEIGHT:ROUND:N_TXS:DATA_LEN:TXS_HASH; got %q", id,
+		)
 		return
 	}
 
@@ -109,12 +131,20 @@ func ParseDataID(id string) (
 	}
 	nTxs = int(s64)
 
-	if wantLen := hex.EncodedLen(txsHashSize); len(parts[3]) != wantLen {
-		// We could check this earlier to avoid work in parsing the numbers.
-		err = fmt.Errorf("wrong length for txs hash; want %d, got %d", wantLen, len(parts[3]))
+	// The data length is encoded in, and therefore also parsed in, hexadecimal.
+	u64, err = strconv.ParseUint(parts[3], 16, 32)
+	if err != nil {
+		err = fmt.Errorf("failed to parse data length: %w", err)
 		return
 	}
-	_, err = hex.AppendDecode(txsHash[:0], []byte(parts[3]))
+	dataLen = uint32(u64)
+
+	if wantLen := hex.EncodedLen(txsHashSize); len(parts[4]) != wantLen {
+		// We could check this earlier to avoid work in parsing the numbers.
+		err = fmt.Errorf("wrong length for txs hash; want %d, got %d", wantLen, len(parts[4]))
+		return
+	}
+	_, err = hex.AppendDecode(txsHash[:0], []byte(parts[4]))
 	if err != nil {
 		err = fmt.Errorf("failed to decode txs hash: %w", err)
 		return

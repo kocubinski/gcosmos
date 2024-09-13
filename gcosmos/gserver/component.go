@@ -49,6 +49,7 @@ import (
 // The various interfaces we expect a Component to satisfy.
 var (
 	_ serverv2.ServerComponent[transaction.Tx] = (*Component)(nil)
+	_ serverv2.HasStartFlags                   = (*Component)(nil)
 )
 
 // Component is a server component to be injected into the Cosmos SDK server module.

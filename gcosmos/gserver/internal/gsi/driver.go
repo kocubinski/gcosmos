@@ -2,6 +2,7 @@ package gsi
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -348,15 +349,16 @@ func (d *Driver) handleFinalization(ctx context.Context, req tmdriver.FinalizeBl
 		return false
 	}
 
-	a, err := BlockAnnotationFromBytes(req.Header.Annotations.Driver)
-	if err != nil {
+	var ba BlockAnnotation
+	if err := json.Unmarshal(req.Header.Annotations.Driver, &ba); err != nil {
 		d.log.Warn(
 			"Failed to extract driver annotation from finalize block request",
 			"err", err,
 		)
 		return false
 	}
-	blockTime, err := a.BlockTimeAsTime()
+
+	blockTime, err := ba.Time()
 	if err != nil {
 		d.log.Warn(
 			"Failed to parse block time from driver annotation",

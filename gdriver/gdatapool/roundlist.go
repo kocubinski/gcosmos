@@ -14,6 +14,10 @@ type roundList struct {
 	Height uint64
 	Round  uint32
 
+	// The context for the current round.
+	// The [Pool] cancels this context,
+	// with the [errRoundOver] sentinel error as a Cause,
+	// upon entering a later round.
 	Ctx context.Context
 
 	Next *roundList
@@ -28,7 +32,7 @@ func (r *roundList) FastForward() (didAdvance, quit bool) {
 		select {
 		case <-r.Ctx.Done():
 			if cause := context.Cause(r.Ctx); cause != errRoundOver {
-				// Shouldn't really amtter if we advanced when quit=true,
+				// Shouldn't really matter if we advanced when quit=true,
 				// but report it anyway.
 				return didAdvance, true
 			}

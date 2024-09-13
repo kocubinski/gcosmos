@@ -22,10 +22,6 @@ type ProvideResult struct {
 	// DataID should be set at the DataID field in a [tmconsensus.Proposal].
 	DataID string
 
-	// The DataSize indicates the size of the uncompressed,
-	// serialized transactions.
-	DataSize int
-
 	// Addrs is the list of locations where the data has been provided.
 	Addrs []Location
 }

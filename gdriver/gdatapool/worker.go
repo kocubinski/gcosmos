@@ -40,6 +40,8 @@ func (w *worker[T]) Run(
 
 		case req := <-retrieveRequests:
 			// Incoming retrieve request.
+			// We were contending with other workers for this single request,
+			// and we got it first.
 
 			// If this looks old, discard it.
 			if req.Height < w.roundList.Height || (req.Height == w.roundList.Height && req.Round < w.roundList.Round) {

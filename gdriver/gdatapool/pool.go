@@ -151,9 +151,11 @@ func (p *Pool[T]) Wait() {
 }
 
 // Need marks a data ID as required.
-// The formats of both the dataID and encodedAddrs are implementation-specific.
+// The formats of both the dataID and metadata are implementation-specific.
 // Subsequent calls with the same dataID are ignored,
 // until a new call to EnterRound.
+//
+// Need is not safe to be called concurrently.
 func (p *Pool[T]) Need(height uint64, round uint32, dataID string, metadata []byte) {
 	if _, have := p.curRequests[dataID]; have {
 		p.log.Debug("Ignoring repeated request for same data ID", "data_id", dataID)
@@ -218,6 +220,8 @@ func (p *Pool[T]) SetAvailable(dataID string, metadata []byte, value T) {
 	// Not sending this request to workers.
 }
 
+// EnterRound notifies the Pool that the given height and round
+// are the current focus for retrieving block data.
 func (p *Pool[T]) EnterRound(ctx context.Context, height uint64, round uint32) {
 	req := enterRoundRequest{H: height, R: round, Handled: make(chan struct{})}
 	_, _ = gchan.ReqResp(

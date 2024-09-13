@@ -19,8 +19,8 @@ import (
 	libp2pprotocol "github.com/libp2p/go-libp2p/core/protocol"
 )
 
-// TODO: this prefix needs to change to make it more evidently
-// associated with only the proposer.
+// This prefix is used by both the proposer hosting block data,
+// and "full nodes" hosting block data despite not being the proposer.
 const blockDataV1Prefix = "/gordian/blockdata/v1/"
 
 type Libp2pHost struct {
@@ -62,7 +62,7 @@ func (h *Libp2pHost) Provide(
 		)
 	}
 
-	dataID := DataID(height, round, pendingTxs)
+	dataID := DataID(height, round, uint32(len(j)), pendingTxs)
 
 	pID := libp2pprotocol.ID(blockDataV1Prefix + dataID)
 	h.host.SetStreamHandler(pID, h.makeBlockDataHandler(j))
@@ -83,9 +83,8 @@ func (h *Libp2pHost) Provide(
 	}
 
 	return ProvideResult{
-		DataID:   dataID,
-		DataSize: len(j),
-		Addrs:    locs,
+		DataID: dataID,
+		Addrs:  locs,
 	}, nil
 }
 
@@ -162,13 +161,12 @@ func (c *Libp2pClient) Retrieve(
 	ctx context.Context,
 	ai libp2ppeer.AddrInfo,
 	dataID string,
-	expDecodedSize int,
 ) ([]transaction.Tx, error) {
 	// Parse the data ID before anything else.
 	// We don't need the height or round,
 	// so we could potentially justify a lighter weight parser...
 	// but this isn't really in a hot path, so it's probably fine.
-	_, _, nTxs, txsHash, err := ParseDataID(dataID)
+	_, _, nTxs, dataLen, txsHash, err := ParseDataID(dataID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse data ID: %w", err)
 	}
@@ -200,7 +198,7 @@ func (c *Libp2pClient) Retrieve(
 	case uncompressedHeader:
 		panic("TODO")
 	case snappyHeader:
-		encoded, err = c.readSnappy(expDecodedSize, s)
+		encoded, err = c.readSnappy(int(dataLen), s)
 		if err != nil {
 			return nil, err
 		}

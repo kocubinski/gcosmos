@@ -105,7 +105,7 @@ func TestLibp2p_roundTrip(t *testing.T) {
 			client.Host().Libp2pHost(),
 			gccodec.NewTxDecoder(txCfg),
 		)
-		gotTxs, err := c.Retrieve(ctx, ai, res.DataID, res.DataSize)
+		gotTxs, err := c.Retrieve(ctx, ai, res.DataID)
 		require.NoError(t, err)
 		require.Len(t, gotTxs, 1)
 		RequireEqualTx(t, sendTx, gotTxs[0])
@@ -125,7 +125,7 @@ func TestLibp2p_roundTrip(t *testing.T) {
 			client.Host().Libp2pHost(),
 			gccodec.NewTxDecoder(txCfg),
 		)
-		gotTxs, err := c.Retrieve(ctx, ai, res.DataID, res.DataSize)
+		gotTxs, err := c.Retrieve(ctx, ai, res.DataID)
 		require.NoError(t, err)
 		require.Len(t, gotTxs, 2)
 		RequireEqualTx(t, sendTx, gotTxs[0])
@@ -266,13 +266,17 @@ func TestLibp2p_errors(t *testing.T) {
 	// a whole set of error types for this narrow use case.
 
 	t.Run("correct count=1 but wrong hash", func(t *testing.T) {
-		pID := libp2pprotocol.ID("/gordian/blockdata/v1/" + justSendRes.DataID)
+		origDataID := justDelegateRes.DataID
+		modifiedID := []byte(origDataID)
+		modifiedID[len(modifiedID)-1]-- // Last byte appears to be 'f' so we have to decrement to keep it valid hex.
+
+		pID := libp2pprotocol.ID("/gordian/blockdata/v1/" + string(modifiedID))
 		tempClient.Host().Libp2pHost().SetStreamHandler(pID, func(s libp2pnetwork.Stream) {
 			defer s.Close()
 			_, _ = io.Copy(s, bytes.NewReader(justDelegateData))
 		})
 
-		_, err := goodProvideClient.Retrieve(ctx, badAddrInfo, justSendRes.DataID, justDelegateRes.DataSize)
+		_, err := goodProvideClient.Retrieve(ctx, badAddrInfo, string(modifiedID))
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "transactions hash")
 	})
@@ -289,20 +293,26 @@ func TestLibp2p_errors(t *testing.T) {
 				_, _ = io.Copy(s, bytes.NewReader(justSendData))
 			})
 
-		_, err := goodProvideClient.Retrieve(ctx, badAddrInfo, badID, justSendRes.DataSize)
+		_, err := goodProvideClient.Retrieve(ctx, badAddrInfo, badID)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "incorrect number of encoded transactions")
 	})
 
 	t.Run("all correct but wrong expected uncompressed size", func(t *testing.T) {
+		origID := sendThenDelegateRes.DataID
+		modifiedID := []byte(origID)
+
+		endOfSize := bytes.LastIndex(modifiedID, []byte(":"))
+		modifiedID[endOfSize-1]++
+
 		tempClient.Host().Libp2pHost().SetStreamHandler(
-			"/gordian/blockdata/v1/"+libp2pprotocol.ID(sendThenDelegateRes.DataID),
+			"/gordian/blockdata/v1/"+libp2pprotocol.ID(string(modifiedID)),
 			func(s libp2pnetwork.Stream) {
 				defer s.Close()
 				_, _ = io.Copy(s, bytes.NewReader(sendThenDelegateData))
 			})
 
-		_, err := goodProvideClient.Retrieve(ctx, badAddrInfo, sendThenDelegateRes.DataID, sendThenDelegateRes.DataSize+1)
+		_, err := goodProvideClient.Retrieve(ctx, badAddrInfo, string(modifiedID))
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "decoded length")
 		require.Contains(t, err.Error(), "differed from expected size")
@@ -316,7 +326,7 @@ func TestLibp2p_errors(t *testing.T) {
 				_, _ = io.Copy(s, bytes.NewReader(delegateThenSendData[:len(delegateThenSendData)-20]))
 			})
 
-		_, err := goodProvideClient.Retrieve(ctx, badAddrInfo, delegateThenSendRes.DataID, delegateThenSendRes.DataSize)
+		_, err := goodProvideClient.Retrieve(ctx, badAddrInfo, delegateThenSendRes.DataID)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "failed to read full compressed data")
 	})
@@ -333,7 +343,7 @@ func TestLibp2p_errors(t *testing.T) {
 				_, _ = io.Copy(s, bytes.NewReader(corrupt))
 			})
 
-		_, err := goodProvideClient.Retrieve(ctx, badAddrInfo, delegateThenSendRes.DataID, delegateThenSendRes.DataSize)
+		_, err := goodProvideClient.Retrieve(ctx, badAddrInfo, delegateThenSendRes.DataID)
 		require.Error(t, err)
 		// Not asserting anything particular about this message.
 	})

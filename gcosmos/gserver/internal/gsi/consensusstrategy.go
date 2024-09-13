@@ -71,25 +71,18 @@ func (s *ConsensusStrategy) Wait() {
 	s.pool.Wait()
 }
 
+// BlockAnnotation is the data encoded as a block annotation.
+// Block annotations are persisted on-chain,
+// unlike proposal annotations which are not persisted to chain.
 type BlockAnnotation struct {
-	BlockTime string `json:"block_time"`
+	// The time that the proposer said that it proposed the block.
+	// S suffix indicating string, to allow the Time method to exist without a name conflict.
+	TimeS string `json:"Time"`
 }
 
-func NewBlockAnnotation(blockTime time.Time) ([]byte, error) {
-	ba := BlockAnnotation{
-		BlockTime: blockTime.Format(time.RFC3339Nano),
-	}
-	return json.Marshal(ba)
-}
-
-func BlockAnnotationFromBytes(b []byte) (BlockAnnotation, error) {
-	var ba BlockAnnotation
-	err := json.Unmarshal(b, &ba)
-	return ba, err
-}
-
-func (ba BlockAnnotation) BlockTimeAsTime() (time.Time, error) {
-	return time.Parse(time.RFC3339, ba.BlockTime)
+// Time parses and returns the time value from the annotation.
+func (ba BlockAnnotation) Time() (time.Time, error) {
+	return time.Parse(time.RFC3339, ba.TimeS)
 }
 
 func (c *ConsensusStrategy) EnterRound(
@@ -118,9 +111,12 @@ func (c *ConsensusStrategy) EnterRound(
 		))
 	}
 
-	ba, err := NewBlockAnnotation(time.Now())
+	ba, err := json.Marshal(BlockAnnotation{
+		// TODO: this needs something much more sophisticated than just time.Now.
+		TimeS: time.Now().UTC().Format(time.RFC3339),
+	})
 	if err != nil {
-		return fmt.Errorf("failed to create block annotation: %w", err)
+		return fmt.Errorf("failed to marshal block driver annotations: %w", err)
 	}
 
 	pendingTxs := c.txBuf.Buffered(ctx, nil)
@@ -128,7 +124,7 @@ func (c *ConsensusStrategy) EnterRound(
 	var blockDataID string
 	var pda []byte
 	if len(pendingTxs) == 0 {
-		blockDataID = gsbd.DataID(c.curH, c.curR, nil)
+		blockDataID = gsbd.DataID(c.curH, c.curR, 0, nil)
 	} else {
 		res, err := c.provider.Provide(ctx, c.curH, c.curR, pendingTxs)
 		if err != nil {
@@ -136,7 +132,6 @@ func (c *ConsensusStrategy) EnterRound(
 		}
 
 		pda, err = json.Marshal(ProposalDriverAnnotation{
-			DataSize:  res.DataSize,
 			Locations: res.Addrs,
 		})
 		if err != nil {
@@ -164,6 +159,7 @@ func (c *ConsensusStrategy) EnterRound(
 	) {
 		return context.Cause(ctx)
 	}
+
 	return nil
 }
 
@@ -198,7 +194,7 @@ PH_LOOP:
 			continue
 		}
 
-		h, r, nTxs, _, err := gsbd.ParseDataID(string(ph.Header.DataID))
+		h, r, nTxs, _, _, err := gsbd.ParseDataID(string(ph.Header.DataID))
 		if err != nil {
 			c.log.Debug(
 				"Ignoring proposed block due to unparseable app data ID",
@@ -278,8 +274,8 @@ PH_LOOP:
 			}
 		}
 
-		ba, err := BlockAnnotationFromBytes(ph.Header.Annotations.Driver)
-		if err != nil {
+		var ba BlockAnnotation
+		if err := json.Unmarshal(ph.Header.Annotations.Driver, &ba); err != nil {
 			c.log.Debug(
 				"Ignoring proposed block due to error extracting block annotation",
 				"h", c.curH, "r", c.curR, "err", err,
@@ -287,7 +283,7 @@ PH_LOOP:
 			continue
 		}
 
-		bt, err := ba.BlockTimeAsTime()
+		bt, err := ba.Time()
 		if err != nil {
 			c.log.Debug(
 				"Ignoring proposed block due to error extracting block time from annotation",

@@ -36,8 +36,9 @@ func main() {
 // The hash of no input, indicating that no transactions were included.
 const zeroHash = "` + hex.EncodeToString(zeroHash) + `"
 
-// The suffix of the app data ID including nTxs=0 and the corresponding hash.
-const zeroHashSuffix = ":0:" + zeroHash
+// The suffix of the app data ID including nTxs=0,
+// data_len=0, and the corresponding hash.
+const zeroHashSuffix = ":0:0:" + zeroHash
 `
 
 	if err := os.WriteFile("dataid_zero.go", []byte(program), 0o644); err != nil {

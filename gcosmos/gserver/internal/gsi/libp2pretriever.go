@@ -47,7 +47,7 @@ func (r *libp2pRetriever) Retrieve(
 			continue
 		}
 
-		txs, err := r.c.Retrieve(ctx, ai, dataID, pda.DataSize)
+		txs, err := r.c.Retrieve(ctx, ai, dataID)
 		if err != nil {
 			// On error to retrieve the data, there is nothing we can really do.
 			// Maybe we could accumulate this error into a joined error?
