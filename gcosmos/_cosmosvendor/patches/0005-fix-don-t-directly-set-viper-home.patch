@@ -1,4 +1,4 @@
-From 5890ee7be41f7a9f2c10f720524ded99d4457e8d Mon Sep 17 00:00:00 2001
+From 72beea63a03ffbcb4dcb670d60a28b310b7934f8 Mon Sep 17 00:00:00 2001
 From: Mark Rushakoff <mark.rushakoff@gmail.com>
 Date: Fri, 16 Aug 2024 10:01:38 -0400
 Subject: [PATCH 5/6] fix: don't directly set viper home
@@ -7,23 +7,22 @@ Setting these prevents the --home flag from being respected. The
 inability to set --home in test prevents multiple simapp instances from
 running in the same process.
 ---
- simapp/v2/simdv2/cmd/commands.go | 3 ---
- 1 file changed, 3 deletions(-)
+ simapp/v2/simdv2/cmd/commands.go | 2 --
+ 1 file changed, 2 deletions(-)
 
 diff --git a/simapp/v2/simdv2/cmd/commands.go b/simapp/v2/simdv2/cmd/commands.go
-index 5c155dfa77..122f66c66c 100644
+index c55ad96c77..18c08a2712 100644
 --- a/simapp/v2/simdv2/cmd/commands.go
 +++ b/simapp/v2/simdv2/cmd/commands.go
-@@ -36,8 +36,6 @@ import (
- func newApp[T transaction.Tx](
- 	logger log.Logger, viper *viper.Viper,
- ) serverv2.AppI[T] {
+@@ -34,7 +34,6 @@ import (
+ )
+ 
+ func newApp[T transaction.Tx](logger log.Logger, viper *viper.Viper) serverv2.AppI[T] {
 -	viper.Set(serverv2.FlagHome, simapp.DefaultNodeHome)
--
- 	return serverv2.AppI[T](
- 		simapp.NewSimApp[T](logger, viper))
+ 	return serverv2.AppI[T](simapp.NewSimApp[T](logger, viper))
  }
-@@ -167,7 +165,6 @@ func appExport[T transaction.Tx](
+ 
+@@ -163,7 +162,6 @@ func appExport[T transaction.Tx](
  
  	// overwrite the FlagInvCheckPeriod
  	viper.Set(server.FlagInvCheckPeriod, 1)
