@@ -1,7 +1,6 @@
 package gsbd
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/binary"
@@ -162,13 +161,9 @@ func (c *Libp2pClient) Retrieve(
 	ai libp2ppeer.AddrInfo,
 	dataID string,
 ) ([]transaction.Tx, error) {
-	// Parse the data ID before anything else.
-	// We don't need the height or round,
-	// so we could potentially justify a lighter weight parser...
-	// but this isn't really in a hot path, so it's probably fine.
-	_, _, nTxs, dataLen, txsHash, err := ParseDataID(dataID)
+	dec, err := NewBlockDataDecoder(dataID, c.decoder)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse data ID: %w", err)
+		return nil, fmt.Errorf("failed to make block data decoder: %w", err)
 	}
 
 	// Ensure we have a connection.
@@ -188,154 +183,9 @@ func (c *Libp2pClient) Retrieve(
 		// Okay to continue anyway?
 	}
 
-	var firstByte [1]byte
-	if _, err := s.Read(firstByte[:]); err != nil {
-		return nil, fmt.Errorf("failed to read first byte from stream: %w", err)
-	}
-
-	var encoded []byte
-	switch firstByte[0] {
-	case uncompressedHeader:
-		panic("TODO")
-	case snappyHeader:
-		encoded, err = c.readSnappy(int(dataLen), s)
-		if err != nil {
-			return nil, err
-		}
-	default:
-		return nil, fmt.Errorf("unrecognized header byte %x", firstByte[0])
-	}
-
-	// We're done reading data, so close the connection now.
-	_ = s.Close()
-
-	return c.decode(encoded, nTxs, txsHash)
-}
-
-func (c *Libp2pClient) readSnappy(
-	expDecodedSize int,
-	s libp2pnetwork.Stream,
-) ([]byte, error) {
-	// The next "header" section following the type header,
-	// is the compressed size as a uvarint.
-	//
-	// To read that varint, we need an io.ByteReader.
-	// The Stream type does not directly implement ByteReader,
-	// so per the io.ByteReader docs we use a bufio.Reader instead.
-	//
-	// We only buffer the maximum size of a 64 bit varint.
-	// That's probably more than we need, but it's fine.
-	cSizeReader := bufio.NewReaderSize(s, binary.MaxVarintLen64)
-	cSize64, err := binary.ReadVarint(cSizeReader)
+	txs, err := dec.Decode(s)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read compressed size: %w", err)
-	}
-	cSize := int(cSize64)
-	if cSize <= 0 {
-		return nil, fmt.Errorf(
-			"invalid compressed size: %d (%d as 64-bit) must be positive",
-			cSize, cSize64,
-		)
-	}
-
-	maxCSize := snappy.MaxEncodedLen(expDecodedSize)
-	if cSize > maxCSize {
-		return nil, fmt.Errorf(
-			"invalid compressed size: %d larger than max snappy-encoded size %d of %d",
-			cSize, maxCSize, expDecodedSize,
-		)
-	}
-
-	// Now that we know the size of the compressed data,
-	// we can read it into an appropriately sized buffer.
-	// Unfortunately, we may have some of the compressed data remaining in the varint reader,
-	// so we need to concatenate its remaining data with whatever is left in the stream.
-	buffered, err := cSizeReader.Peek(cSizeReader.Buffered())
-	if err != nil {
-		return nil, fmt.Errorf("impossible: failed to peek buffered length: %w", err)
-	}
-
-	r := io.MultiReader(bytes.NewReader(buffered), s)
-	cBuf := make([]byte, cSize)
-	if _, err := io.ReadFull(r, cBuf); err != nil {
-		return nil, fmt.Errorf("failed to read full compressed data: %w", err)
-	}
-
-	// Now, we finally have the full compressed data.
-	// Before allocating the slice for the uncompressed version,
-	// double check that the uncompressed size will match.
-	uSize, err := snappy.DecodedLen(cBuf)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read decoded length from compressed data: %w", err)
-	}
-	if uSize != expDecodedSize {
-		return nil, fmt.Errorf(
-			"compressed data's decoded length %d differed from expected size %d",
-			uSize, expDecodedSize,
-		)
-	}
-
-	// Decoding into nil will right-size the output buffer anyway.
-	// This could potentially use a sync.Pool to reuse allocations,
-	// but right now we don't have sufficient information to justify that.
-	u, err := snappy.Decode(nil, cBuf)
-	if err != nil {
-		return nil, fmt.Errorf("failed to decode snappy data: %w", err)
-	}
-
-	if len(u) != expDecodedSize {
-		return nil, fmt.Errorf(
-			"impossible: decoded length %d differed from expected length %d",
-			len(u), expDecodedSize,
-		)
-	}
-
-	return u, nil
-}
-
-func (c *Libp2pClient) decode(
-	encoded []byte,
-	expNTxs int,
-	expTxsHash [txsHashSize]byte,
-) ([]transaction.Tx, error) {
-	// The encoded data is currently a JSON array of byte slices.
-	// Not efficient, but simple to use.
-	var items [][]byte
-	if err := json.Unmarshal(encoded, &items); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal retrieved data: %w", err)
-	}
-	if len(items) != expNTxs {
-		return nil, fmt.Errorf(
-			"unmarshalled incorrect number of encoded transactions: want %d, got %d",
-			expNTxs, len(items),
-		)
-	}
-
-	txs := make([]transaction.Tx, len(items))
-	for i := range items {
-		tx, err := c.decoder.Decode(items[i])
-		if err != nil {
-			return nil, fmt.Errorf("failed to decode transaction at index %d: %w", i, err)
-		}
-
-		txs[i] = tx
-
-		// Possibly help GC by removing the reference to the decoded byte slice
-		// as soon as we're done with it.
-		items[i] = nil
-	}
-
-	// Finally, confirm the full transaction hash.
-	// If this ends up being a hot path in CPU use,
-	// we could potentially accumulate the individual transaction hashes
-	// while decoding the transactions.
-	// But, doing it late is probably the better defensive choice.
-	gotTxsHash := TxsHash(txs)
-	if gotTxsHash != expTxsHash {
-		return nil, fmt.Errorf(
-			"decoded transactions hash %x differed from input %x",
-			gotTxsHash, expTxsHash,
-		)
+		return nil, fmt.Errorf("failed to decode block data: %w", err)
 	}
 
 	return txs, nil

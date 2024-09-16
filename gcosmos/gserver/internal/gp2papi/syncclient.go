@@ -1,6 +1,7 @@
 package gp2papi
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -11,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"cosmossdk.io/core/transaction"
 	libp2phost "github.com/libp2p/go-libp2p/core/host"
 	libp2ppeer "github.com/libp2p/go-libp2p/core/peer"
 	libp2pprotocol "github.com/libp2p/go-libp2p/core/protocol"
@@ -380,7 +382,39 @@ func (c *SyncClient) doFetch(ctx context.Context, height uint64, p libp2ppeer.ID
 		}
 	}
 
-	// TODO: what are we going to do with fbr.BlockData?
+	var txs []transaction.Tx
+	if false && len(fbr.BlockData) > 0 {
+		// TODO: enable once we have a txDecoder.
+		var txDecoder transaction.Codec[transaction.Tx]
+		dec, err := gsbd.NewBlockDataDecoder(string(ch.Header.DataID), txDecoder)
+		if err != nil {
+			c.log.Info(
+				"Got error when creating block decoder",
+				"peer_id", p,
+				"height", height,
+				"err", err,
+			)
+			return fetchResult{
+				ExcludePeer: true,
+			}
+		}
+
+		txs, err = dec.Decode(bytes.NewReader(fbr.BlockData))
+		if err != nil {
+			c.log.Info(
+				"Got error when parsing block data",
+				"peer_id", p,
+				"height", height,
+				"err", err,
+			)
+			return fetchResult{
+				ExcludePeer: true,
+			}
+		}
+	}
+
+	// TODO: use txs.
+	_ = txs
 
 	// Now we have a committed header, so we have to send it to the engine.
 	respCh := make(chan tmelink.ReplayedHeaderResponse, 1)
