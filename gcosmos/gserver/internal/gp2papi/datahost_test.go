@@ -103,7 +103,7 @@ func TestDataHost_fullBlock(t *testing.T) {
 			Proof:  nextPH.Header.PrevCommitProof,
 		}))
 
-		// There is no validation on the block data,
+		// There is no host-side validation on the block data,
 		// so we can just store an arbitrary string.
 		require.NoError(t, dhfx.BlockDataStore.SaveBlockData(
 			ctx,

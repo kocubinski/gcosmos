@@ -8,6 +8,7 @@ import (
 
 // ReplayedHeaderRequest is sent from the Driver to the Engine
 // during mirror catchup.
+// TODO: rename to ReplayedBlockRequest and add BlockData field.
 type ReplayedHeaderRequest struct {
 	Header tmconsensus.Header
 	Proof  tmconsensus.CommitProof

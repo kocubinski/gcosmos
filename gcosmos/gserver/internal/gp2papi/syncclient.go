@@ -14,6 +14,7 @@ import (
 	libp2phost "github.com/libp2p/go-libp2p/core/host"
 	libp2ppeer "github.com/libp2p/go-libp2p/core/peer"
 	libp2pprotocol "github.com/libp2p/go-libp2p/core/protocol"
+	"github.com/rollchains/gordian/gcosmos/gserver/internal/gsbd"
 	"github.com/rollchains/gordian/internal/gchan"
 	"github.com/rollchains/gordian/tm/tmcodec"
 	"github.com/rollchains/gordian/tm/tmconsensus"
@@ -166,9 +167,15 @@ func (c *SyncClient) mainLoop(ctx context.Context) {
 		case req := <-c.addPeerRequests:
 			peers[req.P] = struct{}{}
 
+			// Send immediately to the blocked request,
+			// if a blocked request exists.
 			if requestBlockedOnMissingPeer != nil {
 				requestBlockedOnMissingPeer.Resp <- req.P
 				requestBlockedOnMissingPeer = nil
+				c.log.Info(
+					"Unblocked next peer request",
+					"peer_id", req.P,
+				)
 			}
 
 		case req := <-c.removePeerRequests:
@@ -259,8 +266,10 @@ func (c *SyncClient) doFetch(ctx context.Context, height uint64, p libp2ppeer.ID
 	)
 	defer cancel()
 
+	// If we want to support a header-only SyncClient,
+	// we would need to use headerV1HeightPrefix here.
 	s, err := c.host.NewStream(streamCtx, p, libp2pprotocol.ID(
-		fmt.Sprintf("%s%d", headerV1HeightPrefix, height),
+		fmt.Sprintf("%s%d", fullBlockV1HeightPrefix, height),
 	))
 	if err != nil {
 		c.log.Info("Failed to open stream to peer", "peer_id", p, "err", err)
@@ -273,7 +282,7 @@ func (c *SyncClient) doFetch(ctx context.Context, height uint64, p libp2ppeer.ID
 	// We have a stream to the right protocol, let's parse the result.
 	// Arbitrary limit on header size.
 	var res JSONResult
-	err = json.NewDecoder(io.LimitReader(s, 4096)).Decode(&res)
+	err = json.NewDecoder(io.LimitReader(s, 16*1024)).Decode(&res)
 	_ = s.Close() // Nothing left to do with stream.
 	cancel()      // And free up any streamCtx resources as early as possible.
 	if err != nil {
@@ -315,10 +324,23 @@ func (c *SyncClient) doFetch(ctx context.Context, height uint64, p libp2ppeer.ID
 		}
 	}
 
+	var fbr FullBlockResult
+	if err := json.Unmarshal(res.Result, &fbr); err != nil {
+		c.log.Info(
+			"Failed to parse full block result",
+			"peer_id", p,
+			"height", height,
+			"err", err,
+		)
+		return fetchResult{
+			ExcludePeer: true,
+		}
+	}
+
 	// Parsed the entire result,
 	// now parse the committed header.
 	var ch tmconsensus.CommittedHeader
-	if err := c.unmarshaler.UnmarshalCommittedHeader(res.Result, &ch); err != nil {
+	if err := c.unmarshaler.UnmarshalCommittedHeader(fbr.Header, &ch); err != nil {
 		c.log.Info(
 			"Failed to parse header from result",
 			"peer_id", p,
@@ -329,6 +351,36 @@ func (c *SyncClient) doFetch(ctx context.Context, height uint64, p libp2ppeer.ID
 			ExcludePeer: true,
 		}
 	}
+
+	// Confirm that the block data is appropriate for the header.
+	if gsbd.IsZeroTxDataID(string(ch.Header.DataID)) {
+		if len(fbr.BlockData) > 0 {
+			c.log.Info(
+				"Got non-empty block data for zero data ID",
+				"peer_id", p,
+				"height", height,
+				"data_id", ch.Header.DataID,
+				"block_data_size", len(fbr.BlockData),
+			)
+			return fetchResult{
+				ExcludePeer: true,
+			}
+		}
+	} else {
+		if len(fbr.BlockData) == 0 {
+			c.log.Info(
+				"Got empty block data for non-zero data ID",
+				"peer_id", p,
+				"height", height,
+				"data_id", ch.Header.DataID,
+			)
+			return fetchResult{
+				ExcludePeer: true,
+			}
+		}
+	}
+
+	// TODO: what are we going to do with fbr.BlockData?
 
 	// Now we have a committed header, so we have to send it to the engine.
 	respCh := make(chan tmelink.ReplayedHeaderResponse, 1)
