@@ -23,6 +23,8 @@ import (
 	libp2pevent "github.com/libp2p/go-libp2p/core/event"
 	libp2pnetwork "github.com/libp2p/go-libp2p/core/network"
 	libp2ppeer "github.com/libp2p/go-libp2p/core/peer"
+	"github.com/rollchains/gordian/gcosmos/gcstore"
+	"github.com/rollchains/gordian/gcosmos/gcstore/gcmemstore"
 	"github.com/rollchains/gordian/gcosmos/gserver/internal/ggrpc"
 	"github.com/rollchains/gordian/gcosmos/gserver/internal/gp2papi"
 	"github.com/rollchains/gordian/gcosmos/gserver/internal/gsbd"
@@ -84,6 +86,7 @@ type Component struct {
 	httpLn net.Listener
 	grpcLn net.Listener
 
+	bds        gcstore.BlockDataStore
 	hs         tmstore.HeaderStore
 	fs         tmstore.FinalizationStore
 	ms         tmstore.MirrorStore
@@ -199,12 +202,15 @@ func (c *Component) Init(app serverv2.AppI[transaction.Tx], cfg map[string]any, 
 		as = tmmemstore.NewActionStore()
 	}
 
+
+	bds := gcmemstore.NewBlockDataStore()
 	fs := tmmemstore.NewFinalizationStore()
 	hs := tmmemstore.NewHeaderStore()
 	ms := tmmemstore.NewMirrorStore()
 	rs := tmmemstore.NewRoundStore()
 	vs := tmmemstore.NewValidatorStore(tmconsensustest.SimpleHashScheme{})
 
+	c.bds = bds
 	c.fs = fs
 	c.hs = hs
 	c.ms = ms
@@ -315,6 +321,7 @@ func (c *Component) Start(ctx context.Context) error {
 		c.log.With("sys", "datahost"),
 		h.Libp2pHost(),
 		c.hs,
+		c.bds,
 		codec,
 	)
 
