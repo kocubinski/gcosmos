@@ -43,17 +43,18 @@ type newFetchStateRequest struct {
 	Start, Stop uint64
 }
 
-// HeaderSyncClient manages fetching committed headers from peers
+// SyncClient manages fetching committed headers,
+// and optionally their block data, from peers
 // when the engine indicates that the mirror subsystem is lagging
 // behind the rest of the network.
-type HeaderSyncClient struct {
+type SyncClient struct {
 	log *slog.Logger
 
 	host        libp2phost.Host
 	unmarshaler tmcodec.Unmarshaler
 
 	// Requests that originate externally (should be from the Driver specifically),
-	// via calling an exported method on HeaderSyncClient.
+	// via calling an exported method on SyncClient.
 	resumeRequests     chan resumeFetchRequest
 	pauseRequests      chan pauseFetchRequest
 	addPeerRequests    chan addPeerRequest
@@ -69,14 +70,14 @@ type HeaderSyncClient struct {
 	wg sync.WaitGroup
 }
 
-func NewHeaderSyncClient(
+func NewSyncClient(
 	ctx context.Context,
 	log *slog.Logger,
 	host libp2phost.Host,
 	unmarshaler tmcodec.Unmarshaler,
 	rhCh chan<- tmelink.ReplayedHeaderRequest,
-) *HeaderSyncClient {
-	c := &HeaderSyncClient{
+) *SyncClient {
+	c := &SyncClient{
 		log: log,
 
 		host: host,
@@ -105,10 +106,10 @@ func NewHeaderSyncClient(
 	return c
 }
 
-func (c *HeaderSyncClient) mainLoop(ctx context.Context) {
+func (c *SyncClient) mainLoop(ctx context.Context) {
 	defer c.wg.Done()
 
-	ctx, task := trace.NewTask(ctx, "gp2papi.HeaderSyncClient.mainLoop")
+	ctx, task := trace.NewTask(ctx, "gp2papi.SyncClient.mainLoop")
 	defer task.End()
 
 	fetchCtx, fetchCancel := context.WithCancelCause(ctx)
@@ -178,11 +179,11 @@ func (c *HeaderSyncClient) mainLoop(ctx context.Context) {
 
 var errFetchPause = errors.New("fetches paused")
 
-// fetchWorker handles committed header fetching on a dedicated goroutine.
-func (c *HeaderSyncClient) fetchWorker(ctx context.Context) {
+// fetchWorker handles committed header and block data fetching on a dedicated goroutine.
+func (c *SyncClient) fetchWorker(ctx context.Context) {
 	defer c.wg.Done()
 
-	ctx, task := trace.NewTask(ctx, "gp2papi.HeaderSyncClient.fetchWorker")
+	ctx, task := trace.NewTask(ctx, "gp2papi.SyncClient.fetchWorker")
 	defer task.End()
 
 	for {
@@ -198,7 +199,7 @@ func (c *HeaderSyncClient) fetchWorker(ctx context.Context) {
 	}
 }
 
-func (c *HeaderSyncClient) doFetches(ctx context.Context, start, stop uint64) {
+func (c *SyncClient) doFetches(ctx context.Context, start, stop uint64) {
 	defer trace.StartRegion(ctx, "doFetches").End()
 
 	height := start
@@ -237,7 +238,7 @@ func (c *HeaderSyncClient) doFetches(ctx context.Context, start, stop uint64) {
 	}
 }
 
-// fetchResult is the outcome of a call to [*HeaderSyncClient.doFetch].
+// fetchResult is the outcome of a call to [*SyncClient.doFetch].
 type fetchResult struct {
 	Success bool
 
@@ -247,9 +248,9 @@ type fetchResult struct {
 
 var errFetchHeaderDeadlineExceeded = errors.New("deadline for retrieving header exceeded")
 
-// doFetch executes a single committed header fetch,
+// doFetch executes a single committed header and block data fetch,
 // at the given height, from the given peer.
-func (c *HeaderSyncClient) doFetch(ctx context.Context, height uint64, p libp2ppeer.ID) fetchResult {
+func (c *SyncClient) doFetch(ctx context.Context, height uint64, p libp2ppeer.ID) fetchResult {
 	defer trace.StartRegion(ctx, "doFetch").End()
 
 	const timeout = 2 * time.Second // Arbitrarily chosen.
@@ -366,13 +367,15 @@ func (c *HeaderSyncClient) doFetch(ctx context.Context, height uint64, p libp2pp
 	}
 }
 
-func (c *HeaderSyncClient) Wait() {
+// Wait blocks until all of c's background work is completed.
+// Initiate a shutdown by canceling the context passed to [NewSyncClient].
+func (c *SyncClient) Wait() {
 	c.wg.Wait()
 }
 
-// ResumeFetching requests that committed header fetches are restarted,
+// ResumeFetching requests that committed header and block data fetches are restarted,
 // or it can indicate that the start and stop height values have changed.
-func (c *HeaderSyncClient) ResumeFetching(
+func (c *SyncClient) ResumeFetching(
 	ctx context.Context,
 	startHeight, stopHeight uint64,
 ) (ok bool) {
@@ -387,7 +390,7 @@ func (c *HeaderSyncClient) ResumeFetching(
 }
 
 // PauseFetching requests that outstanding committed header fetches are interrupted.
-func (c *HeaderSyncClient) PauseFetching(ctx context.Context) (ok bool) {
+func (c *SyncClient) PauseFetching(ctx context.Context) (ok bool) {
 	return gchan.SendC(
 		ctx, c.log,
 		c.pauseRequests, pauseFetchRequest{},
@@ -396,8 +399,8 @@ func (c *HeaderSyncClient) PauseFetching(ctx context.Context) (ok bool) {
 }
 
 // AddPeer requests to add the given peer ID as a candidate peer
-// for fetching committed headers.
-func (c *HeaderSyncClient) AddPeer(ctx context.Context, p libp2ppeer.ID) (ok bool) {
+// for fetching committed headers and block data.
+func (c *SyncClient) AddPeer(ctx context.Context, p libp2ppeer.ID) (ok bool) {
 	return gchan.SendC(
 		ctx, c.log,
 		c.addPeerRequests, addPeerRequest{P: p},
@@ -406,8 +409,8 @@ func (c *HeaderSyncClient) AddPeer(ctx context.Context, p libp2ppeer.ID) (ok boo
 }
 
 // RemovePeer requests to remove the given peer ID as a candidate peer
-// for fetching committed headers.
-func (c *HeaderSyncClient) RemovePeer(ctx context.Context, p libp2ppeer.ID) (ok bool) {
+// for fetching committed headers and block data.
+func (c *SyncClient) RemovePeer(ctx context.Context, p libp2ppeer.ID) (ok bool) {
 	return gchan.SendC(
 		ctx, c.log,
 		c.removePeerRequests, removePeerRequest{P: p},

@@ -54,7 +54,7 @@ type DriverConfig struct {
 
 	DataPool *gdatapool.Pool[[]transaction.Tx]
 
-	HeaderSyncClient *gp2papi.HeaderSyncClient
+	SyncClient *gp2papi.SyncClient
 }
 
 type Driver struct {
@@ -66,7 +66,7 @@ type Driver struct {
 
 	pool *gdatapool.Pool[[]transaction.Tx]
 
-	hsClient *gp2papi.HeaderSyncClient
+	sClient *gp2papi.SyncClient
 
 	am       *appmanager.AppManager[transaction.Tx]
 	sdkStore *root.Store
@@ -102,7 +102,7 @@ func NewDriver(
 
 		pool: cfg.DataPool,
 
-		hsClient: cfg.HeaderSyncClient,
+		sClient: cfg.SyncClient,
 
 		finalizeBlockRequests: cfg.FinalizeBlockRequests,
 		lagStateUpdates:       cfg.LagStateUpdates,
@@ -542,20 +542,15 @@ func (d *Driver) handleFinalization(ctx context.Context, req tmdriver.FinalizeBl
 func (d *Driver) handleLagStateUpdate(ctx context.Context, ls tmelink.LagState) bool {
 	defer trace.StartRegion(ctx, "handleLagStateUpdate").End()
 
-	// TODO: remove this nil check once the header sync client is fully integrated.
-	if d.hsClient == nil {
-		return true
-	}
-
 	switch ls.Status {
 	case tmelink.LagStatusInitializing,
 		tmelink.LagStatusAssumedBehind,
 		tmelink.LagStatusKnownMissing:
-		if !d.hsClient.ResumeFetching(ctx, ls.CommittingHeight+1, ls.NeedHeight) {
+		if !d.sClient.ResumeFetching(ctx, ls.CommittingHeight+1, ls.NeedHeight) {
 			return false
 		}
 	case tmelink.LagStatusUpToDate:
-		if !d.hsClient.PauseFetching(ctx) {
+		if !d.sClient.PauseFetching(ctx) {
 			return false
 		}
 	default:

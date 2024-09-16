@@ -202,7 +202,6 @@ func (c *Component) Init(app serverv2.AppI[transaction.Tx], cfg map[string]any, 
 		as = tmmemstore.NewActionStore()
 	}
 
-
 	bds := gcmemstore.NewBlockDataStore()
 	fs := tmmemstore.NewFinalizationStore()
 	hs := tmmemstore.NewHeaderStore()
@@ -349,7 +348,7 @@ func (c *Component) Start(ctx context.Context) error {
 	)
 
 	rhCh := make(chan tmelink.ReplayedHeaderRequest)
-	headerSyncClient := gp2papi.NewHeaderSyncClient(
+	syncClient := gp2papi.NewSyncClient(
 		ctx,
 		c.log.With("d_sys", "header_sync_client"),
 		h.Libp2pHost(),
@@ -372,9 +371,9 @@ func (c *Component) Start(ctx context.Context) error {
 				switch e := e.(type) {
 				case libp2pevent.EvtPeerConnectednessChanged:
 					if e.Connectedness == libp2pnetwork.Connected {
-						headerSyncClient.AddPeer(ctx, e.Peer)
+						syncClient.AddPeer(ctx, e.Peer)
 					} else if e.Connectedness == libp2pnetwork.NotConnected {
-						headerSyncClient.RemovePeer(ctx, e.Peer)
+						syncClient.RemovePeer(ctx, e.Peer)
 					}
 				default:
 					c.log.Warn("Unknown peer connectedness event type", "type", fmt.Sprintf("%T", e))
@@ -415,7 +414,7 @@ func (c *Component) Start(ctx context.Context) error {
 
 			DataPool: pool,
 
-			HeaderSyncClient: headerSyncClient,
+			SyncClient: syncClient,
 		},
 	)
 	if err != nil {
