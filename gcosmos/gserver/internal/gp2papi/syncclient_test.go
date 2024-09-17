@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"cosmossdk.io/core/transaction"
 	"github.com/rollchains/gordian/gcosmos/gserver/internal/gp2papi"
 	"github.com/rollchains/gordian/gcosmos/gserver/internal/gsbd"
 	"github.com/rollchains/gordian/internal/gtest"
@@ -38,12 +39,17 @@ func TestSyncClient_fullBlock_zeroData(t *testing.T) {
 		Proof:  nextPH.Header.PrevCommitProof,
 	}))
 
+	// TODO: we need a mock version of transactions and decoders
+	// in order to actually test decoding.
+	var txDecoder transaction.Codec[transaction.Tx]
+
 	rhCh := make(chan tmelink.ReplayedHeaderRequest)
 	sc := gp2papi.NewSyncClient(
 		ctx,
 		gtest.NewLogger(t).With("sys", "syncclient"),
 		dhfx.P2PClientConn.Host().Libp2pHost(),
 		dhfx.Codec,
+		txDecoder,
 		rhCh,
 	)
 	defer sc.Wait()

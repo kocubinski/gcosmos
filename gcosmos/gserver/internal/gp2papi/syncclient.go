@@ -55,6 +55,7 @@ type SyncClient struct {
 
 	host        libp2phost.Host
 	unmarshaler tmcodec.Unmarshaler
+	txDecoder   transaction.Codec[transaction.Tx]
 
 	// Requests that originate externally (should be from the Driver specifically),
 	// via calling an exported method on SyncClient.
@@ -78,6 +79,7 @@ func NewSyncClient(
 	log *slog.Logger,
 	host libp2phost.Host,
 	unmarshaler tmcodec.Unmarshaler,
+	txDecoder transaction.Codec[transaction.Tx],
 	rhCh chan<- tmelink.ReplayedHeaderRequest,
 ) *SyncClient {
 	c := &SyncClient{
@@ -86,6 +88,7 @@ func NewSyncClient(
 		host: host,
 
 		unmarshaler: unmarshaler,
+		txDecoder:   txDecoder,
 
 		resumeRequests: make(chan resumeFetchRequest),
 		pauseRequests:  make(chan pauseFetchRequest),
@@ -383,10 +386,8 @@ func (c *SyncClient) doFetch(ctx context.Context, height uint64, p libp2ppeer.ID
 	}
 
 	var txs []transaction.Tx
-	if false && len(fbr.BlockData) > 0 {
-		// TODO: enable once we have a txDecoder.
-		var txDecoder transaction.Codec[transaction.Tx]
-		dec, err := gsbd.NewBlockDataDecoder(string(ch.Header.DataID), txDecoder)
+	if len(fbr.BlockData) > 0 {
+		dec, err := gsbd.NewBlockDataDecoder(string(ch.Header.DataID), c.txDecoder)
 		if err != nil {
 			c.log.Info(
 				"Got error when creating block decoder",

@@ -353,6 +353,7 @@ func (c *Component) Start(ctx context.Context) error {
 		c.log.With("d_sys", "header_sync_client"),
 		h.Libp2pHost(),
 		codec,
+		c.txc,
 		rhCh,
 	)
 
