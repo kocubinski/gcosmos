@@ -39,8 +39,6 @@ import (
 type DriverConfig struct {
 	ChainID string
 
-	ConsensusAuthority string
-
 	AppManager *appmanager.AppManager[transaction.Tx]
 
 	Store *root.Store
@@ -137,7 +135,6 @@ func (d *Driver) run(
 	if !d.handleInitialization(
 		ctx,
 		ag,
-		cfg.ConsensusAuthority,
 		cfg.Store,
 		txConfig,
 		cfg.InitChainRequests,
@@ -151,7 +148,6 @@ func (d *Driver) run(
 func (d *Driver) handleInitialization(
 	ctx context.Context,
 	ag *genutiltypes.AppGenesis,
-	consensusAuthority string,
 	s *root.Store,
 	txConfig client.TxConfig,
 	initChainCh <-chan tmdriver.InitChainRequest,
@@ -187,7 +183,6 @@ func (d *Driver) handleInitialization(
 	// We need a special context for the InitGenesis call,
 	// as the consensus parameters are expected to be a value on the context there.
 	deliverCtx := context.WithValue(ctx, corecontext.CometParamsInitInfoKey, &consensustypes.MsgUpdateParams{
-		Authority: consensusAuthority,
 		Block: &cometapitypes.BlockParams{
 			// Just setting these to something non-zero for now.
 			MaxBytes: -1,
