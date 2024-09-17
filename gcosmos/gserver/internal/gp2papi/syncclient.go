@@ -41,6 +41,14 @@ type removePeerRequest struct {
 	P libp2ppeer.ID
 }
 
+type excludePeerRequest struct {
+	P libp2ppeer.ID
+
+	// We could put an exclude reason here,
+	// but the log line for what error we got
+	// will usually be right before the log line for excluding the peer anyway.
+}
+
 type newFetchStateRequest struct {
 	Ctx         context.Context
 	Start, Stop uint64
@@ -59,10 +67,11 @@ type SyncClient struct {
 
 	// Requests that originate externally (should be from the Driver specifically),
 	// via calling an exported method on SyncClient.
-	resumeRequests     chan resumeFetchRequest
-	pauseRequests      chan pauseFetchRequest
-	addPeerRequests    chan addPeerRequest
-	removePeerRequests chan removePeerRequest
+	resumeRequests      chan resumeFetchRequest
+	pauseRequests       chan pauseFetchRequest
+	addPeerRequests     chan addPeerRequest
+	removePeerRequests  chan removePeerRequest
+	excludePeerRequests chan excludePeerRequest
 
 	// Where we send the committed headers that have fetched.
 	replayedHeaders chan<- tmelink.ReplayedHeaderRequest
@@ -94,8 +103,9 @@ func NewSyncClient(
 		pauseRequests:  make(chan pauseFetchRequest),
 
 		// Arbitrarily sized.
-		addPeerRequests:    make(chan addPeerRequest, 8),
-		removePeerRequests: make(chan removePeerRequest, 8),
+		addPeerRequests:     make(chan addPeerRequest, 8),
+		removePeerRequests:  make(chan removePeerRequest, 8),
+		excludePeerRequests: make(chan excludePeerRequest, 8),
 
 		replayedHeaders: rhCh,
 
@@ -126,6 +136,13 @@ func (c *SyncClient) mainLoop(ctx context.Context) {
 	}()
 
 	peers := make(map[libp2ppeer.ID]struct{})
+
+	// NOTE: the excludedPeers map never shrinks,
+	// and entries are never removed from it.
+	// So, this is a possible attack vector if the added peers are unbounded
+	// (that map may shrink upon a call to RemovePeer)
+	// and the excluded map repeatedly grows.
+	excludedPeers := make(map[libp2ppeer.ID]struct{})
 
 	var requestBlockedOnMissingPeer *nextPeerRequest
 	for {
@@ -170,6 +187,11 @@ func (c *SyncClient) mainLoop(ctx context.Context) {
 			}
 
 		case req := <-c.addPeerRequests:
+			if _, ok := excludedPeers[req.P]; ok {
+				// Don't add a peer who is in the exclusion list.
+				continue
+			}
+
 			peers[req.P] = struct{}{}
 
 			// Send immediately to the blocked request,
@@ -185,6 +207,16 @@ func (c *SyncClient) mainLoop(ctx context.Context) {
 
 		case req := <-c.removePeerRequests:
 			delete(peers, req.P)
+
+		case req := <-c.excludePeerRequests:
+			// Remove from active peers if they are in that list.
+			delete(peers, req.P)
+
+			// And record in the exclusion list,
+			// so they can't get added again later.
+			excludedPeers[req.P] = struct{}{}
+
+			c.log.Info("Excluding peer", "peer_id", req.P)
 		}
 	}
 }
@@ -234,7 +266,21 @@ func (c *SyncClient) doFetches(ctx context.Context, start, stop uint64) {
 
 		res := c.doFetch(ctx, height, p)
 		if res.ExcludePeer {
-			// TODO: send signal back to main loop that we don't want this peer anymore.
+			// This should be an exceptional case,
+			// so let's go ahead and do a blocking here.
+			// Note, the c.excludePeerRequests channel is buffered,
+			// so it is possible that we send this
+			// and the main loop does not process that request
+			// before we make the next peer request.
+			// In that case, if we make two exclude peer requests,
+			// the second one will be a no-op.
+			if !gchan.SendC(
+				ctx, c.log,
+				c.excludePeerRequests, excludePeerRequest{P: p},
+				"sending exclude peer request",
+			) {
+				return
+			}
 		}
 		if !res.Success {
 			// Try again with the same height,
