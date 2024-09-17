@@ -66,8 +66,10 @@ func (d *BlockDataDecoder) Decode(r io.Reader) ([]transaction.Tx, error) {
 	var encoded []byte
 	switch firstByte[0] {
 	case uncompressedHeader:
-		// This is probably encoded = io.ReadAll(r), right?
-		panic("TODO")
+		encoded, err = d.decodeUncompressed(r)
+		if err != nil {
+			return nil, err
+		}
 	case snappyHeader:
 		encoded, err = d.decodeSnappy(r)
 		if err != nil {
@@ -79,6 +81,45 @@ func (d *BlockDataDecoder) Decode(r io.Reader) ([]transaction.Tx, error) {
 
 	// Now we can decode the raw bytes.
 	return d.decodeRaw(encoded)
+}
+
+func (d *BlockDataDecoder) decodeUncompressed(r io.Reader) ([]byte, error) {
+	// Read the size header just like in the snappy path.
+	uSizeReader := bufio.NewReaderSize(r, binary.MaxVarintLen64)
+	uSize64, err := binary.ReadVarint(uSizeReader)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read uncompressed size: %w", err)
+	}
+	uSize := int(uSize64)
+	if uSize <= 0 {
+		return nil, fmt.Errorf(
+			"invalid uncompressed size: %d (%d as 64-bit) must be positive",
+			uSize, uSize64,
+		)
+	}
+
+	if uSize != d.dataLen {
+		return nil, fmt.Errorf(
+			"invalid uncompressed size: %d different from expected length %d",
+			uSize, d.dataLen,
+		)
+	}
+
+	// The size header matches.
+	// We may have data left over in the size reader,
+	// so we have to do the same dance we did in decodeSnappy.
+	buffered, err := uSizeReader.Peek(uSizeReader.Buffered())
+	if err != nil {
+		return nil, fmt.Errorf("impossible: failed to peek buffered length: %w", err)
+	}
+
+	r = io.MultiReader(bytes.NewReader(buffered), r)
+	uBuf := make([]byte, uSize)
+	if _, err := io.ReadFull(r, uBuf); err != nil {
+		return nil, fmt.Errorf("failed to read full uncompressed data: %w", err)
+	}
+
+	return uBuf, nil
 }
 
 func (d *BlockDataDecoder) decodeSnappy(r io.Reader) ([]byte, error) {
@@ -136,8 +177,8 @@ func (d *BlockDataDecoder) decodeSnappy(r io.Reader) ([]byte, error) {
 	}
 	if uSize != d.dataLen {
 		return nil, fmt.Errorf(
-			"compressed data's decoded length %d differed from expected size %d",
-			uSize, d.dataLen,
+			"compressed data's decoded length %d differed from expected size %d ||| %x",
+			uSize, d.dataLen, cBuf,
 		)
 	}
 

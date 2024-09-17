@@ -43,11 +43,17 @@ func TxsHash(txs []transaction.Tx) [txsHashSize]byte {
 //
 // Where the HEIGHT, ROUND, and NUM_TXs are written as decimal numbers in ASCII,
 // so that they are easily human-readable.
-// DATA_LEN is the length of the raw data in bytes,
+//
+// DATA_LEN is the length of the raw (uncompressed) data in bytes,
 // encoded in lowercase hexadecimal to slightly shorten the data ID,
 // and because it is less important that this value is human-readable.
+// Furthermore, DATA_LEN will be larger than the stored or transmitted size of data
+// if the stored data is compressed.
+// The DATA_LEN is an indicator to the receiver of the buffer size required
+// to hold the data to be decoded into transactions.
+//
 // HASH(TXs) is the blake2b hash of the concatenation
-// of every transaction in txs, formatted as lowercase hex-encoded bytes.
+// of every transaction' hash in txs, formatted as lowercase hex-encoded bytes.
 func DataID(
 	height uint64,
 	round uint32,

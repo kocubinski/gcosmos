@@ -3,7 +3,6 @@ package gsbd
 import (
 	"bytes"
 	"context"
-	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,7 +10,6 @@ import (
 	"log/slog"
 
 	"cosmossdk.io/core/transaction"
-	"github.com/golang/snappy"
 	libp2phost "github.com/libp2p/go-libp2p/core/host"
 	libp2pnetwork "github.com/libp2p/go-libp2p/core/network"
 	libp2ppeer "github.com/libp2p/go-libp2p/core/peer"
@@ -49,22 +47,18 @@ func (h *Libp2pHost) Provide(
 		))
 	}
 
-	items := make([][]byte, len(pendingTxs))
-	for i, tx := range pendingTxs {
-		items[i] = tx.Bytes()
-	}
-
-	j, err := json.Marshal(items)
+	var buf bytes.Buffer
+	sz, err := EncodeBlockData(&buf, pendingTxs)
 	if err != nil {
 		return ProvideResult{}, fmt.Errorf(
-			"failed to marshal items: %w", err,
+			"failed to encode block data: %w", err,
 		)
 	}
 
-	dataID := DataID(height, round, uint32(len(j)), pendingTxs)
+	dataID := DataID(height, round, uint32(sz), pendingTxs)
 
 	pID := libp2pprotocol.ID(blockDataV1Prefix + dataID)
-	h.host.SetStreamHandler(pID, h.makeBlockDataHandler(j))
+	h.host.SetStreamHandler(pID, h.makeBlockDataHandler(buf.Bytes()))
 
 	// TODO: we need a way to prune old handlers.
 	// Currently we just leak a handler every time we propose a block.
@@ -93,21 +87,9 @@ const (
 )
 
 // makeBlockDataHandler returns a handler to be set on the router,
-// to serve a snappy-compressed version of j.
-//
-// Currently, the use of snappy compression is mandatory.
-// We could add a v2 endpoint that allows the client to specify a preference,
-// or we could possibly try multiple compression schemes
-// and only serve the best one.
-func (h *Libp2pHost) makeBlockDataHandler(j []byte) libp2pnetwork.StreamHandler {
-	c := snappy.Encode(nil, j)
-	szBuf := binary.AppendVarint(nil, int64(len(c)))
+// to serve the pre-encoded data returned from [EncodeBlockData].
+func (h *Libp2pHost) makeBlockDataHandler(encodedData []byte) libp2pnetwork.StreamHandler {
 	outerLog := h.log.With("handler", "blockdata")
-
-	if len(c) >= len(j) {
-		h.log.Warn("TODO: add handler to serve uncompressed block data", "growth", len(j)-len(c))
-	}
-
 	return func(s libp2pnetwork.Stream) {
 		defer s.Close()
 
@@ -115,19 +97,8 @@ func (h *Libp2pHost) makeBlockDataHandler(j []byte) libp2pnetwork.StreamHandler 
 		// so close for reads immediately.
 		_ = s.CloseRead()
 
-		if _, err := s.Write([]byte{snappyHeader}); err != nil {
-			outerLog.Debug("Failed to write snappy header", "err", err)
-			return
-		}
-
-		if _, err := io.Copy(s, bytes.NewReader(szBuf)); err != nil {
-			outerLog.Debug("Failed to write size", "err", err)
-			return
-		}
-
-		src := bytes.NewReader(c)
-		if _, err := src.WriteTo(s); err != nil {
-			outerLog.Debug("Failed to write compressed data", "err", err)
+		if _, err := io.Copy(s, bytes.NewReader(encodedData)); err != nil {
+			outerLog.Debug("Failed to copy encoded data to stream", "err", err)
 			return
 		}
 
