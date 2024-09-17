@@ -401,8 +401,6 @@ func (c *Component) Start(ctx context.Context) error {
 		gsi.DriverConfig{
 			ChainID: c.chainID,
 
-			ConsensusAuthority: c.app.GetConsensusAuthority(),
-
 			AppManager: c.app.GetAppManager(),
 
 			Store: c.app.GetStore().(*root.Store),
