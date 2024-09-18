@@ -65,6 +65,8 @@ type SyncClient struct {
 	unmarshaler tmcodec.Unmarshaler
 	txDecoder   transaction.Codec[transaction.Tx]
 
+	rCache *gsbd.RequestCache
+
 	// Requests that originate externally (should be from the Driver specifically),
 	// via calling an exported method on SyncClient.
 	resumeRequests      chan resumeFetchRequest
@@ -89,6 +91,7 @@ func NewSyncClient(
 	host libp2phost.Host,
 	unmarshaler tmcodec.Unmarshaler,
 	txDecoder transaction.Codec[transaction.Tx],
+	cache *gsbd.RequestCache,
 	rhCh chan<- tmelink.ReplayedHeaderRequest,
 ) *SyncClient {
 	c := &SyncClient{
@@ -98,6 +101,8 @@ func NewSyncClient(
 
 		unmarshaler: unmarshaler,
 		txDecoder:   txDecoder,
+
+		rCache: cache,
 
 		resumeRequests: make(chan resumeFetchRequest),
 		pauseRequests:  make(chan pauseFetchRequest),
@@ -160,11 +165,16 @@ func (c *SyncClient) mainLoop(ctx context.Context) {
 			return
 
 		case req := <-c.resumeRequests:
-			// TODO: this could possibly block, so we should handle it blocking.
-			c.newFetchStateRequests <- newFetchStateRequest{
-				Ctx:   fetchCtx,
-				Start: req.Start,
-				Stop:  req.Stop,
+			if !gchan.SendC(
+				ctx, c.log,
+				c.newFetchStateRequests, newFetchStateRequest{
+					Ctx:   fetchCtx,
+					Start: req.Start,
+					Stop:  req.Stop,
+				},
+				"making new fetch state request",
+			) {
+				return
 			}
 
 		case <-c.pauseRequests:
@@ -281,7 +291,9 @@ func (c *SyncClient) doFetches(ctx context.Context, start, stop uint64) {
 			) {
 				return
 			}
+			continue
 		}
+
 		if !res.Success {
 			// Try again with the same height,
 			// and hopefully a new peer.
@@ -431,7 +443,6 @@ func (c *SyncClient) doFetch(ctx context.Context, height uint64, p libp2ppeer.ID
 		}
 	}
 
-	var txs []transaction.Tx
 	if len(fbr.BlockData) > 0 {
 		dec, err := gsbd.NewBlockDataDecoder(string(ch.Header.DataID), c.txDecoder)
 		if err != nil {
@@ -446,7 +457,7 @@ func (c *SyncClient) doFetch(ctx context.Context, height uint64, p libp2ppeer.ID
 			}
 		}
 
-		txs, err = dec.Decode(bytes.NewReader(fbr.BlockData))
+		txs, err := dec.Decode(bytes.NewReader(fbr.BlockData))
 		if err != nil {
 			c.log.Info(
 				"Got error when parsing block data",
@@ -458,10 +469,11 @@ func (c *SyncClient) doFetch(ctx context.Context, height uint64, p libp2ppeer.ID
 				ExcludePeer: true,
 			}
 		}
-	}
 
-	// TODO: use txs.
-	_ = txs
+		// Since we have the block data and it matches the header's data ID,
+		// we can set it in the request cache as completed.
+		c.rCache.SetImmediatelyAvailable(string(ch.Header.DataID), txs, fbr.BlockData)
+	}
 
 	// Now we have a committed header, so we have to send it to the engine.
 	respCh := make(chan tmelink.ReplayedHeaderResponse, 1)

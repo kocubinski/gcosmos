@@ -6,6 +6,7 @@ import (
 
 	"github.com/rollchains/gordian/gcosmos/gcstore/gcmemstore"
 	"github.com/rollchains/gordian/gcosmos/gserver/internal/gp2papi"
+	"github.com/rollchains/gordian/gcosmos/gserver/internal/gsbd"
 	"github.com/rollchains/gordian/gcrypto"
 	"github.com/rollchains/gordian/internal/gtest"
 	"github.com/rollchains/gordian/tm/tmcodec/tmjson"
@@ -18,6 +19,8 @@ import (
 type Fixture struct {
 	HeaderStore    *tmmemstore.HeaderStore
 	BlockDataStore *gcmemstore.BlockDataStore
+
+	Cache *gsbd.RequestCache
 
 	DataHost *gp2papi.DataHost
 
@@ -66,6 +69,8 @@ func NewFixture(t *testing.T, ctx context.Context) *Fixture {
 	return &Fixture{
 		HeaderStore:    hs,
 		BlockDataStore: bds,
+
+		Cache: gsbd.NewRequestCache(),
 
 		DataHost: dh,
 

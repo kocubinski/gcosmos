@@ -347,6 +347,10 @@ func (c *Component) Start(ctx context.Context) error {
 		c.log.With("d_sys", "block_retriever"), h.Libp2pHost(), c.txc,
 	)
 
+	// TODO: this needs to be passed to some other subcomponents.
+	// Write-only from the sync client isn't very useful.
+	reqCache := gsbd.NewRequestCache()
+
 	rhCh := make(chan tmelink.ReplayedHeaderRequest)
 	syncClient := gp2papi.NewSyncClient(
 		ctx,
@@ -354,6 +358,7 @@ func (c *Component) Start(ctx context.Context) error {
 		h.Libp2pHost(),
 		codec,
 		c.txc,
+		reqCache,
 		rhCh,
 	)
 

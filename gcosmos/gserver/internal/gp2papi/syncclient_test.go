@@ -52,6 +52,7 @@ func TestSyncClient_fullBlock_zeroData(t *testing.T) {
 		dhfx.P2PClientConn.Host().Libp2pHost(),
 		dhfx.Codec,
 		txDecoder,
+		dhfx.Cache,
 		rhCh,
 	)
 	defer sc.Wait()
@@ -72,6 +73,10 @@ func TestSyncClient_fullBlock_zeroData(t *testing.T) {
 
 	// Signal back to the client that the replay was good.
 	gtest.SendSoon(t, replayReq.Resp, tmelink.ReplayedHeaderResponse{})
+
+	// There is no entry in the request cache, for zero data.
+	_, ok := dhfx.Cache.Get(dataID)
+	require.False(t, ok)
 }
 
 func TestSyncClient_fullBlock_withData_correct(t *testing.T) {
@@ -115,6 +120,7 @@ func TestSyncClient_fullBlock_withData_correct(t *testing.T) {
 		dhfx.P2PClientConn.Host().Libp2pHost(),
 		dhfx.Codec,
 		gservertest.HashOnlyTransactionDecoder{},
+		dhfx.Cache,
 		rhCh,
 	)
 	defer sc.Wait()
@@ -135,6 +141,15 @@ func TestSyncClient_fullBlock_withData_correct(t *testing.T) {
 
 	// Signal back to the client that the replay was good.
 	gtest.SendSoon(t, replayReq.Resp, tmelink.ReplayedHeaderResponse{})
+
+	// And since the replay was good,
+	// we have a completed block data request in the cache.
+	r, ok := dhfx.Cache.Get(dataID)
+	require.True(t, ok)
+
+	_ = gtest.IsSending(t, r.Ready)
+	require.Equal(t, txs, r.Transactions)
+	require.Equal(t, buf.Bytes(), r.EncodedTransactions)
 }
 
 func TestSyncClient_fullBlock_withData_badHash(t *testing.T) {
@@ -182,6 +197,7 @@ func TestSyncClient_fullBlock_withData_badHash(t *testing.T) {
 		dhfx.P2PClientConn.Host().Libp2pHost(),
 		dhfx.Codec,
 		gservertest.HashOnlyTransactionDecoder{},
+		dhfx.Cache,
 		rhCh,
 	)
 	defer sc.Wait()
@@ -197,4 +213,8 @@ func TestSyncClient_fullBlock_withData_badHash(t *testing.T) {
 	// on account of the hash mismatch,
 	// and we don't have any alternate peers who are hosting the data either.
 	gtest.NotSendingSoon(t, rhCh)
+
+	// Nothing in the request cache since we never got valid data.
+	_, ok := dhfx.Cache.Get(dataID)
+	require.False(t, ok)
 }
