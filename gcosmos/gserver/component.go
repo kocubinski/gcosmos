@@ -355,11 +355,13 @@ func (c *Component) Start(ctx context.Context) error {
 	syncClient := gp2papi.NewSyncClient(
 		ctx,
 		c.log.With("d_sys", "header_sync_client"),
-		h.Libp2pHost(),
-		codec,
-		c.txc,
-		reqCache,
-		rhCh,
+		gp2papi.SyncClientConfig{
+			Host:               h.Libp2pHost(),
+			Unmarshaler:        codec,
+			TxDecoder:          c.txc,
+			RequestCache:       reqCache,
+			ReplayedHeadersOut: rhCh,
+		},
 	)
 
 	sub, err := h.Libp2pHost().EventBus().Subscribe(new(libp2pevent.EvtPeerConnectednessChanged))

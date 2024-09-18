@@ -85,24 +85,42 @@ type SyncClient struct {
 	wg sync.WaitGroup
 }
 
+// SyncClientConfig is the configuration for a [SyncClient].
+type SyncClientConfig struct {
+	// The host from which we will open libp2p streams to other hosts.
+	Host libp2phost.Host
+
+	// How to unmarshal Gordian consensus messages.
+	Unmarshaler tmcodec.Unmarshaler
+
+	// How to decode SDK transactions encoded in block data.
+	TxDecoder transaction.Codec[transaction.Tx]
+
+	// Side channel for block data requests,
+	// so that the driver's finalization handler
+	// can be notified when block data is available.
+	RequestCache *gsbd.RequestCache
+
+	// Where to send the replayed headers.
+	// This same channel should be passed to the
+	// [tmengine.WithReplayedHeaderRequestChannel] option.
+	ReplayedHeadersOut chan<- tmelink.ReplayedHeaderRequest
+}
+
 func NewSyncClient(
 	ctx context.Context,
 	log *slog.Logger,
-	host libp2phost.Host,
-	unmarshaler tmcodec.Unmarshaler,
-	txDecoder transaction.Codec[transaction.Tx],
-	cache *gsbd.RequestCache,
-	rhCh chan<- tmelink.ReplayedHeaderRequest,
+	cfg SyncClientConfig,
 ) *SyncClient {
 	c := &SyncClient{
 		log: log,
 
-		host: host,
+		host: cfg.Host,
 
-		unmarshaler: unmarshaler,
-		txDecoder:   txDecoder,
+		unmarshaler: cfg.Unmarshaler,
+		txDecoder:   cfg.TxDecoder,
 
-		rCache: cache,
+		rCache: cfg.RequestCache,
 
 		resumeRequests: make(chan resumeFetchRequest),
 		pauseRequests:  make(chan pauseFetchRequest),
@@ -112,7 +130,7 @@ func NewSyncClient(
 		removePeerRequests:  make(chan removePeerRequest, 8),
 		excludePeerRequests: make(chan excludePeerRequest, 8),
 
-		replayedHeaders: rhCh,
+		replayedHeaders: cfg.ReplayedHeadersOut,
 
 		// 1-buffered so we don't block the main loop on the first send.
 		newFetchStateRequests: make(chan newFetchStateRequest, 1),

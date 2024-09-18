@@ -49,11 +49,13 @@ func TestSyncClient_fullBlock_zeroData(t *testing.T) {
 	sc := gp2papi.NewSyncClient(
 		ctx,
 		gtest.NewLogger(t).With("sys", "syncclient"),
-		dhfx.P2PClientConn.Host().Libp2pHost(),
-		dhfx.Codec,
-		txDecoder,
-		dhfx.Cache,
-		rhCh,
+		gp2papi.SyncClientConfig{
+			Host:               dhfx.P2PClientConn.Host().Libp2pHost(),
+			Unmarshaler:        dhfx.Codec,
+			TxDecoder:          txDecoder,
+			RequestCache:       dhfx.Cache,
+			ReplayedHeadersOut: rhCh,
+		},
 	)
 	defer sc.Wait()
 	defer cancel()
@@ -117,11 +119,13 @@ func TestSyncClient_fullBlock_withData_correct(t *testing.T) {
 	sc := gp2papi.NewSyncClient(
 		ctx,
 		gtest.NewLogger(t).With("sys", "syncclient"),
-		dhfx.P2PClientConn.Host().Libp2pHost(),
-		dhfx.Codec,
-		gservertest.HashOnlyTransactionDecoder{},
-		dhfx.Cache,
-		rhCh,
+		gp2papi.SyncClientConfig{
+			Host:               dhfx.P2PClientConn.Host().Libp2pHost(),
+			Unmarshaler:        dhfx.Codec,
+			TxDecoder:          gservertest.HashOnlyTransactionDecoder{},
+			RequestCache:       dhfx.Cache,
+			ReplayedHeadersOut: rhCh,
+		},
 	)
 	defer sc.Wait()
 	defer cancel()
@@ -194,11 +198,13 @@ func TestSyncClient_fullBlock_withData_badHash(t *testing.T) {
 	sc := gp2papi.NewSyncClient(
 		ctx,
 		gtest.NewLogger(t).With("sys", "syncclient"),
-		dhfx.P2PClientConn.Host().Libp2pHost(),
-		dhfx.Codec,
-		gservertest.HashOnlyTransactionDecoder{},
-		dhfx.Cache,
-		rhCh,
+		gp2papi.SyncClientConfig{
+			Host:               dhfx.P2PClientConn.Host().Libp2pHost(),
+			Unmarshaler:        dhfx.Codec,
+			TxDecoder:          gservertest.HashOnlyTransactionDecoder{},
+			RequestCache:       dhfx.Cache,
+			ReplayedHeadersOut: rhCh,
+		},
 	)
 	defer sc.Wait()
 	defer cancel()
