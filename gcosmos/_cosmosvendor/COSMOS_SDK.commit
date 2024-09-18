@@ -1,4 +1,4 @@
 # This file may contain any number of comments (lines containing a # symbol)
 # and must otherwise contain exactly ONE line with a cosmos-sdk commit to check out
 # when the user calls the scripts/sync_sdk.bash script.
-c9f0e2e4d89224bde0a6834baf291aee3b21bc37
+01212de2d9dc79efd92a8743c63a78172923d8e8

@@ -126,9 +126,16 @@ func (g *GordianGRPC) QueryAccountBalance(ctx context.Context, req *QueryAccount
 
 // getGordianResponseFromSDKResult converts an app manager TxResult to the gRPC proto result.
 func getGordianResponseFromSDKResult(res coreserver.TxResult) *TxResultResponse {
+	events, err := convertEvent(res.Events)
+	if err != nil {
+		return &TxResultResponse{
+			Error: fmt.Sprintf("failed to extract result events: %v", err),
+		}
+	}
+
 	resp := &TxResultResponse{
 		Code:      res.Code,
-		Events:    convertEvent(res.Events),
+		Events:    events,
 		GasWanted: res.GasWanted,
 		GasUsed:   res.GasUsed,
 	}
@@ -139,11 +146,16 @@ func getGordianResponseFromSDKResult(res coreserver.TxResult) *TxResultResponse 
 }
 
 // convertEvent converts from the cosmos-sdk core event type to the gRPC proto event.
-func convertEvent(e []event.Event) []*Event {
+func convertEvent(e []event.Event) ([]*Event, error) {
 	events := make([]*Event, len(e))
 	for i, ev := range e {
-		attr := make([]*Attribute, len(ev.Attributes))
-		for j, a := range ev.Attributes {
+		evAttrs, err := ev.Attributes()
+		if err != nil {
+			return nil, err
+		}
+
+		attr := make([]*Attribute, len(evAttrs))
+		for j, a := range evAttrs {
 			attr[j] = &Attribute{
 				Key:   a.Key,
 				Value: a.Value,
@@ -155,5 +167,5 @@ func convertEvent(e []event.Event) []*Event {
 			Attributes: attr,
 		}
 	}
-	return events
+	return events, nil
 }
