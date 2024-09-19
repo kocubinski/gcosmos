@@ -24,6 +24,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/server"
 	genutiltypes "github.com/cosmos/cosmos-sdk/x/genutil/types"
 	"github.com/rollchains/gordian/gcosmos/gccodec"
+	"github.com/rollchains/gordian/gcosmos/gcstore"
 	"github.com/rollchains/gordian/gcosmos/gserver/internal/gp2papi"
 	"github.com/rollchains/gordian/gcosmos/gserver/internal/gsbd"
 	"github.com/rollchains/gordian/gcrypto"
@@ -51,6 +52,7 @@ type DriverConfig struct {
 	CatchupClient *gp2papi.CatchupClient
 
 	BlockDataRequestCache *gsbd.RequestCache
+	BlockDataStore        gcstore.BlockDataStore
 }
 
 type Driver struct {
@@ -59,6 +61,8 @@ type Driver struct {
 	chainID string
 
 	txBuf *SDKTxBuf
+
+	bdStore gcstore.BlockDataStore
 
 	bdrCache *gsbd.RequestCache
 
@@ -95,6 +99,8 @@ func NewDriver(
 		chainID: cfg.ChainID,
 
 		txBuf: cfg.TxBuffer,
+
+		bdStore: cfg.BlockDataStore,
 
 		bdrCache: cfg.BlockDataRequestCache,
 
@@ -396,6 +402,31 @@ func (d *Driver) handleFinalization(ctx context.Context, req tmdriver.FinalizeBl
 		}
 
 		txs = bdr.Transactions
+
+		// Save the block data to its store,
+		// so that we can serve it to peers who need it later.
+		//
+		// TODO: is it okay to do this here?
+		// Or should it happen on another goroutine,
+		// to avoid blocking the upcoming SDK block delivery?
+		// It probably should not be in the finalization path at all,
+		// but rather part of the mirror kernel.
+		// But it works enough here for the moment.
+		if err := d.bdStore.SaveBlockData(
+			ctx,
+			req.Header.Height,
+			string(req.Header.DataID),
+			bdr.EncodedTransactions,
+		); err != nil {
+			// Fatal error.
+			d.log.Error(
+				"Failed to write block data",
+				"height", req.Header.Height,
+				"data_id", req.Header.DataID,
+				"err", err,
+			)
+			return false
+		}
 	}
 
 	blockReq := &coreserver.BlockRequest[transaction.Tx]{

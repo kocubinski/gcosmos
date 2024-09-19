@@ -404,9 +404,10 @@ func (c *Component) Start(ctx context.Context) error {
 
 			TxBuffer: txBuf,
 
-			BlockDataRequestCache: bdrCache,
-
 			CatchupClient: catchupClient,
+
+			BlockDataRequestCache: bdrCache,
+			BlockDataStore:        c.bds,
 		},
 	)
 	if err != nil {

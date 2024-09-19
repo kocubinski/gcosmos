@@ -779,8 +779,9 @@ func TestTx_multiple_simpleSend(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	chainID := t.Name()
 	c := ConfigureChain(t, ctx, ChainConfig{
-		ID:    t.Name(),
+		ID:    chainID,
 		NVals: totalVals,
 
 		// Due to an outstanding and undocumented SDK bug,
@@ -805,7 +806,8 @@ func TestTx_multiple_simpleSend(t *testing.T) {
 		FixedAccountInitialBalance: 10_000,
 	})
 
-	httpAddrs := c.Start(t, ctx, interestingVals).HTTP
+	ca := c.Start(t, ctx, interestingVals)
+	httpAddrs := ca.HTTP
 
 	// Each of the interesting validators must report a height beyond the first few blocks.
 	for i := range interestingVals {
@@ -929,6 +931,82 @@ func TestTx_multiple_simpleSend(t *testing.T) {
 		resp.Body.Close()
 		require.Equalf(t, "10100", newBalance.Balance.Amount, "validator at index %d reported wrong receiver balance", i) // Was at 10k, added 100.
 	}
+
+	t.Run("adding a new validator catches up", func(t *testing.T) {
+		if gci.RunCometInsteadOfGordian {
+			t.Skip("skipping due to not testing Gordian")
+		}
+
+		localCtx, cancel := context.WithCancel(ctx)
+		defer cancel()
+
+		lateHTTPAddrFile := AddLateNode(t, localCtx, chainID, c.CanonicalGenesisPath, ca.P2PSeedPath)
+		var httpAddr string
+
+		// We've done a few things since our last watermark check.
+		// See what the first validator is on,
+		// and that will be our target height.
+
+		heightResp, err := http.Get("http://" + httpAddrs[0] + "/blocks/watermark")
+		require.NoError(t, err)
+		require.Equal(t, http.StatusOK, heightResp.StatusCode)
+
+		var m map[string]uint
+		require.NoError(t, json.NewDecoder(heightResp.Body).Decode(&m))
+		heightResp.Body.Close()
+
+		targetHeight := m["VotingHeight"]
+
+		deadline := time.Now().Add(10 * time.Second)
+		for time.Now().Before(deadline) {
+			b, err := os.ReadFile(lateHTTPAddrFile)
+			if err != nil {
+				time.Sleep(100 * time.Millisecond)
+				continue
+			}
+
+			s, ok := strings.CutSuffix(string(b), "\n")
+			if !ok {
+				time.Sleep(100 * time.Millisecond)
+				continue
+			}
+
+			httpAddr = s
+			break
+		}
+
+		if httpAddr == "" {
+			t.Fatal("did not read http address from file before deadline")
+		}
+
+		u := "http://" + httpAddr + "/blocks/watermark"
+		// TODO: we might need to delay until we get a non-error HTTP response.
+
+		deadline = time.Now().Add(10 * time.Second)
+		var maxHeight uint
+		for time.Now().Before(deadline) {
+			resp, err := http.Get(u)
+			require.NoError(t, err)
+			require.Equal(t, http.StatusOK, resp.StatusCode)
+
+			var m map[string]uint
+			require.NoError(t, json.NewDecoder(resp.Body).Decode(&m))
+			resp.Body.Close()
+
+			maxHeight = m["VotingHeight"]
+			if maxHeight < targetHeight {
+				time.Sleep(100 * time.Millisecond)
+				continue
+			}
+
+			// We got at least to the target height, so quit the loop.
+			break
+		}
+
+		require.GreaterOrEqual(t, maxHeight, targetHeight, "late-started server did not reach target height of earlier validator")
+
+		// TODO: assert the account balances like we did for the on-time validators.
+	})
 }
 
 type balance struct {
