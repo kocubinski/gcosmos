@@ -16,7 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestSyncClient_fullBlock_zeroData(t *testing.T) {
+func TestCatchupClient_fullBlock_zeroData(t *testing.T) {
 	t.Parallel()
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -46,10 +46,10 @@ func TestSyncClient_fullBlock_zeroData(t *testing.T) {
 	var txDecoder transaction.Codec[transaction.Tx]
 
 	rhCh := make(chan tmelink.ReplayedHeaderRequest)
-	sc := gp2papi.NewSyncClient(
+	sc := gp2papi.NewCatchupClient(
 		ctx,
 		gtest.NewLogger(t).With("sys", "syncclient"),
-		gp2papi.SyncClientConfig{
+		gp2papi.CatchupClientConfig{
 			Host:               dhfx.P2PClientConn.Host().Libp2pHost(),
 			Unmarshaler:        dhfx.Codec,
 			TxDecoder:          txDecoder,
@@ -81,7 +81,7 @@ func TestSyncClient_fullBlock_zeroData(t *testing.T) {
 	require.False(t, ok)
 }
 
-func TestSyncClient_fullBlock_withData_correct(t *testing.T) {
+func TestCatchupClient_fullBlock_withData_correct(t *testing.T) {
 	t.Parallel()
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -116,10 +116,10 @@ func TestSyncClient_fullBlock_withData_correct(t *testing.T) {
 	}))
 
 	rhCh := make(chan tmelink.ReplayedHeaderRequest)
-	sc := gp2papi.NewSyncClient(
+	sc := gp2papi.NewCatchupClient(
 		ctx,
 		gtest.NewLogger(t).With("sys", "syncclient"),
-		gp2papi.SyncClientConfig{
+		gp2papi.CatchupClientConfig{
 			Host:               dhfx.P2PClientConn.Host().Libp2pHost(),
 			Unmarshaler:        dhfx.Codec,
 			TxDecoder:          gservertest.HashOnlyTransactionDecoder{},
@@ -156,7 +156,7 @@ func TestSyncClient_fullBlock_withData_correct(t *testing.T) {
 	require.Equal(t, buf.Bytes(), r.EncodedTransactions)
 }
 
-func TestSyncClient_fullBlock_withData_badHash(t *testing.T) {
+func TestCatchupClient_fullBlock_withData_badHash(t *testing.T) {
 	t.Parallel()
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -195,10 +195,10 @@ func TestSyncClient_fullBlock_withData_badHash(t *testing.T) {
 	}))
 
 	rhCh := make(chan tmelink.ReplayedHeaderRequest)
-	sc := gp2papi.NewSyncClient(
+	sc := gp2papi.NewCatchupClient(
 		ctx,
 		gtest.NewLogger(t).With("sys", "syncclient"),
-		gp2papi.SyncClientConfig{
+		gp2papi.CatchupClientConfig{
 			Host:               dhfx.P2PClientConn.Host().Libp2pHost(),
 			Unmarshaler:        dhfx.Codec,
 			TxDecoder:          gservertest.HashOnlyTransactionDecoder{},

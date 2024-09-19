@@ -52,7 +52,7 @@ type DriverConfig struct {
 
 	DataPool *gdatapool.Pool[[]transaction.Tx]
 
-	SyncClient *gp2papi.SyncClient
+	CatchupClient *gp2papi.CatchupClient
 }
 
 type Driver struct {
@@ -64,7 +64,7 @@ type Driver struct {
 
 	pool *gdatapool.Pool[[]transaction.Tx]
 
-	sClient *gp2papi.SyncClient
+	cuClient *gp2papi.CatchupClient
 
 	am       *appmanager.AppManager[transaction.Tx]
 	sdkStore *root.Store
@@ -100,7 +100,7 @@ func NewDriver(
 
 		pool: cfg.DataPool,
 
-		sClient: cfg.SyncClient,
+		cuClient: cfg.CatchupClient,
 
 		finalizeBlockRequests: cfg.FinalizeBlockRequests,
 		lagStateUpdates:       cfg.LagStateUpdates,
@@ -541,11 +541,11 @@ func (d *Driver) handleLagStateUpdate(ctx context.Context, ls tmelink.LagState) 
 	case tmelink.LagStatusInitializing,
 		tmelink.LagStatusAssumedBehind,
 		tmelink.LagStatusKnownMissing:
-		if !d.sClient.ResumeFetching(ctx, ls.CommittingHeight+1, ls.NeedHeight) {
+		if !d.cuClient.ResumeFetching(ctx, ls.CommittingHeight+1, ls.NeedHeight) {
 			return false
 		}
 	case tmelink.LagStatusUpToDate:
-		if !d.sClient.PauseFetching(ctx) {
+		if !d.cuClient.PauseFetching(ctx) {
 			return false
 		}
 	default:

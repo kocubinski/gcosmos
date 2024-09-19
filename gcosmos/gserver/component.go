@@ -352,10 +352,10 @@ func (c *Component) Start(ctx context.Context) error {
 	reqCache := gsbd.NewRequestCache()
 
 	rhCh := make(chan tmelink.ReplayedHeaderRequest)
-	syncClient := gp2papi.NewSyncClient(
+	catchupClient := gp2papi.NewCatchupClient(
 		ctx,
-		c.log.With("d_sys", "header_sync_client"),
-		gp2papi.SyncClientConfig{
+		c.log.With("d_sys", "catchup_client"),
+		gp2papi.CatchupClientConfig{
 			Host:               h.Libp2pHost(),
 			Unmarshaler:        codec,
 			TxDecoder:          c.txc,
@@ -379,9 +379,9 @@ func (c *Component) Start(ctx context.Context) error {
 				switch e := e.(type) {
 				case libp2pevent.EvtPeerConnectednessChanged:
 					if e.Connectedness == libp2pnetwork.Connected {
-						syncClient.AddPeer(ctx, e.Peer)
+						catchupClient.AddPeer(ctx, e.Peer)
 					} else if e.Connectedness == libp2pnetwork.NotConnected {
-						syncClient.RemovePeer(ctx, e.Peer)
+						catchupClient.RemovePeer(ctx, e.Peer)
 					}
 				default:
 					c.log.Warn("Unknown peer connectedness event type", "type", fmt.Sprintf("%T", e))
@@ -420,7 +420,7 @@ func (c *Component) Start(ctx context.Context) error {
 
 			DataPool: pool,
 
-			SyncClient: syncClient,
+			CatchupClient: catchupClient,
 		},
 	)
 	if err != nil {
