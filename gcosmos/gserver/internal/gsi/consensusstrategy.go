@@ -11,6 +11,7 @@ import (
 	"cosmossdk.io/core/transaction"
 	"cosmossdk.io/server/v2/appmanager"
 	"github.com/rollchains/gordian/gcosmos/gserver/internal/gsbd"
+	"github.com/rollchains/gordian/gcrypto"
 	"github.com/rollchains/gordian/gdriver/gdatapool"
 	"github.com/rollchains/gordian/internal/gchan"
 	"github.com/rollchains/gordian/internal/glog"
@@ -20,13 +21,11 @@ import (
 type ConsensusStrategy struct {
 	log *slog.Logger
 
-	d *Driver
-
 	am appmanager.AppManager[transaction.Tx]
 
 	txBuf *SDKTxBuf
 
-	signer tmconsensus.Signer
+	signerPubKey gcrypto.PubKey
 
 	provider gsbd.Provider
 
@@ -34,33 +33,58 @@ type ConsensusStrategy struct {
 	curR uint32
 
 	pool *gdatapool.Pool[[]transaction.Tx]
+
+	bdrCache *gsbd.RequestCache
+}
+
+// ConsensusStrategyConfig is the configuration to pass to [NewConsensusStrategy].
+type ConsensusStrategyConfig struct {
+	// Needed to simulate transactions.
+	AppManager appmanager.AppManager[transaction.Tx]
+
+	// To get the pending transactions when proposing a block.
+	// Maybe could be nil if signer is nil
+	// and we know we will never propose a block?
+	TxBuf *SDKTxBuf
+
+	// The public key of our signer.
+	// May be nil.
+	SignerPubKey gcrypto.PubKey
+
+	// How to provide our proposed block data to other network participants.
+	BlockDataProvider gsbd.Provider
+
+	// The pool manages outstanding requests to fetch block data from other proposers.
+	// Deprecated and going to be replaced soon.
+	Pool *gdatapool.Pool[[]transaction.Tx]
+
+	// The request cache indicating what block data requests are in flight
+	// and which ones have already been completed.
+	// Not yet entirely used.
+	BlockDataRequestCache *gsbd.RequestCache
 }
 
 func NewConsensusStrategy(
-	// TODO: this needs to switch to a struct for input arguments.
 	ctx context.Context,
 	log *slog.Logger,
-	d *Driver,
-	am appmanager.AppManager[transaction.Tx],
-	signer tmconsensus.Signer,
-	txBuf *SDKTxBuf,
-	blockDataProvider gsbd.Provider,
-	pool *gdatapool.Pool[[]transaction.Tx],
+	cfg ConsensusStrategyConfig,
 ) *ConsensusStrategy {
 	// TODO: don't hardcode nWorkers.
 	const nWorkers = 4
 
 	return &ConsensusStrategy{
-		log:    log,
-		d:      d,
-		am:     am,
-		signer: signer,
+		log: log,
+		am:  cfg.AppManager,
 
-		txBuf: txBuf,
+		txBuf: cfg.TxBuf,
 
-		provider: blockDataProvider,
+		signerPubKey: cfg.SignerPubKey,
 
-		pool: pool,
+		provider: cfg.BlockDataProvider,
+
+		pool: cfg.Pool,
+
+		bdrCache: cfg.BlockDataRequestCache,
 	}
 }
 
@@ -96,11 +120,15 @@ func (c *ConsensusStrategy) EnterRound(
 
 	c.pool.EnterRound(ctx, rv.Height, rv.Round)
 
+	if c.signerPubKey == nil {
+		// Not participating, stop early.
+	}
+
 	// Very naive round-robin-ish proposer selection.
 	proposerIdx := (int(rv.Height) + int(rv.Round)) % len(rv.ValidatorSet.Validators)
 
 	proposingVal := rv.ValidatorSet.Validators[proposerIdx]
-	weShouldPropose := proposingVal.PubKey.Equal(c.signer.PubKey())
+	weShouldPropose := proposingVal.PubKey.Equal(c.signerPubKey)
 	if !weShouldPropose {
 		return nil
 	}

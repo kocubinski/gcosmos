@@ -443,17 +443,23 @@ func (c *Component) Start(ctx context.Context) error {
 	)
 
 	// We needed the driver before we could make the consensus strategy.
+	csCfg := gsi.ConsensusStrategyConfig{
+		AppManager: *(c.app.GetAppManager()),
+		TxBuf:      txBuf,
+		BlockDataProvider: gsbd.NewLibp2pProviderHost(
+			c.log.With("s_sys", "block_provider"), h.Libp2pHost(),
+		),
+		Pool: pool,
+
+		BlockDataRequestCache: reqCache,
+	}
+	if c.signer != nil {
+		csCfg.SignerPubKey = c.signer.PubKey()
+	}
 	c.cStrat = gsi.NewConsensusStrategy(
 		c.rootCtx,
 		c.log.With("serversys", "cons_strat"),
-		d,
-		*(c.app.GetAppManager()),
-		c.signer,
-		txBuf,
-		gsbd.NewLibp2pProviderHost(
-			c.log.With("s_sys", "block_provider"), h.Libp2pHost(),
-		),
-		pool,
+		csCfg,
 	)
 	opts = append(opts, tmengine.WithConsensusStrategy(c.cStrat))
 

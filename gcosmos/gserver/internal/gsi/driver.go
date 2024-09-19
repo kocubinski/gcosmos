@@ -411,12 +411,12 @@ func (d *Driver) handleFinalization(ctx context.Context, req tmdriver.FinalizeBl
 	// By default, we just use the block's declared next validators block.
 	updatedVals := req.Header.NextValidatorSet.Validators
 	if len(blockResp.ValidatorUpdates) > 0 {
-		// We can never modify a ValdatorSet's validators,
+		// We can never modify a ValidatorSet's validators,
 		// so create a clone.
 		updatedVals = slices.Clone(req.Header.NextValidatorSet.Validators)
 
 		// Make a map of pubkeys that have a power change.
-		// TODO: this doesn't respect key type, and it should.
+		// TODO: this doesn't respect the public key type, and it should.
 		var valsToUpdate = make(map[string]uint64)
 		hasDelete := false
 		for _, vu := range blockResp.ValidatorUpdates {
