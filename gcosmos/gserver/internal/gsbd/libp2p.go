@@ -16,9 +16,9 @@ import (
 	libp2pprotocol "github.com/libp2p/go-libp2p/core/protocol"
 )
 
-// This prefix is used by both the proposer hosting block data,
-// and "full nodes" hosting block data despite not being the proposer.
-const blockDataV1Prefix = "/gordian/blockdata/v1/"
+// This prefix is used by the proposer hosting block data.
+// "Full nodes" hosting block data should use the full_block endpoint declared elsewhere.
+const ProposedBlockDataV1Prefix = "/gordian/proposed_blockdata/v1/"
 
 type Libp2pHost struct {
 	log *slog.Logger
@@ -57,7 +57,7 @@ func (h *Libp2pHost) Provide(
 
 	dataID := DataID(height, round, uint32(sz), pendingTxs)
 
-	pID := libp2pprotocol.ID(blockDataV1Prefix + dataID)
+	pID := libp2pprotocol.ID(ProposedBlockDataV1Prefix + dataID)
 	h.host.SetStreamHandler(pID, h.makeBlockDataHandler(buf.Bytes()))
 
 	// TODO: we need a way to prune old handlers.
@@ -143,7 +143,7 @@ func (c *Libp2pClient) Retrieve(
 	}
 
 	// Open the stream to the peer.
-	s, err := c.h.NewStream(ctx, ai.ID, libp2pprotocol.ID(blockDataV1Prefix+dataID))
+	s, err := c.h.NewStream(ctx, ai.ID, libp2pprotocol.ID(ProposedBlockDataV1Prefix+dataID))
 	if err != nil {
 		return nil, fmt.Errorf("failed to open stream to peer: %w", err)
 	}

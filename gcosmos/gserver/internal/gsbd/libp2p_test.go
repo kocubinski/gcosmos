@@ -212,7 +212,7 @@ func TestLibp2p_errors(t *testing.T) {
 
 	// Now open a stream for each result and collect the data.
 	s, err := tempClient.Host().Libp2pHost().NewStream(
-		ctx, goodHostAddrInfo.ID, libp2pprotocol.ID("/gordian/blockdata/v1/"+justSendRes.DataID),
+		ctx, goodHostAddrInfo.ID, libp2pprotocol.ID(gsbd.ProposedBlockDataV1Prefix+justSendRes.DataID),
 	)
 	require.NoError(t, err)
 	defer s.Close()
@@ -221,7 +221,7 @@ func TestLibp2p_errors(t *testing.T) {
 	s.Close()
 
 	s, err = tempClient.Host().Libp2pHost().NewStream(
-		ctx, goodHostAddrInfo.ID, libp2pprotocol.ID("/gordian/blockdata/v1/"+justDelegateRes.DataID),
+		ctx, goodHostAddrInfo.ID, libp2pprotocol.ID(gsbd.ProposedBlockDataV1Prefix+justDelegateRes.DataID),
 	)
 	require.NoError(t, err)
 	defer s.Close()
@@ -230,7 +230,7 @@ func TestLibp2p_errors(t *testing.T) {
 	s.Close()
 
 	s, err = tempClient.Host().Libp2pHost().NewStream(
-		ctx, goodHostAddrInfo.ID, libp2pprotocol.ID("/gordian/blockdata/v1/"+sendThenDelegateRes.DataID),
+		ctx, goodHostAddrInfo.ID, libp2pprotocol.ID(gsbd.ProposedBlockDataV1Prefix+sendThenDelegateRes.DataID),
 	)
 	require.NoError(t, err)
 	defer s.Close()
@@ -239,7 +239,7 @@ func TestLibp2p_errors(t *testing.T) {
 	s.Close()
 
 	s, err = tempClient.Host().Libp2pHost().NewStream(
-		ctx, goodHostAddrInfo.ID, libp2pprotocol.ID("/gordian/blockdata/v1/"+delegateThenSendRes.DataID),
+		ctx, goodHostAddrInfo.ID, libp2pprotocol.ID(gsbd.ProposedBlockDataV1Prefix+delegateThenSendRes.DataID),
 	)
 	require.NoError(t, err)
 	defer s.Close()
@@ -270,7 +270,7 @@ func TestLibp2p_errors(t *testing.T) {
 		modifiedID := []byte(origDataID)
 		modifiedID[len(modifiedID)-1]-- // Last byte appears to be 'f' so we have to decrement to keep it valid hex.
 
-		pID := libp2pprotocol.ID("/gordian/blockdata/v1/" + string(modifiedID))
+		pID := libp2pprotocol.ID(gsbd.ProposedBlockDataV1Prefix + string(modifiedID))
 		tempClient.Host().Libp2pHost().SetStreamHandler(pID, func(s libp2pnetwork.Stream) {
 			defer s.Close()
 			_, _ = io.Copy(s, bytes.NewReader(justDelegateData))
@@ -286,7 +286,7 @@ func TestLibp2p_errors(t *testing.T) {
 		// This should replace the tx_count=1 to 2.
 		badID := strings.Replace(justSendRes.DataID, ":1:", ":2:", 1)
 		tempClient.Host().Libp2pHost().SetStreamHandler(
-			"/gordian/blockdata/v1/"+libp2pprotocol.ID(badID),
+			gsbd.ProposedBlockDataV1Prefix+libp2pprotocol.ID(badID),
 			func(s libp2pnetwork.Stream) {
 				// Send correct sendTx data, but the ID details the wrong count.
 				defer s.Close()
@@ -306,7 +306,7 @@ func TestLibp2p_errors(t *testing.T) {
 		modifiedID[endOfSize-1]++
 
 		tempClient.Host().Libp2pHost().SetStreamHandler(
-			"/gordian/blockdata/v1/"+libp2pprotocol.ID(string(modifiedID)),
+			gsbd.ProposedBlockDataV1Prefix+libp2pprotocol.ID(string(modifiedID)),
 			func(s libp2pnetwork.Stream) {
 				defer s.Close()
 				_, _ = io.Copy(s, bytes.NewReader(sendThenDelegateData))
@@ -320,7 +320,7 @@ func TestLibp2p_errors(t *testing.T) {
 
 	t.Run("all correct but truncated compressed data", func(t *testing.T) {
 		tempClient.Host().Libp2pHost().SetStreamHandler(
-			"/gordian/blockdata/v1/"+libp2pprotocol.ID(delegateThenSendRes.DataID),
+			gsbd.ProposedBlockDataV1Prefix+libp2pprotocol.ID(delegateThenSendRes.DataID),
 			func(s libp2pnetwork.Stream) {
 				defer s.Close()
 				_, _ = io.Copy(s, bytes.NewReader(delegateThenSendData[:len(delegateThenSendData)-20]))
@@ -333,7 +333,7 @@ func TestLibp2p_errors(t *testing.T) {
 
 	t.Run("fully corrupt data", func(t *testing.T) {
 		tempClient.Host().Libp2pHost().SetStreamHandler(
-			"/gordian/blockdata/v1/"+libp2pprotocol.ID(delegateThenSendRes.DataID),
+			gsbd.ProposedBlockDataV1Prefix+libp2pprotocol.ID(delegateThenSendRes.DataID),
 			func(s libp2pnetwork.Stream) {
 				defer s.Close()
 				corrupt := slices.Clone(delegateThenSendData)

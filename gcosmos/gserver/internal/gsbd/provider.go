@@ -23,6 +23,8 @@ type ProvideResult struct {
 	DataID string
 
 	// Addrs is the list of locations where the data has been provided.
+	// TODO: rename this field to Locations.
+	// The name Addrs is confusing.
 	Addrs []Location
 }
 
