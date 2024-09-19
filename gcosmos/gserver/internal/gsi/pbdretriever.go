@@ -121,7 +121,7 @@ func (r *PBDRetriever) Wait() {
 
 type pbdInFlight struct {
 	Ready chan struct{}
-	BDR   gsbd.BlockDataRequest
+	BDR   *gsbd.BlockDataRequest
 }
 
 // mainLoop coordinates requests originating from exported methods called from external goroutines
@@ -139,7 +139,7 @@ func (r *PBDRetriever) mainLoop(ctx context.Context) {
 
 		case req := <-r.p2pFetchRequests:
 			ready := make(chan struct{})
-			bdr := gsbd.BlockDataRequest{Ready: ready}
+			bdr := &gsbd.BlockDataRequest{Ready: ready}
 
 			// TODO: check if we are overwriting.
 			ifrs[req.DataID] = pbdInFlight{

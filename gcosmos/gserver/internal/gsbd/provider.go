@@ -26,6 +26,9 @@ type ProvideResult struct {
 	// TODO: rename this field to Locations.
 	// The name Addrs is confusing.
 	Addrs []Location
+
+	// The serialized form of the transactions provided.
+	Encoded []byte
 }
 
 // Location indicates where a particular instance of block data is hosted.

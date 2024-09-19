@@ -54,11 +54,12 @@ func (h *Libp2pHost) Provide(
 			"failed to encode block data: %w", err,
 		)
 	}
+	encoded := buf.Bytes()
 
 	dataID := DataID(height, round, uint32(sz), pendingTxs)
 
 	pID := libp2pprotocol.ID(ProposedBlockDataV1Prefix + dataID)
-	h.host.SetStreamHandler(pID, h.makeBlockDataHandler(buf.Bytes()))
+	h.host.SetStreamHandler(pID, h.makeBlockDataHandler(encoded))
 
 	// TODO: we need a way to prune old handlers.
 	// Currently we just leak a handler every time we propose a block.
@@ -78,6 +79,7 @@ func (h *Libp2pHost) Provide(
 	return ProvideResult{
 		DataID: dataID,
 		Addrs:  locs,
+		Encoded: encoded,
 	}, nil
 }
 

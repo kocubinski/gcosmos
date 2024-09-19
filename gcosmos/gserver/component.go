@@ -343,13 +343,7 @@ func (c *Component) Start(ctx context.Context) error {
 		txm.AddTx, txm.TxDeleterFunc,
 	)
 
-	blockDataClient := gsbd.NewLibp2pClient(
-		c.log.With("d_sys", "block_retriever"), h.Libp2pHost(), c.txc,
-	)
-
-	// TODO: this needs to be passed to some other subcomponents.
-	// Write-only from the sync client isn't very useful.
-	reqCache := gsbd.NewRequestCache()
+	bdrCache := gsbd.NewRequestCache()
 
 	rhCh := make(chan tmelink.ReplayedHeaderRequest)
 	catchupClient := gp2papi.NewCatchupClient(
@@ -359,7 +353,7 @@ func (c *Component) Start(ctx context.Context) error {
 			Host:               h.Libp2pHost(),
 			Unmarshaler:        codec,
 			TxDecoder:          c.txc,
-			RequestCache:       reqCache,
+			RequestCache:       bdrCache,
 			ReplayedHeadersOut: rhCh,
 		},
 	)
@@ -390,14 +384,6 @@ func (c *Component) Start(ctx context.Context) error {
 		}
 	}()
 
-	const nWorkers = 4 // TODO: don't hardcode this.
-	pool := gsi.NewDataPool(
-		ctx,
-		c.log.With("d_sys", "datapool"),
-		nWorkers,
-		blockDataClient,
-	)
-
 	initChainCh := make(chan tmdriver.InitChainRequest)
 	blockFinCh := make(chan tmdriver.FinalizeBlockRequest)
 	lagStateCh := make(chan tmelink.LagState)
@@ -418,7 +404,7 @@ func (c *Component) Start(ctx context.Context) error {
 
 			TxBuffer: txBuf,
 
-			DataPool: pool,
+			BlockDataRequestCache: bdrCache,
 
 			CatchupClient: catchupClient,
 		},
@@ -449,9 +435,21 @@ func (c *Component) Start(ctx context.Context) error {
 		BlockDataProvider: gsbd.NewLibp2pProviderHost(
 			c.log.With("s_sys", "block_provider"), h.Libp2pHost(),
 		),
-		Pool: pool,
 
-		BlockDataRequestCache: reqCache,
+		ProposedBlockDataRetriever: gsi.NewPBDRetriever(
+			ctx,
+			c.log.With("serversys", "pbd_retriever"),
+			gsi.PBDRetrieverConfig{
+				RequestCache: bdrCache,
+				Decoder:      c.txc,
+
+				Host: h.Libp2pHost(),
+
+				NWorkers: 4, // TODO: don't hardcode this.
+			},
+		),
+
+		BlockDataRequestCache: bdrCache,
 	}
 	if c.signer != nil {
 		csCfg.SignerPubKey = c.signer.PubKey()

@@ -1,6 +1,7 @@
 package gsbd
 
 import (
+	"errors"
 	"fmt"
 	"sync"
 
@@ -37,7 +38,7 @@ type RequestCache struct {
 	// The mutex is only held while adding or removing elements from the map;
 	// the mutex is held for a predictably short time.
 	mu sync.Mutex
-	rs map[string]BlockDataRequest
+	rs map[string]*BlockDataRequest
 }
 
 // BlockDataRequest is the information associated with a request for block data,
@@ -58,7 +59,7 @@ type BlockDataRequest struct {
 
 func NewRequestCache() *RequestCache {
 	return &RequestCache{
-		rs: make(map[string]BlockDataRequest),
+		rs: make(map[string]*BlockDataRequest),
 	}
 }
 
@@ -66,7 +67,11 @@ func NewRequestCache() *RequestCache {
 // under the key specified by dataID.
 // If there is already an entry for this dataID,
 // SetInFlight panics.
-func (c *RequestCache) SetInFlight(dataID string, req BlockDataRequest) {
+func (c *RequestCache) SetInFlight(dataID string, req *BlockDataRequest) {
+	if req == nil {
+		panic(errors.New("BUG: attempting to set nil in-flight block data request"))
+	}
+
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -92,7 +97,7 @@ func (c *RequestCache) SetImmediatelyAvailable(
 		EncodedTransactions: encodedTxs,
 	}
 
-	c.SetInFlight(dataID, req)
+	c.SetInFlight(dataID, &req)
 }
 
 // Purge removes the entry keyed by dataID from the cache.
@@ -110,10 +115,13 @@ func (c *RequestCache) Purge(dataID string) {
 
 // Get returns the BlockDataRequest corresponding to dataID.
 // The ok return value follows the idiomatic "comma, ok" pattern in Go.
-func (c *RequestCache) Get(dataID string) (r BlockDataRequest, ok bool) {
+func (c *RequestCache) Get(dataID string) (r *BlockDataRequest, ok bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	r, ok = c.rs[dataID]
+	if ok && r == nil {
+		panic(fmt.Errorf("BUG: r was nil but ok=true, dataID=%q", dataID))
+	}
 	return r, ok
 }

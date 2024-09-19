@@ -3,7 +3,6 @@ package gsi
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log/slog"
 	"maps"
@@ -28,7 +27,6 @@ import (
 	"github.com/rollchains/gordian/gcosmos/gserver/internal/gp2papi"
 	"github.com/rollchains/gordian/gcosmos/gserver/internal/gsbd"
 	"github.com/rollchains/gordian/gcrypto"
-	"github.com/rollchains/gordian/gdriver/gdatapool"
 	"github.com/rollchains/gordian/internal/gchan"
 	"github.com/rollchains/gordian/internal/glog"
 	"github.com/rollchains/gordian/tm/tmconsensus"
@@ -50,9 +48,9 @@ type DriverConfig struct {
 
 	TxBuffer *SDKTxBuf
 
-	DataPool *gdatapool.Pool[[]transaction.Tx]
-
 	CatchupClient *gp2papi.CatchupClient
+
+	BlockDataRequestCache *gsbd.RequestCache
 }
 
 type Driver struct {
@@ -62,7 +60,7 @@ type Driver struct {
 
 	txBuf *SDKTxBuf
 
-	pool *gdatapool.Pool[[]transaction.Tx]
+	bdrCache *gsbd.RequestCache
 
 	cuClient *gp2papi.CatchupClient
 
@@ -98,7 +96,7 @@ func NewDriver(
 
 		txBuf: cfg.TxBuffer,
 
-		pool: cfg.DataPool,
+		bdrCache: cfg.BlockDataRequestCache,
 
 		cuClient: cfg.CatchupClient,
 
@@ -364,18 +362,40 @@ func (d *Driver) handleFinalization(ctx context.Context, req tmdriver.FinalizeBl
 
 	var txs []transaction.Tx
 
-	// Guard the call to pool.Have with a zero check,
-	// because we never call Need or SetAvailable on zero.
 	if !gsbd.IsZeroTxDataID(string(req.Header.DataID)) {
-		haveTxs, err, have := d.pool.Have(string(req.Header.DataID))
-		if !have {
-			// We need to make a blocking request to retrieve this data.
-			panic(errors.New("TODO: handle block data not ready during finalization"))
+		// The entry must already exist in the cache.
+		// If it doesn't, then something went wrong in the consensus strategy.
+		bdr, ok := d.bdrCache.Get(string(req.Header.DataID))
+		if !ok {
+			panic(fmt.Errorf(
+				"TODO: handle missing entry (%q) in block data request cache",
+				req.Header.DataID,
+			))
 		}
-		if err != nil {
-			panic(fmt.Errorf("TODO: handle error on retrieved block data during finalization: %w", err))
+
+		// We have the bdr, so now we have to block until it's ready.
+		// Optimistic check first.
+		needToBlock := false
+		select {
+		case <-bdr.Ready:
+			// Good.
+		default:
+			needToBlock = true
 		}
-		txs = haveTxs
+
+		if needToBlock {
+			// TODO: this should have some slightly sophisticated logging,
+			// so that an observer could see why the state machine is stuck here.
+			if _, ok := gchan.RecvC(
+				ctx, d.log,
+				bdr.Ready,
+				"waiting for block data in order to finalize",
+			); !ok {
+				return false
+			}
+		}
+
+		txs = bdr.Transactions
 	}
 
 	blockReq := &coreserver.BlockRequest[transaction.Tx]{

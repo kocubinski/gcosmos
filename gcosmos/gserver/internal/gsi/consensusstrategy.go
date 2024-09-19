@@ -12,7 +12,6 @@ import (
 	"cosmossdk.io/server/v2/appmanager"
 	"github.com/rollchains/gordian/gcosmos/gserver/internal/gsbd"
 	"github.com/rollchains/gordian/gcrypto"
-	"github.com/rollchains/gordian/gdriver/gdatapool"
 	"github.com/rollchains/gordian/internal/gchan"
 	"github.com/rollchains/gordian/internal/glog"
 	"github.com/rollchains/gordian/tm/tmconsensus"
@@ -32,7 +31,7 @@ type ConsensusStrategy struct {
 	curH uint64
 	curR uint32
 
-	pool *gdatapool.Pool[[]transaction.Tx]
+	pbdr *PBDRetriever
 
 	bdrCache *gsbd.RequestCache
 }
@@ -54,9 +53,7 @@ type ConsensusStrategyConfig struct {
 	// How to provide our proposed block data to other network participants.
 	BlockDataProvider gsbd.Provider
 
-	// The pool manages outstanding requests to fetch block data from other proposers.
-	// Deprecated and going to be replaced soon.
-	Pool *gdatapool.Pool[[]transaction.Tx]
+	ProposedBlockDataRetriever *PBDRetriever
 
 	// The request cache indicating what block data requests are in flight
 	// and which ones have already been completed.
@@ -82,17 +79,17 @@ func NewConsensusStrategy(
 
 		provider: cfg.BlockDataProvider,
 
-		pool: cfg.Pool,
+		pbdr: cfg.ProposedBlockDataRetriever,
 
 		bdrCache: cfg.BlockDataRequestCache,
 	}
 }
 
 func (s *ConsensusStrategy) Wait() {
-	// The pool is an implementation detail of the consensus strategy,
+	// The pbdr is an implementation detail of the consensus strategy,
 	// so we don't expose it directly.
-	// The pool is the only background work created here.
-	s.pool.Wait()
+	// The pbdr is the only background work created here.
+	s.pbdr.Wait()
 }
 
 // BlockAnnotation is the data encoded as a block annotation.
@@ -117,8 +114,6 @@ func (c *ConsensusStrategy) EnterRound(
 	// Track the current height and round for later when we get to voting.
 	c.curH = rv.Height
 	c.curR = rv.Round
-
-	c.pool.EnterRound(ctx, rv.Height, rv.Round)
 
 	if c.signerPubKey == nil {
 		// Not participating, stop early.
@@ -167,10 +162,10 @@ func (c *ConsensusStrategy) EnterRound(
 		}
 
 		blockDataID = res.DataID
-	}
 
-	// We are proposing this data, so mark it as locally available.
-	c.pool.SetAvailable(blockDataID, pda, pendingTxs)
+		// We are proposing this data, so mark it as locally available.
+		c.bdrCache.SetImmediatelyAvailable(blockDataID, pendingTxs, res.Encoded)
+	}
 
 	if !gchan.SendC(
 		ctx, c.log,
@@ -250,21 +245,31 @@ PH_LOOP:
 		}
 
 		if nTxs != 0 {
-			// Unconditional call to Need first.
-			// (TODO: we should only call this when the reason includes this as a new block, right?)
-			c.pool.Need(h, r, string(ph.Header.DataID), ph.Annotations.Driver)
+			bdr, ok := c.bdrCache.Get(string(ph.Header.DataID))
+			if !ok {
+				// This must be the first time we've encountered this data ID,
+				// so let's ensure we are working on getting it.
+				if err := c.pbdr.Retrieve(ctx, string(ph.Header.DataID), ph.Annotations.Driver); err != nil {
+					c.log.Warn(
+						"Failed to initiate retrieval of proposed data",
+						"data_id", string(ph.Header.DataID),
+						"err", err,
+					)
+				}
 
-			txs, err, ready := c.pool.Have(string(ph.Header.DataID))
-			if !ready {
-				// Request is in flight.
-				// Can't decide on this block yet.
+				// Continuing regardless of whether the retrieve call succeeded.
 				continue
 			}
 
-			// If it's ready and it's an error, just silently skip it for now.
-			if err != nil {
+			// There is a request. Is the data ready?
+			select {
+			case <-bdr.Ready:
+				// Yes. Keep working.
+			default:
 				continue
 			}
+
+			txs := bdr.Transactions
 
 			// We do have the transactions.
 			// Can they be applied?
