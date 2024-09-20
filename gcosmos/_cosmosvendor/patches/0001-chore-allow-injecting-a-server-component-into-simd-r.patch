@@ -1,4 +1,4 @@
-From 4bd8a1c84a3d297974ee24c601d3cc3b174e4db3 Mon Sep 17 00:00:00 2001
+From d7752597676ee0cfc0fac2a2fae236af7edc9832 Mon Sep 17 00:00:00 2001
 From: Mark Rushakoff <mark@strange.love>
 Date: Wed, 17 Jul 2024 10:03:22 -0400
 Subject: [PATCH 1/6] chore: allow injecting a server component into simd root
@@ -46,7 +46,7 @@ index 916f4b2be9..c55ad96c77 100644
  		store.New[T](newApp),
  	); err != nil {
 diff --git a/simapp/v2/simdv2/cmd/root_di.go b/simapp/v2/simdv2/cmd/root_di.go
-index fd5b62b938..922d17ce51 100644
+index 1ad834b53a..f9464d9cd0 100644
 --- a/simapp/v2/simdv2/cmd/root_di.go
 +++ b/simapp/v2/simdv2/cmd/root_di.go
 @@ -13,6 +13,8 @@ import (
@@ -85,7 +85,7 @@ index fd5b62b938..922d17ce51 100644
  	var (
  		autoCliOpts   autocli.AppOptions
  		moduleManager *runtime.MM[T]
-@@ -82,12 +102,11 @@ func NewRootCmd[T transaction.Tx]() *cobra.Command {
+@@ -83,12 +103,11 @@ func NewRootCmd[T transaction.Tx]() *cobra.Command {
  		},
  	}
  

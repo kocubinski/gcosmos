@@ -1,4 +1,4 @@
-From 98a314c7f93c8a9ba3c75d4a07fe356bb69c8cea Mon Sep 17 00:00:00 2001
+From dd4d2c3281660516f25c3edac7ab1a29edbb7c66 Mon Sep 17 00:00:00 2001
 From: Mark Rushakoff <mark@strange.love>
 Date: Mon, 29 Jul 2024 11:57:21 -0400
 Subject: [PATCH 4/6] feat: add (AppManager[T]).SimulateWithState
@@ -12,11 +12,11 @@ SimulateWithState method already, so we add it here.
  1 file changed, 9 insertions(+)
 
 diff --git a/server/v2/appmanager/appmanager.go b/server/v2/appmanager/appmanager.go
-index e367c7d8fb..d2e9731413 100644
+index 6a5f96ec5f..2c921f2aae 100644
 --- a/server/v2/appmanager/appmanager.go
 +++ b/server/v2/appmanager/appmanager.go
-@@ -187,3 +187,12 @@ func (a AppManager[T]) QueryWithState(
- ) (transaction.Msg, error) {
+@@ -159,3 +159,12 @@ func (a AppManager[T]) Query(ctx context.Context, version uint64, request transa
+ func (a AppManager[T]) QueryWithState(ctx context.Context, state corestore.ReaderMap, request transaction.Msg) (transaction.Msg, error) {
  	return a.stf.Query(ctx, state, a.config.QueryGasLimit, request)
  }
 +
