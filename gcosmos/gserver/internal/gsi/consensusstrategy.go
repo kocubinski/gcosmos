@@ -34,10 +34,38 @@ type ConsensusStrategy struct {
 	pbdr *PBDRetriever
 
 	bdrCache *gsbd.RequestCache
+
+	proposerSelection ProposerSelectionFunc
+}
+
+// ProposerSelectionFunc decides which validator
+// is supposed to be proposing at a given height and round.
+//
+// The [ConsensusStrategy] currently only inspects when deciding whether the current process
+// should propose a block.
+type ProposerSelectionFunc func(
+	ctx context.Context,
+	height uint64, round uint32,
+	curValSet tmconsensus.ValidatorSet,
+) (choice tmconsensus.Validator)
+
+// DefaultProposerSelection is the default [ProposerSelectionFunc]
+// when otherwise unspecified in the [ConsensusStrategyConfig].
+func DefaultProposerSelection(
+	_ context.Context, h uint64, r uint32, valSet tmconsensus.ValidatorSet,
+) tmconsensus.Validator {
+	// Very naive round-robin-ish proposer selection.
+	proposerIdx := (int(h) + int(r)) % len(valSet.Validators)
+
+	return valSet.Validators[proposerIdx]
 }
 
 // ConsensusStrategyConfig is the configuration to pass to [NewConsensusStrategy].
 type ConsensusStrategyConfig struct {
+	// How to choose the proposer for a given round.
+	// If nil, defaults to [DefaultProposerSelection].
+	ProposerSelection ProposerSelectionFunc
+
 	// Needed to simulate transactions.
 	AppManager appmanager.AppManager[transaction.Tx]
 
@@ -66,10 +94,7 @@ func NewConsensusStrategy(
 	log *slog.Logger,
 	cfg ConsensusStrategyConfig,
 ) *ConsensusStrategy {
-	// TODO: don't hardcode nWorkers.
-	const nWorkers = 4
-
-	return &ConsensusStrategy{
+	cs := &ConsensusStrategy{
 		log: log,
 		am:  cfg.AppManager,
 
@@ -82,7 +107,15 @@ func NewConsensusStrategy(
 		pbdr: cfg.ProposedBlockDataRetriever,
 
 		bdrCache: cfg.BlockDataRequestCache,
+
+		proposerSelection: cfg.ProposerSelection,
 	}
+
+	if cs.proposerSelection == nil {
+		cs.proposerSelection = DefaultProposerSelection
+	}
+
+	return cs
 }
 
 func (s *ConsensusStrategy) Wait() {
@@ -119,10 +152,7 @@ func (c *ConsensusStrategy) EnterRound(
 		// Not participating, stop early.
 	}
 
-	// Very naive round-robin-ish proposer selection.
-	proposerIdx := (int(rv.Height) + int(rv.Round)) % len(rv.ValidatorSet.Validators)
-
-	proposingVal := rv.ValidatorSet.Validators[proposerIdx]
+	proposingVal := c.proposerSelection(ctx, rv.Height, rv.Round, rv.ValidatorSet)
 	weShouldPropose := proposingVal.PubKey.Equal(c.signerPubKey)
 	if !weShouldPropose {
 		return nil
