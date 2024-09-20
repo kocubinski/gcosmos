@@ -108,6 +108,24 @@ func (m *stateMachineViewManager) Output(s *kState) stateMachineOutput {
 		}
 	}
 
+	// If we think the state machine is live
+	// and then catchup begins,
+	// we may not even have an outgoing view to compare;
+	// it is possible on a round mismatch
+	// that we will have to use a jumpahead.
+	if m.jumpAhead != nil &&
+		m.jumpAhead.Height == m.roundEntrance.H &&
+		m.jumpAhead.Round > m.roundEntrance.R {
+		return stateMachineOutput{
+			m:  m,
+			Ch: m.out,
+			Val: tmeil.StateMachineRoundView{
+				JumpAheadRoundView: m.jumpAhead,
+			},
+			sentVersion: m.lastSentVersion,
+		}
+	}
+
 	return stateMachineOutput{}
 }
 

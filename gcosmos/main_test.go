@@ -1,6 +1,7 @@
 package main_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -1005,7 +1006,28 @@ func TestTx_multiple_simpleSend(t *testing.T) {
 
 		require.GreaterOrEqual(t, maxHeight, targetHeight, "late-started server did not reach target height of earlier validator")
 
-		// TODO: assert the account balances like we did for the on-time validators.
+		const checkAccountBalancesOnLateValidator = false
+		if checkAccountBalancesOnLateValidator {
+			resp, err = http.Get("http://" + httpAddr + "/debug/accounts/" + c.FixedAddresses[0] + "/balance")
+			require.NoError(t, err)
+			require.Equal(t, http.StatusOK, resp.StatusCode)
+			var newBalance balance
+			body, err := io.ReadAll(resp.Body)
+			require.NoError(t, err)
+			t.Logf("response body for balance account 0: %q", body)
+			require.NoError(t, json.NewDecoder(bytes.NewReader(body)).Decode(&newBalance))
+			resp.Body.Close()
+			require.Equal(t, "9900", newBalance.Balance.Amount, "late validator reported wrong sender balance") // Was at 10k, subtracted 100.
+
+			resp, err = http.Get("http://" + httpAddr + "/debug/accounts/" + c.FixedAddresses[1] + "/balance")
+			require.NoError(t, err)
+			require.Equal(t, http.StatusOK, resp.StatusCode)
+			require.NoError(t, json.NewDecoder(resp.Body).Decode(&newBalance))
+			resp.Body.Close()
+			require.Equal(t, "10100", newBalance.Balance.Amount, "validator reported wrong receiver balance") // Was at 10k, added 100.
+		} else {
+			t.Skip("Balance checking not yet ready")
+		}
 	})
 }
 

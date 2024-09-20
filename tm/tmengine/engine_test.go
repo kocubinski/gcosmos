@@ -677,75 +677,169 @@ func TestEngine_plumbing_LagState(t *testing.T) {
 }
 
 func TestEngine_plumbing_ReplayedHeaders(t *testing.T) {
-	t.Parallel()
+	t.Run("success when height=1 round=0", func(t *testing.T) {
+		t.Parallel()
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 
-	efx := tmenginetest.NewFixture(ctx, t, 4)
+		efx := tmenginetest.NewFixture(ctx, t, 4)
 
-	rhCh := make(chan tmelink.ReplayedHeaderRequest)
+		rhCh := make(chan tmelink.ReplayedHeaderRequest)
 
-	var engine *tmengine.Engine
-	eReady := make(chan struct{})
-	go func() {
-		defer close(eReady)
-		// Don't need signing in this test.
-		om := efx.BaseOptionMap()
-		om["WithReplayedHeaderRequestChannel"] = tmengine.WithReplayedHeaderRequestChannel(rhCh)
-		engine = efx.MustNewEngine(om.ToSlice()...)
-	}()
+		var engine *tmengine.Engine
+		eReady := make(chan struct{})
+		go func() {
+			defer close(eReady)
+			// Don't need signing in this test.
+			om := efx.BaseOptionMap()
+			om["WithReplayedHeaderRequestChannel"] = tmengine.WithReplayedHeaderRequestChannel(rhCh)
+			engine = efx.MustNewEngine(om.ToSlice()...)
+		}()
 
-	defer func() {
-		cancel()
-		<-eReady
-		engine.Wait()
-	}()
+		defer func() {
+			cancel()
+			<-eReady
+			engine.Wait()
+		}()
 
-	_ = efx.ConsensusStrategy.ExpectEnterRound(1, 0, nil)
+		_ = efx.ConsensusStrategy.ExpectEnterRound(1, 0, nil)
 
-	// Handle chain initialization first to avoid panic in fixture.
-	icReq := gtest.ReceiveSoon(t, efx.InitChainCh)
-	gtest.SendSoon(t, icReq.Resp, tmdriver.InitChainResponse{
-		AppStateHash: []byte("whatever"),
-	})
+		// Handle chain initialization first to avoid panic in fixture.
+		icReq := gtest.ReceiveSoon(t, efx.InitChainCh)
+		gtest.SendSoon(t, icReq.Resp, tmdriver.InitChainResponse{
+			AppStateHash: []byte("whatever"),
+		})
 
-	// After we send the response, the engine is ready.
-	_ = gtest.ReceiveSoon(t, eReady)
+		// After we send the response, the engine is ready.
+		_ = gtest.ReceiveSoon(t, eReady)
 
-	// Make a committed header through the fixture.
-	ph1 := efx.Fx.NextProposedHeader([]byte("app_state_1"), 0)
-	efx.Fx.SignProposal(ctx, &ph1, 0)
-	voteMap := map[string][]int{
-		string(ph1.Header.Hash): {0, 1, 2, 3},
-	}
-	precommitProofsMap := efx.Fx.PrecommitProofMap(ctx, 1, 0, voteMap)
-	efx.Fx.CommitBlock(ph1.Header, []byte("app_state_height_1"), 0, precommitProofsMap)
-	ph2 := efx.Fx.NextProposedHeader([]byte("app_state_2"), 0)
+		// Make a committed header through the fixture.
+		ph1 := efx.Fx.NextProposedHeader([]byte("app_state_1"), 0)
+		efx.Fx.SignProposal(ctx, &ph1, 0)
+		voteMap := map[string][]int{
+			string(ph1.Header.Hash): {0, 1, 2, 3},
+		}
+		precommitProofsMap := efx.Fx.PrecommitProofMap(ctx, 1, 0, voteMap)
+		efx.Fx.CommitBlock(ph1.Header, []byte("app_state_height_1"), 0, precommitProofsMap)
+		ph2 := efx.Fx.NextProposedHeader([]byte("app_state_2"), 0)
 
-	respCh := make(chan tmelink.ReplayedHeaderResponse, 1)
-	gtest.SendSoon(t, rhCh, tmelink.ReplayedHeaderRequest{
-		Header: ph1.Header,
-		Proof:  ph2.Header.PrevCommitProof,
-		Resp:   respCh,
-	})
-
-	// Replayed block is accepted.
-	resp := gtest.ReceiveSoon(t, respCh)
-	require.NoError(t, resp.Err)
-
-	// It won't be present in the header store yet,
-	// since we only shifted it from voting to committing.
-	// But it should be in the round store now.
-	phs, _, precommits, err := efx.RoundStore.LoadRoundState(ctx, 1, 0)
-	require.NoError(t, err)
-	require.Equal(t, []tmconsensus.ProposedHeader{
-		{
+		respCh := make(chan tmelink.ReplayedHeaderResponse, 1)
+		gtest.SendSoon(t, rhCh, tmelink.ReplayedHeaderRequest{
 			Header: ph1.Header,
-			// PubKey and Signature missing from round store during replay.
-		},
-	}, phs)
-	require.Equal(t, uint(4), precommits[string(ph1.Header.Hash)].SignatureBitSet().Count())
+			Proof:  ph2.Header.PrevCommitProof,
+			Resp:   respCh,
+		})
+
+		// Replayed block is accepted.
+		resp := gtest.ReceiveSoon(t, respCh)
+		require.NoError(t, resp.Err)
+
+		// It won't be present in the header store yet,
+		// since we only shifted it from voting to committing.
+		// But it should be in the round store now.
+		phs, _, precommits, err := efx.RoundStore.LoadRoundState(ctx, 1, 0)
+		require.NoError(t, err)
+		require.Equal(t, []tmconsensus.ProposedHeader{
+			{
+				Header: ph1.Header,
+				// PubKey and Signature missing from round store during replay.
+			},
+		}, phs)
+		require.Equal(t, uint(4), precommits[string(ph1.Header.Hash)].SignatureBitSet().Count())
+
+		// The state machine should be finalizing 1/0.
+		finReq := gtest.ReceiveSoon(t, efx.FinalizeBlockRequests)
+		require.Equal(t, uint64(1), finReq.Header.Height)
+		require.Zero(t, finReq.Round)
+	})
+
+	t.Run("success when height=1 round=1", func(t *testing.T) {
+		t.Parallel()
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		efx := tmenginetest.NewFixture(ctx, t, 4)
+
+		rhCh := make(chan tmelink.ReplayedHeaderRequest)
+
+		var engine *tmengine.Engine
+		eReady := make(chan struct{})
+		go func() {
+			defer close(eReady)
+			// Don't need signing in this test.
+			om := efx.BaseOptionMap()
+			om["WithReplayedHeaderRequestChannel"] = tmengine.WithReplayedHeaderRequestChannel(rhCh)
+			engine = efx.MustNewEngine(om.ToSlice()...)
+		}()
+
+		defer func() {
+			cancel()
+			<-eReady
+			engine.Wait()
+		}()
+
+		// We still expect the consensus strategy to enter 1/0 at startup
+		// before we know anything about the external world.
+		_ = efx.ConsensusStrategy.ExpectEnterRound(1, 0, nil)
+
+		// And there will be a call to EnterRound(1, 1)
+		// when we replay the header for 1/1.
+		_ = efx.ConsensusStrategy.ExpectEnterRound(1, 1, nil)
+
+		// Handle chain initialization first to avoid panic in fixture.
+		icReq := gtest.ReceiveSoon(t, efx.InitChainCh)
+		gtest.SendSoon(t, icReq.Resp, tmdriver.InitChainResponse{
+			AppStateHash: []byte("whatever"),
+		})
+
+		// After we send the response, the engine is ready.
+		_ = gtest.ReceiveSoon(t, eReady)
+
+		// Make a committed header through the fixture.
+		// This header has round 1.
+		ph1 := efx.Fx.NextProposedHeader([]byte("app_state_1"), 0)
+		ph1.Round = 1
+		efx.Fx.RecalculateHash(&ph1.Header)
+		efx.Fx.SignProposal(ctx, &ph1, 0)
+		voteMap := map[string][]int{
+			string(ph1.Header.Hash): {0, 1, 2, 3},
+		}
+		precommitProofsMap := efx.Fx.PrecommitProofMap(ctx, 1, 1, voteMap)
+		efx.Fx.CommitBlock(ph1.Header, []byte("app_state_height_1"), 1, precommitProofsMap)
+		ph2 := efx.Fx.NextProposedHeader([]byte("app_state_2"), 0)
+
+		respCh := make(chan tmelink.ReplayedHeaderResponse, 1)
+		gtest.SendSoon(t, rhCh, tmelink.ReplayedHeaderRequest{
+			Header: ph1.Header,
+			Proof:  ph2.Header.PrevCommitProof,
+			Resp:   respCh,
+		})
+
+		// Replayed block is accepted.
+		resp := gtest.ReceiveSoon(t, respCh)
+		require.NoError(t, resp.Err)
+
+		// It won't be present in the header store yet,
+		// since we only shifted it from voting to committing.
+		// But it should be in the round store now.
+		phs, _, precommits, err := efx.RoundStore.LoadRoundState(ctx, 1, 1)
+		require.NoError(t, err)
+		require.Equal(t, []tmconsensus.ProposedHeader{
+			{
+				Header: ph1.Header,
+				Round:  1,
+				// PubKey and Signature missing from round store during replay.
+			},
+		}, phs)
+		require.Equal(t, uint(4), precommits[string(ph1.Header.Hash)].SignatureBitSet().Count())
+
+		// The state machine should be finalizing 1/1.
+		finReq := gtest.ReceiveSoon(t, efx.FinalizeBlockRequests)
+		require.Equal(t, uint64(1), finReq.Header.Height)
+		require.Equal(t, uint32(1), finReq.Round)
+	})
 }
 
 func TestEngine_wiring_validatorChanges(t *testing.T) {

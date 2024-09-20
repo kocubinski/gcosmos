@@ -101,10 +101,14 @@ func (s *kState) MarkCommittingViewUpdated() {
 	// Unconditionally update the gossip strategy output.
 	s.GossipViewManager.Committing.VRV = s.Committing.Clone()
 
+	smh := s.StateMachineViewManager.H()
+	smr := s.StateMachineViewManager.R()
 	// The state machine view only needs updated if synchronized with the voting view.
-	if s.StateMachineViewManager.H() == s.Committing.Height &&
-		s.StateMachineViewManager.R() == s.Committing.Round {
+	if smh == s.Committing.Height && smr == s.Committing.Round {
 		s.StateMachineViewManager.SetView(s.Committing)
+	} else if (smh < s.Committing.Height) ||
+		(smh == s.Committing.Height && smr < s.Committing.Round) {
+		s.StateMachineViewManager.JumpToRound(s.Committing)
 	}
 }
 

@@ -1211,6 +1211,9 @@ func TestMirror_CommitToBlockStore(t *testing.T) {
 		Proofs: mfx.Fx.SparsePrecommitProofMap(ctx, 1, 0, voteMap1),
 	}))
 
+	// Read a gossip strategy value in order to synchronize here.
+	_ = gtest.ReceiveSoon(t, mfx.GossipStrategyOut)
+
 	// Now on height 2, we have a committing view at height 1.
 	// So, the subjective commit for 1 should be in the header store.
 	h, err := mfx.Cfg.HeaderStore.LoadHeader(ctx, 1)
