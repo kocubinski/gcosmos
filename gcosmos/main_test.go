@@ -918,12 +918,25 @@ func TestTx_multiple_simpleSend(t *testing.T) {
 	// Since the pending transaction was flushed, then every validator should report
 	// that the sender's balance has decreased and the receiver's balance has increased.
 
+	// Start checking immediately
+	deadline = time.Now().Add(5 * time.Second)
 	for i := range httpAddrs {
+	RECHECK:
+		if time.Now().After(deadline) {
+			t.Fatalf("took too long to see correct balance; stuck on validator_index=%d", i)
+		}
+
 		resp, err = http.Get("http://" + httpAddrs[i] + "/debug/accounts/" + c.FixedAddresses[0] + "/balance")
 		require.NoError(t, err)
 		var newBalance balance
 		require.NoError(t, json.NewDecoder(resp.Body).Decode(&newBalance))
 		resp.Body.Close()
+
+		if newBalance.Balance.Amount == "10000" {
+			time.Sleep(100 * time.Millisecond)
+			goto RECHECK
+		}
+
 		require.Equalf(t, "9900", newBalance.Balance.Amount, "validator at index %d reported wrong sender balance", i) // Was at 10k, subtracted 100.
 
 		resp, err = http.Get("http://" + httpAddrs[i] + "/debug/accounts/" + c.FixedAddresses[1] + "/balance")
@@ -1006,28 +1019,23 @@ func TestTx_multiple_simpleSend(t *testing.T) {
 
 		require.GreaterOrEqual(t, maxHeight, targetHeight, "late-started server did not reach target height of earlier validator")
 
-		const checkAccountBalancesOnLateValidator = false
-		if checkAccountBalancesOnLateValidator {
-			resp, err = http.Get("http://" + httpAddr + "/debug/accounts/" + c.FixedAddresses[0] + "/balance")
-			require.NoError(t, err)
-			require.Equal(t, http.StatusOK, resp.StatusCode)
-			var newBalance balance
-			body, err := io.ReadAll(resp.Body)
-			require.NoError(t, err)
-			t.Logf("response body for balance account 0: %q", body)
-			require.NoError(t, json.NewDecoder(bytes.NewReader(body)).Decode(&newBalance))
-			resp.Body.Close()
-			require.Equal(t, "9900", newBalance.Balance.Amount, "late validator reported wrong sender balance") // Was at 10k, subtracted 100.
+		resp, err = http.Get("http://" + httpAddr + "/debug/accounts/" + c.FixedAddresses[0] + "/balance")
+		require.NoError(t, err)
+		require.Equal(t, http.StatusOK, resp.StatusCode)
+		var newBalance balance
+		body, err := io.ReadAll(resp.Body)
+		require.NoError(t, err)
+		t.Logf("response body for balance account 0: %q", body)
+		require.NoError(t, json.NewDecoder(bytes.NewReader(body)).Decode(&newBalance))
+		resp.Body.Close()
+		require.Equal(t, "9900", newBalance.Balance.Amount, "late validator reported wrong sender balance") // Was at 10k, subtracted 100.
 
-			resp, err = http.Get("http://" + httpAddr + "/debug/accounts/" + c.FixedAddresses[1] + "/balance")
-			require.NoError(t, err)
-			require.Equal(t, http.StatusOK, resp.StatusCode)
-			require.NoError(t, json.NewDecoder(resp.Body).Decode(&newBalance))
-			resp.Body.Close()
-			require.Equal(t, "10100", newBalance.Balance.Amount, "validator reported wrong receiver balance") // Was at 10k, added 100.
-		} else {
-			t.Skip("Balance checking not yet ready")
-		}
+		resp, err = http.Get("http://" + httpAddr + "/debug/accounts/" + c.FixedAddresses[1] + "/balance")
+		require.NoError(t, err)
+		require.Equal(t, http.StatusOK, resp.StatusCode)
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&newBalance))
+		resp.Body.Close()
+		require.Equal(t, "10100", newBalance.Balance.Amount, "validator reported wrong receiver balance") // Was at 10k, added 100.
 	})
 }
 
