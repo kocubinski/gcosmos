@@ -183,6 +183,10 @@ func (m *stateMachineViewManager) MarkFirstSentVersion(version uint32) {
 	m.lastSentVersion = version
 }
 
+func (m *stateMachineViewManager) HeightCommittedChan() (height uint64,  ch chan<- struct{}) {
+	return m.roundEntrance.H,  m.roundEntrance.HeightCommitted
+}
+
 // stateMachineOutput contains a channel and a value to send.
 // This value should only be created through the [stateMachineViewManager.Output] method.
 //

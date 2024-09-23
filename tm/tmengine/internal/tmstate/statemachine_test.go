@@ -3457,6 +3457,184 @@ func TestStateMachine_jumpAhead(t *testing.T) {
 	})
 }
 
+func TestStateMachine_heightCommittedSignal(t *testing.T) {
+	t.Run("before commit wait timer elapses and before finalization response", func(t *testing.T) {
+		t.Parallel()
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		sfx := tmstatetest.NewFixture(ctx, t, 4)
+
+		sm := sfx.NewStateMachine()
+		defer sm.Wait()
+		defer cancel()
+
+		re := gtest.ReceiveSoon(t, sfx.RoundEntranceOutCh)
+		require.NotNil(t, re.HeightCommitted)
+
+		cStrat := sfx.CStrat
+		er10Ch := cStrat.ExpectEnterRound(1, 0, nil)
+
+		vrv := sfx.EmptyVRV(1, 0)
+		re.Response <- tmeil.RoundEntranceResponse{VRV: vrv}
+		_ = gtest.ReceiveSoon(t, er10Ch)
+
+		// Now just send an effectively committed block.
+		ph1 := sfx.Fx.NextProposedHeader([]byte("app_data_1"), 3)
+		sfx.Fx.SignProposal(ctx, &ph1, 3)
+		vrv = vrv.Clone()
+		vrv.ProposedHeaders = []tmconsensus.ProposedHeader{ph1}
+		vrv.Version++
+
+		vrv = sfx.Fx.UpdateVRVPrevotes(ctx, vrv, map[string][]int{
+			string(ph1.Header.Hash): {1, 2, 3},
+		})
+		vrv = sfx.Fx.UpdateVRVPrecommits(ctx, vrv, map[string][]int{
+			string(ph1.Header.Hash): {1, 2, 3},
+		})
+
+		// This causes the state machine to be in commit wait.
+		commitWaitStart := sfx.RoundTimer.CommitWaitStartNotification(1, 0)
+		gtest.SendSoon(t, sfx.RoundViewInCh, tmeil.StateMachineRoundView{
+			VRV: vrv.Clone(),
+		})
+		_ = gtest.ReceiveSoon(t, commitWaitStart)
+		sfx.RoundTimer.RequireActiveCommitWaitTimer(t, 1, 0)
+
+		_ = gtest.ReceiveSoon(t, sfx.FinalizeBlockRequests)
+
+		// Then, closing the height committed channel ends the commit wait timer.
+		close(re.HeightCommitted)
+
+		// We don't have a better way to discover the end of the commit wait timer.
+		require.Eventually(t, func() bool {
+			name, _, _ := sfx.RoundTimer.ActiveTimer()
+			return name == ""
+		}, 400*time.Millisecond, 20*time.Millisecond)
+	})
+
+	t.Run("after commit wait timer elapses and before finalization response", func(t *testing.T) {
+		t.Parallel()
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		sfx := tmstatetest.NewFixture(ctx, t, 4)
+
+		sm := sfx.NewStateMachine()
+		defer sm.Wait()
+		defer cancel()
+
+		re := gtest.ReceiveSoon(t, sfx.RoundEntranceOutCh)
+		require.NotNil(t, re.HeightCommitted)
+
+		cStrat := sfx.CStrat
+		er10Ch := cStrat.ExpectEnterRound(1, 0, nil)
+
+		vrv := sfx.EmptyVRV(1, 0)
+		re.Response <- tmeil.RoundEntranceResponse{VRV: vrv}
+		_ = gtest.ReceiveSoon(t, er10Ch)
+
+		// Now just send an effectively committed block.
+		ph1 := sfx.Fx.NextProposedHeader([]byte("app_data_1"), 3)
+		sfx.Fx.SignProposal(ctx, &ph1, 3)
+		vrv = vrv.Clone()
+		vrv.ProposedHeaders = []tmconsensus.ProposedHeader{ph1}
+		vrv.Version++
+
+		vrv = sfx.Fx.UpdateVRVPrevotes(ctx, vrv, map[string][]int{
+			string(ph1.Header.Hash): {1, 2, 3},
+		})
+		vrv = sfx.Fx.UpdateVRVPrecommits(ctx, vrv, map[string][]int{
+			string(ph1.Header.Hash): {1, 2, 3},
+		})
+
+		// This causes the state machine to be in commit wait.
+		commitWaitStart := sfx.RoundTimer.CommitWaitStartNotification(1, 0)
+		gtest.SendSoon(t, sfx.RoundViewInCh, tmeil.StateMachineRoundView{
+			VRV: vrv.Clone(),
+		})
+		_ = gtest.ReceiveSoon(t, commitWaitStart)
+		sfx.RoundTimer.RequireActiveCommitWaitTimer(t, 1, 0)
+		sfx.RoundTimer.ElapseCommitWaitTimer(1, 0)
+
+		// Then, closing the height committed channel doesn't cause a panic or anything.
+		close(re.HeightCommitted)
+
+		_ = gtest.ReceiveSoon(t, sfx.FinalizeBlockRequests)
+	})
+
+	t.Run("before commit wait timer elapses and after finalization response", func(t *testing.T) {
+		t.Parallel()
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		sfx := tmstatetest.NewFixture(ctx, t, 4)
+
+		sm := sfx.NewStateMachine()
+		defer sm.Wait()
+		defer cancel()
+
+		re := gtest.ReceiveSoon(t, sfx.RoundEntranceOutCh)
+		require.NotNil(t, re.HeightCommitted)
+
+		cStrat := sfx.CStrat
+		er10Ch := cStrat.ExpectEnterRound(1, 0, nil)
+
+		vrv := sfx.EmptyVRV(1, 0)
+		re.Response <- tmeil.RoundEntranceResponse{VRV: vrv}
+		_ = gtest.ReceiveSoon(t, er10Ch)
+
+		// Now just send an effectively committed block.
+		ph1 := sfx.Fx.NextProposedHeader([]byte("app_data_1"), 3)
+		sfx.Fx.SignProposal(ctx, &ph1, 3)
+		vrv = vrv.Clone()
+		vrv.ProposedHeaders = []tmconsensus.ProposedHeader{ph1}
+		vrv.Version++
+
+		vrv = sfx.Fx.UpdateVRVPrevotes(ctx, vrv, map[string][]int{
+			string(ph1.Header.Hash): {1, 2, 3},
+		})
+		vrv = sfx.Fx.UpdateVRVPrecommits(ctx, vrv, map[string][]int{
+			string(ph1.Header.Hash): {1, 2, 3},
+		})
+
+		// This causes the state machine to be in commit wait.
+		commitWaitStart := sfx.RoundTimer.CommitWaitStartNotification(1, 0)
+		gtest.SendSoon(t, sfx.RoundViewInCh, tmeil.StateMachineRoundView{
+			VRV: vrv.Clone(),
+		})
+		_ = gtest.ReceiveSoon(t, commitWaitStart)
+		sfx.RoundTimer.RequireActiveCommitWaitTimer(t, 1, 0)
+
+
+		finReq := gtest.ReceiveSoon(t, sfx.FinalizeBlockRequests)
+		require.Equal(t, ph1.Header, finReq.Header)
+		require.Zero(t, finReq.Round)
+
+		gtest.SendSoon(t, finReq.Resp, tmdriver.FinalizeBlockResponse{
+			Height: ph1.Header.Height,Round:0,
+			BlockHash: ph1.Header.Hash,
+
+			Validators: ph1.Header.ValidatorSet.Validators,
+
+			AppStateHash: []byte("app_state_1"),
+		})
+
+
+		// Once we close the height committed channel,
+		// the state machine should enter height 2.
+		_ = cStrat.ExpectEnterRound(2, 0, nil)
+		close(re.HeightCommitted)
+
+		re2 := gtest.ReceiveSoon(t, sfx.RoundEntranceOutCh)
+		require.Equal(t, uint64(2), re2.H)
+		require.Zero(t, re2.R)
+	})
+}
+
 func TestStateMachine_blockDataArrival(t *testing.T) {
 	t.Run("matching, after proposed block received on first update", func(t *testing.T) {
 		t.Parallel()

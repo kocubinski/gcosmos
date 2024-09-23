@@ -284,6 +284,88 @@ func TestKernel_initialStateUpdateToStateMachineUsesVRVClone(t *testing.T) {
 	require.Empty(t, vrv.VoteSummary.PrevoteBlockPower)
 }
 
+func TestKernel_closeRoundEntranceHeightCommitted(t *testing.T) {
+	t.Run("with replayed headers", func(t *testing.T) {
+		t.Parallel()
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		kfx := NewKernelFixture(ctx, t, 4)
+
+		k := kfx.NewKernel()
+		defer k.Wait()
+		defer cancel()
+
+		// Simulate the state machine round action input.
+		height1Committed := make(chan struct{})
+		re := tmeil.StateMachineRoundEntrance{
+			H: 1, R: 0,
+
+			PubKey: nil,
+
+			Actions: make(chan tmeil.StateMachineRoundAction, 3),
+
+			HeightCommitted: height1Committed,
+
+			Response: make(chan tmeil.RoundEntranceResponse, 1),
+		}
+
+		gtest.SendSoon(t, kfx.StateMachineRoundEntranceIn, re)
+
+		ph1 := kfx.Fx.NextProposedHeader([]byte("app_data_1"), 0)
+		voteMap := map[string][]int{
+			string(ph1.Header.Hash): []int{0, 1, 2, 3},
+		}
+		precommitProofsMap := kfx.Fx.PrecommitProofMap(ctx, 1, 0, voteMap)
+		kfx.Fx.CommitBlock(ph1.Header, []byte("app_state_1"), 0, precommitProofsMap)
+
+		// Send it, and the response should indicate success.
+		rhResp1 := make(chan tmelink.ReplayedHeaderResponse)
+		gtest.SendSoon(t, kfx.ReplayedHeadersIn, tmelink.ReplayedHeaderRequest{
+			Header: ph1.Header,
+			Proof: tmconsensus.CommitProof{
+				Round:      0,
+				PubKeyHash: string(ph1.Header.ValidatorSet.PubKeyHash),
+				Proofs:     kfx.Fx.SparsePrecommitProofMap(ctx, 1, 0, voteMap),
+			},
+			Resp: rhResp1,
+		})
+		require.Nil(t, gtest.ReceiveSoon(t, rhResp1).Err)
+
+		// Height 1 is committing, but not committed.
+		gtest.NotSending(t, height1Committed)
+
+		// The state machine has not entered round 2 yet,
+		// because it hasn't finished finalizing or whatever.
+		// Meanwhile, the next height is replayed.
+		ph2 := kfx.Fx.NextProposedHeader([]byte("app_data_2"), 0)
+		voteMap = map[string][]int{
+			string(ph2.Header.Hash): []int{0, 1, 2, 3},
+		}
+		precommitProofsMap = kfx.Fx.PrecommitProofMap(ctx, 2, 0, voteMap)
+		kfx.Fx.CommitBlock(ph2.Header, []byte("app_state_2"), 0, precommitProofsMap)
+
+		// Send it, and the response should indicate success.
+		rhResp2 := make(chan tmelink.ReplayedHeaderResponse)
+		gtest.SendSoon(t, kfx.ReplayedHeadersIn, tmelink.ReplayedHeaderRequest{
+			Header: ph2.Header,
+			Proof: tmconsensus.CommitProof{
+				Round:      0,
+				PubKeyHash: string(ph2.Header.ValidatorSet.PubKeyHash),
+				Proofs:     kfx.Fx.SparsePrecommitProofMap(ctx, 2, 0, voteMap),
+			},
+			Resp: rhResp2,
+		})
+		require.Nil(t, gtest.ReceiveSoon(t, rhResp2).Err)
+
+		// This puts height 2 in committing, which means height 1 is now committed.
+		_ = gtest.ReceiveSoon(t, height1Committed)
+	})
+
+	// TODO: another subtest, with non-committed headers.
+}
+
 func TestKernel_lag(t *testing.T) {
 	t.Run("initializing at startup", func(t *testing.T) {
 		t.Parallel()

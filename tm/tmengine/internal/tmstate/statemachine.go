@@ -187,7 +187,7 @@ func (m *StateMachine) handleCatchupEvent(
 		select {
 		case <-ctx.Done():
 			m.log.Info(
-				"Quitting due to context cancellation in kernel main loop (catchup)",
+				"State machine kernel quitting due to context cancellation in main loop (catchup)",
 				"cause", context.Cause(ctx),
 				"height", rlc.H, "round", rlc.R, "step", rlc.S,
 			)
@@ -224,7 +224,7 @@ func (m *StateMachine) handleLiveEvent(
 	select {
 	case <-ctx.Done():
 		m.log.Info(
-			"Quitting due to context cancellation in kernel main loop (live events)",
+			"State machine kernel quitting due to context cancellation in main loop (live events)",
 			"cause", context.Cause(ctx),
 			"height", rlc.H, "round", rlc.R, "step", rlc.S,
 			"vote_summary", rlc.PrevVRV.VoteSummary,
@@ -284,6 +284,11 @@ func (m *StateMachine) handleLiveEvent(
 			return false
 		}
 
+	case <-rlc.HeightCommitted:
+		if !m.handleHeightCommitted(ctx, rlc) {
+			return false
+		}
+
 	case a := <-m.blockDataArrivalCh:
 		if !m.handleBlockDataArrival(ctx, rlc, a) {
 			return false
@@ -294,6 +299,45 @@ func (m *StateMachine) handleLiveEvent(
 	}
 
 	return true
+}
+
+// handleHeightCommitted is called when the mirror sends a HeightCommitted signal.
+// Essentially we treat that the same as a commit wait timer elapse.
+func (m *StateMachine) handleHeightCommitted(ctx context.Context, rlc *tsi.RoundLifecycle) (ok bool) {
+	// Don't read from the channel again, especially since it's closed.
+	rlc.HeightCommitted = nil
+
+	rlc.CommitWaitElapsed = true
+
+	if rlc.CancelTimer != nil {
+		rlc.CancelTimer()
+	}
+	rlc.StepTimer = nil
+	rlc.CancelTimer = nil
+
+	if rlc.S == tsi.StepAwaitingFinalization {
+		// We were already awaiting finalization,
+		// so nothing to do here.
+		return true
+	}
+
+	if rlc.S != tsi.StepCommitWait {
+		// It's probably also acceptable to be on tsi.StepAwaitingFinalization?
+		panic(fmt.Errorf(
+			"BUG: expected to be on step commit wait, got %s", rlc.S,
+		))
+	}
+
+	if len(rlc.FinalizedValSet.Validators) == 0 {
+		// We don't have a finalization yet,
+		// so that's the step we are waiting on.
+		rlc.S = tsi.StepAwaitingFinalization
+		return true
+	}
+
+	// We already had a finalization and now the commit wait has effectively elapsed,
+	// so now we have to advance the height.
+	return m.advanceHeight(ctx, rlc)
 }
 
 func (m *StateMachine) initializeRLC(ctx context.Context) (rlc tsi.RoundLifecycle, ok bool) {
@@ -426,10 +470,19 @@ func (m *StateMachine) sendInitialActionSet(ctx context.Context) (
 	rer tmeil.RoundEntranceResponse,
 	ok bool,
 ) {
+	// We send the initial round entrance before we reset the RLC,
+	// so only in this case do we make the HeightCommitted channel out of band,
+	// and then re-assign it into rlc.
+	// (In all other cases, we rely on rlc.Reset to create the channel.)
+	hc := make(chan struct{})
+
 	// Assume for now that we start up with no history.
 	// We have to send our height and round to the mirror.
+	// TODO: this should respect initial state loaded from a store.
 	initRE := tmeil.StateMachineRoundEntrance{
 		H: m.genesis.InitialHeight, R: 0,
+
+		HeightCommitted: hc,
 
 		Response: make(chan tmeil.RoundEntranceResponse, 1),
 	}
@@ -469,6 +522,7 @@ func (m *StateMachine) sendInitialActionSet(ctx context.Context) (
 	// or do we only need to replay the block?
 	if rer.IsVRV() {
 		rlc.Reset(ctx, initRE.H, initRE.R)
+		rlc.HeightCommitted = hc
 		rlc.OutgoingActionsCh = initRE.Actions // Should this be part of the Reset method instead?
 
 		// Still assuming we are initializing at the chain's initial height,
@@ -526,6 +580,7 @@ func (m *StateMachine) sendInitialActionSet(ctx context.Context) (
 		// TODO: there should be a different method for resetting
 		// in expectation of handling a replayed block.
 		rlc.Reset(ctx, initRE.H, initRE.R)
+		rlc.HeightCommitted = hc
 
 		// This is a replay, so we can just tell the driver to finalize it.
 		finReq := tmdriver.FinalizeBlockRequest{
@@ -1446,6 +1501,8 @@ func (m *StateMachine) advanceHeight(ctx context.Context, rlc *tsi.RoundLifecycl
 		H: rlc.H,
 		R: 0,
 
+		HeightCommitted: rlc.HeightCommitted,
+
 		Response: make(chan tmeil.RoundEntranceResponse, 1),
 	}
 	return m.advance(ctx, rlc, re)
@@ -1458,6 +1515,8 @@ func (m *StateMachine) advanceRound(ctx context.Context, rlc *tsi.RoundLifecycle
 	re := tmeil.StateMachineRoundEntrance{
 		H: rlc.H,
 		R: rlc.R,
+
+		HeightCommitted: rlc.HeightCommitted,
 
 		Response: make(chan tmeil.RoundEntranceResponse, 1),
 	}

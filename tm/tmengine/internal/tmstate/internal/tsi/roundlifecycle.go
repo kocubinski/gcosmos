@@ -25,6 +25,13 @@ type RoundLifecycle struct {
 	StepTimer   <-chan struct{}
 	CancelTimer func()
 
+	// Signal from the mirror that the height has been fully committed.
+	// Once we see this channel closed,
+	// we assign nil to the field (so we don't read from the channel again)
+	// and set CommitWaitElapsed true,
+	// in order to not spend unnecessary time waiting for a commit.
+	HeightCommitted chan struct{}
+
 	// The validators for this height.
 	// Derived from the previous block's NextValidators field.
 	// Used when proposing a block.
@@ -95,6 +102,7 @@ func (rlc *RoundLifecycle) Reset(ctx context.Context, h uint64, r uint32) {
 
 	rlc.FinalizeRespCh = make(chan tmdriver.FinalizeBlockResponse, 1)
 
+	rlc.HeightCommitted = make(chan struct{})
 	rlc.CommitWaitElapsed = false
 
 	// The hashes may have been cleared already in some circumstances,

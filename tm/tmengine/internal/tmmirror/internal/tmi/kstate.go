@@ -164,6 +164,15 @@ type nextHeightDetails struct {
 }
 
 func (s *kState) ShiftVotingToCommitting(nhd nextHeightDetails) {
+	// If the state machine was pointing at the committing height,
+	// we want to close the HeightCommitted channel
+	// to signal the state machine to not spend time in commit wait.
+	// But we won't send that signal until we're at the end of the shift.
+	h, heightCommittedCh := s.StateMachineViewManager.HeightCommittedChan()
+	if h != s.Committing.Height {
+		heightCommittedCh = nil
+	}
+
 	// Easy part: move the voting view over the committing view.
 	s.Committing = s.Voting
 	s.MarkCommittingViewUpdated()
@@ -224,6 +233,12 @@ func (s *kState) ShiftVotingToCommitting(nhd nextHeightDetails) {
 	s.MarkNextRoundViewUpdated()
 
 	s.CommittingHeader = nhd.VotedHeader
+
+	// As mentioned at the top,
+	// we conditionally signal to the state machine that the height has been committed.
+	if heightCommittedCh != nil {
+		close(heightCommittedCh)
+	}
 }
 
 func (s *kState) AdvanceVotingRound(

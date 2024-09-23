@@ -30,6 +30,12 @@ type StateMachineRoundEntrance struct {
 
 	Actions chan StateMachineRoundAction
 
+	// The mirror kernel closes this channel when its committing view
+	// is shifted out, indicating the height is canonically on-chain.
+	// The state machine treats this as a signal that
+	// the commit wait timer is no longer required.
+	HeightCommitted chan<- struct{}
+
 	Response chan RoundEntranceResponse
 }
 
