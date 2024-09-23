@@ -28,6 +28,7 @@ type KernelFixture struct {
 	// These channels are bidirectional in the fixture,
 	// because they are write-only in the config.
 
+	ReplayedHeadersIn chan tmelink.ReplayedHeaderRequest
 	GossipStrategyOut chan tmelink.NetworkViewUpdate
 	LagStateOut       chan tmelink.LagState
 
@@ -51,6 +52,7 @@ func NewKernelFixture(ctx context.Context, t *testing.T, nVals int) *KernelFixtu
 	fx := tmconsensustest.NewStandardFixture(nVals)
 
 	// Unbuffered because the kernel needs to know exactly what was received.
+	rhi := make(chan tmelink.ReplayedHeaderRequest)
 	gso := make(chan tmelink.NetworkViewUpdate)
 	lso := make(chan tmelink.LagState)
 
@@ -88,6 +90,7 @@ func NewKernelFixture(ctx context.Context, t *testing.T, nVals int) *KernelFixtu
 
 		Fx: fx,
 
+		ReplayedHeadersIn: rhi,
 		GossipStrategyOut: gso,
 		LagStateOut:       lso,
 
@@ -115,6 +118,7 @@ func NewKernelFixture(ctx context.Context, t *testing.T, nVals int) *KernelFixtu
 			SignatureScheme:                   fx.SignatureScheme,
 			CommonMessageSignatureProofScheme: fx.CommonMessageSignatureProofScheme,
 
+			ReplayedHeadersIn: rhi,
 			GossipStrategyOut: gso,
 			LagStateOut:       lso,
 
