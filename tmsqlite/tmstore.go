@@ -6,16 +6,20 @@ import (
 	"fmt"
 
 	"github.com/rollchains/gordian/tm/tmstore"
-	// TODO: don't hardcode this in main; should be guarded by build tags
-	_ "modernc.org/sqlite"
 )
 
+// TMStore is a single type satisfying all the [tmstore] interfaces.
 type TMStore struct {
+	// The string "purego" or "cgo" depending on build tags.
+	BuildType string
+
 	db *sql.DB
 }
 
 func NewTMStore(ctx context.Context, dbPath string) (*TMStore, error) {
-	db, err := sql.Open("sqlite", dbPath)
+	// The driver type comes from the sqlitedriver_*.go file
+	// chosen based on build tags.
+	db, err := sql.Open(sqliteDriverType, dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("error opening database: %w", err)
 	}
@@ -24,7 +28,11 @@ func NewTMStore(ctx context.Context, dbPath string) (*TMStore, error) {
 		return nil, err
 	}
 
-	return &TMStore{db: db}, nil
+	return &TMStore{
+		BuildType: sqliteBuildType,
+
+		db: db,
+	}, nil
 }
 
 func (s *TMStore) Close() error {

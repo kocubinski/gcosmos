@@ -3,6 +3,7 @@ module github.com/rollchains/gordian/tmsqlite
 go 1.23.1
 
 require (
+	github.com/mattn/go-sqlite3 v1.14.23
 	github.com/rollchains/gordian v0.0.0
 	github.com/stretchr/testify v1.9.0
 	modernc.org/sqlite v1.33.1

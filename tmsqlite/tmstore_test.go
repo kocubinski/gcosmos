@@ -17,6 +17,10 @@ func TestNew(t *testing.T) {
 	s, err := tmsqlite.NewTMStore(context.Background(), ":memory:")
 	require.NoError(t, err)
 	require.NotNil(t, s)
+
+	// Helpful output in the simplest test, if there is uncertainty which type was built.
+	t.Logf("Tests are for build type %s", s.BuildType)
+
 	require.NoError(t, s.Close())
 }
 
