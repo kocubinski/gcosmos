@@ -488,7 +488,7 @@ func TestEngine_plumbing_GossipStrategy(t *testing.T) {
 
 		u := gtest.ReceiveSoon(t, gs.Updates)
 
-		ra, err := efx.ActionStore.Load(ctx, 1, 0)
+		ra, err := efx.ActionStore.LoadActions(ctx, 1, 0)
 		require.NoError(t, err)
 		ph100 = ra.ProposedHeader
 		blockHash100 = string(ph100.Header.Hash)

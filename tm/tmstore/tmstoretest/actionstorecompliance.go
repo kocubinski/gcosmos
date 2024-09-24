@@ -32,7 +32,7 @@ func TestActionStoreCompliance(t *testing.T, f ActionStoreFactory) {
 		require.NoError(t, s.SaveProposedHeader(ctx, ph1))
 
 		t.Run("round trip", func(t *testing.T) {
-			ra, err := s.Load(ctx, 1, 2)
+			ra, err := s.LoadActions(ctx, 1, 2)
 			require.NoError(t, err)
 
 			require.Equal(t, uint64(1), ra.Height)
@@ -84,7 +84,7 @@ func TestActionStoreCompliance(t *testing.T, f ActionStoreFactory) {
 		require.NoError(t, s.SavePrevote(ctx, pubKey, vt, sig))
 
 		t.Run("round trip", func(t *testing.T) {
-			ra, err := s.Load(ctx, 1, 2)
+			ra, err := s.LoadActions(ctx, 1, 2)
 			require.NoError(t, err)
 
 			require.Equal(t, uint64(1), ra.Height)
@@ -135,7 +135,7 @@ func TestActionStoreCompliance(t *testing.T, f ActionStoreFactory) {
 		require.NoError(t, s.SavePrecommit(ctx, pubKey, vt, sig))
 
 		t.Run("round trip", func(t *testing.T) {
-			ra, err := s.Load(ctx, 1, 2)
+			ra, err := s.LoadActions(ctx, 1, 2)
 			require.NoError(t, err)
 
 			require.Equal(t, uint64(1), ra.Height)
@@ -213,7 +213,7 @@ func TestActionStoreCompliance(t *testing.T, f ActionStoreFactory) {
 		})
 	})
 
-	t.Run("Load", func(t *testing.T) {
+	t.Run("LoadActions", func(t *testing.T) {
 		t.Run("happy path", func(t *testing.T) {
 			t.Parallel()
 
@@ -245,7 +245,7 @@ func TestActionStoreCompliance(t *testing.T, f ActionStoreFactory) {
 			require.NoError(t, s.SavePrevote(ctx, pubKey, vt, prevoteSig))
 			require.NoError(t, s.SavePrecommit(ctx, pubKey, vt, precommitSig))
 
-			ra, err := s.Load(ctx, 1, 2)
+			ra, err := s.LoadActions(ctx, 1, 2)
 			require.NoError(t, err)
 
 			require.Equal(t, uint64(1), ra.Height)
@@ -269,7 +269,7 @@ func TestActionStoreCompliance(t *testing.T, f ActionStoreFactory) {
 			s, err := f(t.Cleanup)
 			require.NoError(t, err)
 
-			_, err = s.Load(ctx, 1, 2)
+			_, err = s.LoadActions(ctx, 1, 2)
 			require.ErrorIs(t, err, tmconsensus.RoundUnknownError{
 				WantHeight: 1,
 				WantRound:  2,

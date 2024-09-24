@@ -954,7 +954,7 @@ func TestStateMachine_enterRoundProposal(t *testing.T) {
 				sentPH := gtest.ReceiveSoon(t, re.Actions).PH
 
 				// Now the proposed block should be in the action store.
-				ra, err := sfx.Cfg.ActionStore.Load(ctx, 1, 0)
+				ra, err := sfx.Cfg.ActionStore.LoadActions(ctx, 1, 0)
 				require.NoError(t, err)
 
 				gotPH := ra.ProposedHeader
@@ -1002,7 +1002,7 @@ func TestStateMachine_enterRoundProposal(t *testing.T) {
 				sentPH := gtest.ReceiveSoon(t, re.Actions).PH
 
 				// Now the proposed block should be in the action store.
-				ra, err := sfx.Cfg.ActionStore.Load(ctx, 1, 0)
+				ra, err := sfx.Cfg.ActionStore.LoadActions(ctx, 1, 0)
 				require.NoError(t, err)
 
 				gotPH := ra.ProposedHeader
@@ -1049,7 +1049,7 @@ func TestStateMachine_enterRoundProposal(t *testing.T) {
 		sentPH1 := gtest.ReceiveSoon(t, re.Actions).PH
 
 		// Now the proposed block should be in the action store.
-		ra, err := sfx.Cfg.ActionStore.Load(ctx, 1, 0)
+		ra, err := sfx.Cfg.ActionStore.LoadActions(ctx, 1, 0)
 		require.NoError(t, err)
 
 		gotPH1 := ra.ProposedHeader
@@ -1682,7 +1682,7 @@ func TestStateMachine_decidePrecommit(t *testing.T) {
 		require.True(t, sfx.Cfg.Signer.PubKey().Verify(act.Precommit.SignContent, act.Precommit.Sig))
 
 		// And at that point, it is present in the action store too.
-		ra, err := sfx.Cfg.ActionStore.Load(ctx, 1, 0)
+		ra, err := sfx.Cfg.ActionStore.LoadActions(ctx, 1, 0)
 		require.NoError(t, err)
 		require.Equal(t, string(ph1.Header.Hash), ra.PrecommitTarget)
 		require.Equal(t, string(act.Precommit.Sig), ra.PrecommitSignature)
@@ -1756,7 +1756,7 @@ func TestStateMachine_decidePrecommit(t *testing.T) {
 		require.True(t, sfx.Cfg.Signer.PubKey().Verify(act.Precommit.SignContent, act.Precommit.Sig))
 
 		// And at that point, it is present in the action store too.
-		ra, err := sfx.Cfg.ActionStore.Load(ctx, 1, 0)
+		ra, err := sfx.Cfg.ActionStore.LoadActions(ctx, 1, 0)
 		require.NoError(t, err)
 		require.Empty(t, ra.PrecommitTarget)
 		require.Equal(t, string(act.Precommit.Sig), ra.PrecommitSignature)
@@ -1841,7 +1841,7 @@ func TestStateMachine_decidePrecommit(t *testing.T) {
 		require.True(t, sfx.Cfg.Signer.PubKey().Verify(act.Precommit.SignContent, act.Precommit.Sig))
 
 		// And at that point, it is present in the action store too.
-		ra, err := sfx.Cfg.ActionStore.Load(ctx, 1, 0)
+		ra, err := sfx.Cfg.ActionStore.LoadActions(ctx, 1, 0)
 		require.NoError(t, err)
 		require.Equal(t, string(ph1.Header.Hash), ra.PrecommitTarget)
 		require.Equal(t, string(act.Precommit.Sig), ra.PrecommitSignature)
@@ -1906,7 +1906,7 @@ func TestStateMachine_decidePrecommit(t *testing.T) {
 		require.True(t, sfx.Cfg.Signer.PubKey().Verify(act.Precommit.SignContent, act.Precommit.Sig))
 
 		// And at that point, it is present in the action store too.
-		ra, err := sfx.Cfg.ActionStore.Load(ctx, 1, 0)
+		ra, err := sfx.Cfg.ActionStore.LoadActions(ctx, 1, 0)
 		require.NoError(t, err)
 		require.Equal(t, string(ph1.Header.Hash), ra.PrecommitTarget)
 		require.Equal(t, string(act.Precommit.Sig), ra.PrecommitSignature)
@@ -3609,20 +3609,18 @@ func TestStateMachine_heightCommittedSignal(t *testing.T) {
 		_ = gtest.ReceiveSoon(t, commitWaitStart)
 		sfx.RoundTimer.RequireActiveCommitWaitTimer(t, 1, 0)
 
-
 		finReq := gtest.ReceiveSoon(t, sfx.FinalizeBlockRequests)
 		require.Equal(t, ph1.Header, finReq.Header)
 		require.Zero(t, finReq.Round)
 
 		gtest.SendSoon(t, finReq.Resp, tmdriver.FinalizeBlockResponse{
-			Height: ph1.Header.Height,Round:0,
+			Height: ph1.Header.Height, Round: 0,
 			BlockHash: ph1.Header.Hash,
 
 			Validators: ph1.Header.ValidatorSet.Validators,
 
 			AppStateHash: []byte("app_state_1"),
 		})
-
 
 		// Once we close the height committed channel,
 		// the state machine should enter height 2.

@@ -347,6 +347,14 @@ func (m *StateMachine) initializeRLC(ctx context.Context) (rlc tsi.RoundLifecycl
 		return rlc, false
 	}
 
+	// TODO: this should be loading from the action store and re-sending any matching actions.
+	// This would cover an unlikely instance where:
+	//   1. The state machine recorded its action.
+	//   2. The process crashed before broadcasting the action.
+	//   3. The process immediately restarted at the same height/round/step.
+	//   4. The mirror could request the same action again, which could potentially cause
+	//      a double sign, or perhaps another crash due to an attempt at a duplicate action.
+
 	if !su.IsVRV() {
 		// We are replaying, so we don't need special begin round handling.
 		// sendInitialActionSet already made a finalization request.

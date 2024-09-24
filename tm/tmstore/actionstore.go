@@ -15,8 +15,8 @@ type ActionStore interface {
 	SavePrevote(ctx context.Context, pubKey gcrypto.PubKey, vt tmconsensus.VoteTarget, sig []byte) error
 	SavePrecommit(ctx context.Context, pubKey gcrypto.PubKey, vt tmconsensus.VoteTarget, sig []byte) error
 
-	// Load returns all actions recorded for this round.
-	Load(ctx context.Context, height uint64, round uint32) (RoundActions, error)
+	// LoadActions returns all actions recorded for this round.
+	LoadActions(ctx context.Context, height uint64, round uint32) (RoundActions, error)
 }
 
 // RoundActions contains all three possible actions the current validator

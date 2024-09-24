@@ -106,8 +106,8 @@ func (s *ActionStore) SavePrecommit(ctx context.Context, pubKey gcrypto.PubKey, 
 	return nil
 }
 
-// Load returns all actions recorded for this round.
-func (s *ActionStore) Load(ctx context.Context, height uint64, round uint32) (tmstore.RoundActions, error) {
+// LoadActions returns all actions recorded for this round.
+func (s *ActionStore) LoadActions(ctx context.Context, height uint64, round uint32) (tmstore.RoundActions, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
