@@ -30,7 +30,7 @@ func TestValidatorStoreCompliance(t *testing.T, f ValidatorStoreFactory) {
 
 			got3, err := s.LoadPubKeys(ctx, hash3)
 			require.NoError(t, err)
-			require.Equal(t, len(keys3), len(got3))
+			require.Len(t, got3, 3)
 			for i, got := range got3 {
 				require.Truef(t, keys3[i].Equal(got), "key mismatch at index %d", i)
 			}
@@ -61,6 +61,7 @@ func TestValidatorStoreCompliance(t *testing.T, f ValidatorStoreFactory) {
 			require.NoError(t, err)
 
 			_, err = s.LoadPubKeys(ctx, hash3)
+			require.Error(t, err)
 			require.ErrorIs(t, err, tmstore.NoPubKeyHashError{Want: hash3})
 		})
 	})

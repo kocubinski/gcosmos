@@ -62,12 +62,48 @@ func migrateInitial(ctx context.Context, tx *sql.Tx) error {
 	// https://stackoverflow.com/a/33104119
 	_, err := tx.ExecContext(
 		ctx,
-		`CREATE TABLE mirror(
-id INTEGER PRIMARY KEY CHECK ( id = 0 ),
-vh INTEGER NOT NULL, vr INTEGER NOT NULL,
-ch INTEGER NOT NULL, cr INTEGER NOT NULL
+		`
+CREATE TABLE mirror(
+  id INTEGER PRIMARY KEY CHECK ( id = 0 ),
+  vh INTEGER NOT NULL, vr INTEGER NOT NULL,
+  ch INTEGER NOT NULL, cr INTEGER NOT NULL
 );
 INSERT INTO mirror VALUES(0, 0, 0, 0, 0);
+
+CREATE TABLE validator_pub_keys(
+  id INTEGER PRIMARY KEY NOT NULL,
+  key BLOB NOT NULL UNIQUE
+);
+
+CREATE TABLE validator_pub_key_hashes(
+  id INTEGER PRIMARY KEY NOT NULL,
+  hash BLOB NOT NULL UNIQUE
+);
+
+CREATE TABLE validator_pub_key_hash_entries(
+  id INTEGER PRIMARY KEY NOT NULL,
+  hash_id INTEGER NOT NULL,
+  idx INTEGER NOT NULL,
+  key_id INTEGER NOT NULL,
+  FOREIGN KEY(key_id) REFERENCES validator_pub_keys(id),
+  FOREIGN KEY(hash_id) REFERENCES validator_pub_key_hashes(id),
+  UNIQUE (hash_id, idx),
+  UNIQUE (hash_id, key_id)
+);
+
+CREATE TABLE validator_power_hashes(
+  id INTEGER PRIMARY KEY NOT NULL,
+  hash BLOB NOT NULL UNIQUE
+);
+
+CREATE TABLE validator_power_hash_entries(
+  id INTEGER PRIMARY KEY NOT NULL,
+  hash_id INTEGER NOT NULL,
+  idx INTEGER NOT NULL,
+  power INTEGER NOT NULL,
+  FOREIGN KEY(hash_id) REFERENCES validator_power_hashes(id),
+  UNIQUE (hash_id, idx)
+);
 `,
 	)
 	return err
