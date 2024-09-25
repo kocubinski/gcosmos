@@ -2,6 +2,7 @@ package tmsqlite_test
 
 import (
 	"context"
+	"path/filepath"
 	"testing"
 
 	"github.com/rollchains/gordian/gcrypto"
@@ -30,6 +31,23 @@ func TestNew(t *testing.T) {
 	t.Logf("Tests are for build type %s", s.BuildType)
 
 	require.NoError(t, s.Close())
+}
+
+func TestMigrate(t *testing.T) {
+	t.Run("empty database", func(t *testing.T) {
+		t.Parallel()
+
+		path := filepath.Join(t.TempDir(), "db.sqlite")
+		s1, err := tmsqlite.NewTMStore(context.Background(), path, tmconsensustest.SimpleHashScheme{}, &reg)
+		require.NoError(t, err)
+		require.NotNil(t, s1)
+		require.NoError(t, s1.Close())
+
+		s2, err:= tmsqlite.NewTMStore(context.Background(), path, tmconsensustest.SimpleHashScheme{}, &reg)
+		require.NoError(t, err)
+		require.NotNil(t, s2)
+		require.NoError(t, s2.Close())
+	})
 }
 
 func TestMirrorStoreCompliance(t *testing.T) {

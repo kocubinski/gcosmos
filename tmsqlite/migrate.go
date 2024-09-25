@@ -15,22 +15,29 @@ func migrate(ctx context.Context, db *sql.DB) error {
 
 	if _, err := tx.ExecContext(
 		ctx,
-		`CREATE TABLE IF NOT EXISTS migrations(version INTEGER PRIMARY KEY);`,
+		`CREATE TABLE IF NOT EXISTS migrations(
+  id INTEGER PRIMARY KEY CHECK ( id = 0 ),
+  version INTEGER
+);`,
 	); err != nil {
 		return fmt.Errorf("error getting initial migrations table: %w", err)
 	}
 
-	rows, err := tx.QueryContext(ctx, `SELECT version FROM migrations;`)
+	if _, err := tx.ExecContext(
+		ctx,
+		`INSERT OR IGNORE INTO migrations(id, version) VALUES (0, 0)`,
+	); err != nil {
+		return fmt.Errorf("error setting initial migration version: %w", err)
+	}
+
+	row := tx.QueryRowContext(ctx, `SELECT version FROM migrations WHERE id=0;`)
 	if err != nil {
 		return fmt.Errorf("failed to select from migrations table: %w", err)
 	}
-	defer rows.Close()
 
 	var migrationVersion int
-	if rows.Next() {
-		if err := rows.Scan(&migrationVersion); err != nil {
-			return fmt.Errorf("failed to scan migration version: %w", err)
-		}
+	if err := row.Scan(&migrationVersion); err != nil {
+		return fmt.Errorf("failed to scan migration version: %w", err)
 	}
 
 	if err := migrateFrom(ctx, tx, migrationVersion); err != nil {
@@ -50,6 +57,12 @@ func migrateFrom(ctx context.Context, tx *sql.Tx, version int) error {
 		if err := migrateInitial(ctx, tx); err != nil {
 			return fmt.Errorf("initial migration: %w", err)
 		}
+		if err := setMigrationVersion(ctx, tx, 1); err != nil {
+			return err
+		}
+	case 1:
+		// Up to date.
+		return nil
 	default:
 		return fmt.Errorf("unknown migration version %d", version)
 	}
@@ -109,4 +122,16 @@ CREATE TABLE validator_power_hash_entries(
 `,
 	)
 	return err
+}
+
+func setMigrationVersion(ctx context.Context, tx *sql.Tx, version int) error {
+	if _, err := tx.ExecContext(
+		ctx,
+		`UPDATE migrations SET version = ? WHERE id = 0`,
+		version,
+	); err != nil {
+		return fmt.Errorf("error setting migration version to %d: %w", version, err)
+	}
+
+	return nil
 }
