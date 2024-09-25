@@ -92,18 +92,6 @@ func (e HashAlreadyExistsError) Error() string {
 	return fmt.Sprintf("hash %x already exists", e.Hash)
 }
 
-// ProposalOverwriteError is returned when a proposal already exists
-// and another proposal is attempted for the same height and round,
-// regardless of whether the new attempt is identical to the existing proposal.
-type ProposalOverwriteError struct {
-	Height uint64
-	Round  uint32
-}
-
-func (e ProposalOverwriteError) Error() string {
-	return fmt.Sprintf("attempted to overwrite existing proposal at height/round %d/%d", e.Height, e.Round)
-}
-
 // DoublePrevoteError indicates a prevote message contained both an active and a nil prevote
 // from one or more validators.
 type DoublePrevoteError struct {
