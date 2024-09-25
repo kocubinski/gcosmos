@@ -1366,6 +1366,7 @@ func (k *Kernel) setPHCheckStatus(
 		// than it is to copy over the entire validator block and hand it off to the mirror's calling goroutine.
 		var proposerPubKey gcrypto.PubKey
 		for _, val := range vrv.ValidatorSet.Validators {
+			// TODO: this panics on replayed blocks that don't have a proposer public key associated.
 			if req.PH.ProposerPubKey.Equal(val.PubKey) {
 				proposerPubKey = val.PubKey
 				break
