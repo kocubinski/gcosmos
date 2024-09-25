@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"github.com/rollchains/gordian/tm/tmconsensus"
+	"github.com/rollchains/gordian/tm/tmstore"
 )
 
 type FinalizationStore struct {
@@ -37,10 +38,14 @@ func (s *FinalizationStore) SaveFinalization(
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	if _, ok := s.byHeight[height]; ok {
+		return tmstore.FinalizationOverwriteError{Height: height}
+	}
+
 	s.byHeight[height] = fin{
 		H: height, R: round,
 		BlockHash:    blockHash,
-		ValSet:         valSet,
+		ValSet:       valSet,
 		AppStateHash: appStateHash,
 	}
 

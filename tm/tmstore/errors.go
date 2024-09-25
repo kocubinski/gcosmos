@@ -100,6 +100,20 @@ func (e OverwriteError) Error() string {
 	)
 }
 
+// FinalizationOverwriteError is returned from [FinalizationStore.SaveFinalization]
+// if a finalization already exists at the given height.
+// This error indicates a serious programming bug.
+type FinalizationOverwriteError struct {
+	Height uint64
+}
+
+func (e FinalizationOverwriteError) Error() string {
+	return fmt.Sprintf(
+		"attempted to overwrite existing finalization with height = %d",
+		e.Height,
+	)
+}
+
 // ErrStoreUninitialized is returned by certain store methods
 // that need a corresponding Save call before a call to Load is valid.
 var ErrStoreUninitialized = errors.New("uninitialized")
