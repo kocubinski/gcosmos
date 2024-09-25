@@ -48,7 +48,6 @@ func TestMirrorStoreCompliance(t *testing.T) {
 }
 
 func TestValidatorStoreCompliance(t *testing.T) {
-	t.Skip("Not fully implemented yet")
 	t.Parallel()
 
 	tmstoretest.TestValidatorStoreCompliance(t, func(cleanup func(func())) (tmstore.ValidatorStore, error) {

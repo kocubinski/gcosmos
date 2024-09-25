@@ -77,7 +77,8 @@ CREATE TABLE validator_pub_keys(
 
 CREATE TABLE validator_pub_key_hashes(
   id INTEGER PRIMARY KEY NOT NULL,
-  hash BLOB NOT NULL UNIQUE
+  hash BLOB NOT NULL UNIQUE,
+  n_keys INTEGER NOT NULL CHECK (n_keys > 0)
 );
 
 CREATE TABLE validator_pub_key_hash_entries(
@@ -93,7 +94,8 @@ CREATE TABLE validator_pub_key_hash_entries(
 
 CREATE TABLE validator_power_hashes(
   id INTEGER PRIMARY KEY NOT NULL,
-  hash BLOB NOT NULL UNIQUE
+  hash BLOB NOT NULL UNIQUE,
+  n_powers INTEGER NOT NULL CHECK (n_powers > 0)
 );
 
 CREATE TABLE validator_power_hash_entries(

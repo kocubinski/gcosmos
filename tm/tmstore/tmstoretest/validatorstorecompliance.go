@@ -37,6 +37,7 @@ func TestValidatorStoreCompliance(t *testing.T, f ValidatorStoreFactory) {
 
 			// And expected error is returned on re-save.
 			repeat, err := s.SavePubKeys(ctx, keys3)
+			require.Error(t, err)
 			require.ErrorIs(t, tmstore.PubKeysAlreadyExistError{
 				ExistingHash: hash3,
 			}, err)
@@ -144,11 +145,11 @@ func TestValidatorStoreCompliance(t *testing.T, f ValidatorStoreFactory) {
 			require.Truef(
 				t,
 				tmconsensus.ValidatorSlicesEqual(vals3.Vals(), gotVals),
-				"validator slices differed: %#v != %#v", vals3.Vals(), gotVals,
+				"validator slices differed:\n%#v\n!=\n%#v", vals3.Vals(), gotVals,
 			)
 		})
 
-		t.Run("missing validators", func(t *testing.T) {
+		t.Run("missing keys", func(t *testing.T) {
 			t.Parallel()
 
 			ctx, cancel := context.WithCancel(context.Background())
@@ -179,7 +180,9 @@ func TestValidatorStoreCompliance(t *testing.T, f ValidatorStoreFactory) {
 			require.Equal(t, powHash, gotPowHash)
 
 			_, err = s.LoadValidators(ctx, keyHash, powHash)
+			require.Error(t, err)
 			require.ErrorIs(t, err, tmstore.NoPubKeyHashError{Want: keyHash})
+			require.NotErrorIs(t, err, tmstore.NoVotePowerHashError{Want: powHash})
 		})
 
 		t.Run("missing vote powers", func(t *testing.T) {
@@ -212,7 +215,9 @@ func TestValidatorStoreCompliance(t *testing.T, f ValidatorStoreFactory) {
 			require.Equal(t, keyHash, gotKeyHash)
 
 			_, err = s.LoadValidators(ctx, keyHash, powHash)
+			require.Error(t, err)
 			require.ErrorIs(t, err, tmstore.NoVotePowerHashError{Want: powHash})
+			require.NotErrorIs(t, err, tmstore.NoPubKeyHashError{Want: keyHash})
 		})
 
 		t.Run("missing both", func(t *testing.T) {
@@ -241,6 +246,7 @@ func TestValidatorStoreCompliance(t *testing.T, f ValidatorStoreFactory) {
 			require.NoError(t, err)
 
 			_, err = s.LoadValidators(ctx, keyHash, powHash)
+			require.Error(t, err)
 			require.ErrorIs(t, err, tmstore.NoPubKeyHashError{Want: keyHash})
 			require.ErrorIs(t, err, tmstore.NoVotePowerHashError{Want: powHash})
 		})
@@ -269,6 +275,7 @@ func TestValidatorStoreCompliance(t *testing.T, f ValidatorStoreFactory) {
 				require.NoError(t, err)
 
 				_, err = s.LoadValidators(ctx, keyHash, powHash)
+				require.Error(t, err)
 				require.ErrorIs(t, err, tmstore.PubKeyPowerCountMismatchError{
 					NPubKeys:   4,
 					NVotePower: 3,
@@ -298,6 +305,7 @@ func TestValidatorStoreCompliance(t *testing.T, f ValidatorStoreFactory) {
 				require.NoError(t, err)
 
 				_, err = s.LoadValidators(ctx, keyHash, powHash)
+				require.Error(t, err)
 				require.ErrorIs(t, err, tmstore.PubKeyPowerCountMismatchError{
 					NPubKeys:   3,
 					NVotePower: 4,
