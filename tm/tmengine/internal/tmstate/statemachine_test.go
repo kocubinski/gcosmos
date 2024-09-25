@@ -325,11 +325,11 @@ func TestStateMachine_catchup(t *testing.T) {
 		// By the time the round entrance was made,
 		// the state machine saved a new finalization.
 
-		r, hash, vals, appHash, err := sfx.Cfg.FinalizationStore.LoadFinalizationByHeight(ctx, 1)
+		r, hash, valSet, appHash, err := sfx.Cfg.FinalizationStore.LoadFinalizationByHeight(ctx, 1)
 		require.NoError(t, err)
 		require.Zero(t, r)
 		require.Equal(t, string(ph1.Header.Hash), hash)
-		require.True(t, tmconsensus.ValidatorSlicesEqual(vals, sfx.Fx.Vals()))
+		require.True(t, valSet.Equal(sfx.Fx.ValSet()))
 		require.Equal(t, "app_state_1", appHash)
 
 		// Now if the mirror responds with another committed block,
@@ -2273,11 +2273,11 @@ func TestStateMachine_finalization(t *testing.T) {
 
 		// And now that the state machine has sent the action set,
 		// we can be sure the finalization store has the finalization for height 1.
-		r, blockHash, vals, appHash, err := sfx.Cfg.FinalizationStore.LoadFinalizationByHeight(ctx, 1)
+		r, blockHash, valSet, appHash, err := sfx.Cfg.FinalizationStore.LoadFinalizationByHeight(ctx, 1)
 		require.NoError(t, err)
 		require.Zero(t, r)
 		require.Equal(t, string(ph1.Header.Hash), blockHash)
-		require.True(t, tmconsensus.ValidatorSlicesEqual(vals, ph1.Header.ValidatorSet.Validators))
+		require.True(t, valSet.Equal(ph1.Header.ValidatorSet))
 		require.Equal(t, "app_state_1", appHash) // String from the hand-coded response earlier in this test.
 	})
 
@@ -2371,11 +2371,11 @@ func TestStateMachine_finalization(t *testing.T) {
 
 		// And now that the state machine has sent the action set,
 		// we can be sure the finalization store has the finalization for height 1.
-		r, blockHash, vals, appHash, err := sfx.Cfg.FinalizationStore.LoadFinalizationByHeight(ctx, 1)
+		r, blockHash, valSet, appHash, err := sfx.Cfg.FinalizationStore.LoadFinalizationByHeight(ctx, 1)
 		require.NoError(t, err)
 		require.Zero(t, r)
 		require.Equal(t, string(ph1.Header.Hash), blockHash)
-		require.True(t, tmconsensus.ValidatorSlicesEqual(vals, ph1.Header.ValidatorSet.Validators))
+		require.True(t, valSet.Equal(ph1.Header.ValidatorSet))
 		require.Equal(t, "app_state_1", appHash) // String from the hand-coded response earlier in this test.
 	})
 
@@ -2478,11 +2478,11 @@ func TestStateMachine_finalization(t *testing.T) {
 
 		// And now that the state machine has sent the action set,
 		// we can be sure the finalization store has the finalization for height 1.
-		r, blockHash, vals, appHash, err := sfx.Cfg.FinalizationStore.LoadFinalizationByHeight(ctx, 1)
+		r, blockHash, valSet, appHash, err := sfx.Cfg.FinalizationStore.LoadFinalizationByHeight(ctx, 1)
 		require.NoError(t, err)
 		require.Zero(t, r)
 		require.Equal(t, string(ph1.Header.Hash), blockHash)
-		require.True(t, tmconsensus.ValidatorSlicesEqual(vals, ph1.Header.ValidatorSet.Validators))
+		require.True(t, valSet.Equal(ph1.Header.ValidatorSet))
 		require.Equal(t, "app_state_1", appHash) // String from the hand-coded response earlier in this test.
 	})
 

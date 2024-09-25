@@ -1097,10 +1097,10 @@ func TestEngine_initChain(t *testing.T) {
 		_ = gtest.ReceiveSoon(t, eReady)
 
 		// And this means the finalization store is populated.
-		round, _, vals, appStateHash, err := efx.FinalizationStore.LoadFinalizationByHeight(ctx, 0)
+		round, _, valSet, appStateHash, err := efx.FinalizationStore.LoadFinalizationByHeight(ctx, 0)
 		require.NoError(t, err)
 		require.Zero(t, round)
-		require.True(t, tmconsensus.ValidatorSlicesEqual(vals, efx.Fx.Vals()))
+		require.True(t, valSet.Equal(efx.Fx.ValSet()))
 		require.Equal(t, "app_state_0", appStateHash)
 	})
 
@@ -1150,10 +1150,12 @@ func TestEngine_initChain(t *testing.T) {
 		_ = gtest.ReceiveSoon(t, eReady)
 
 		// And this means the finalization store is populated.
-		round, _, vals, appStateHash, err := efx.FinalizationStore.LoadFinalizationByHeight(ctx, 0)
+		newValSet, err := tmconsensus.NewValidatorSet(newVals, efx.Fx.HashScheme)
+		require.NoError(t, err)
+		round, _, valSet, appStateHash, err := efx.FinalizationStore.LoadFinalizationByHeight(ctx, 0)
 		require.NoError(t, err)
 		require.Zero(t, round)
-		require.True(t, tmconsensus.ValidatorSlicesEqual(vals, newVals))
+		require.True(t, valSet.Equal(newValSet))
 		require.Equal(t, "app_state_0", appStateHash)
 	})
 
@@ -1207,10 +1209,12 @@ func TestEngine_initChain(t *testing.T) {
 		_ = gtest.ReceiveSoon(t, eReady)
 
 		// And this means the finalization store is populated.
-		round, _, vals, appStateHash, err := efx.FinalizationStore.LoadFinalizationByHeight(ctx, 0)
+		newValSet, err := tmconsensus.NewValidatorSet(newVals, efx.Fx.HashScheme)
+		require.NoError(t, err)
+		round, _, valSet, appStateHash, err := efx.FinalizationStore.LoadFinalizationByHeight(ctx, 0)
 		require.NoError(t, err)
 		require.Zero(t, round)
-		require.True(t, tmconsensus.ValidatorSlicesEqual(vals, newVals))
+		require.True(t, valSet.Equal(newValSet))
 		require.Equal(t, "app_state_0", appStateHash)
 	})
 
@@ -1227,7 +1231,7 @@ func TestEngine_initChain(t *testing.T) {
 			ctx,
 			0, 0, // 0-height because it must be 1 less than initial height.
 			"a_block_hash",
-			efx.Fx.Vals(),
+			efx.Fx.ValSet(),
 			"app_state_hash",
 		))
 

@@ -2,7 +2,6 @@ package tmmemstore
 
 import (
 	"context"
-	"slices"
 	"sync"
 
 	"github.com/rollchains/gordian/tm/tmconsensus"
@@ -18,7 +17,7 @@ type fin struct {
 	H            uint64
 	R            uint32
 	BlockHash    string
-	Vals         []tmconsensus.Validator
+	ValSet       tmconsensus.ValidatorSet
 	AppStateHash string
 }
 
@@ -32,7 +31,7 @@ func (s *FinalizationStore) SaveFinalization(
 	ctx context.Context,
 	height uint64, round uint32,
 	blockHash string,
-	vals []tmconsensus.Validator,
+	valSet tmconsensus.ValidatorSet,
 	appStateHash string,
 ) error {
 	s.mu.Lock()
@@ -41,7 +40,7 @@ func (s *FinalizationStore) SaveFinalization(
 	s.byHeight[height] = fin{
 		H: height, R: round,
 		BlockHash:    blockHash,
-		Vals:         slices.Clone(vals),
+		ValSet:         valSet,
 		AppStateHash: appStateHash,
 	}
 
@@ -51,7 +50,7 @@ func (s *FinalizationStore) SaveFinalization(
 func (s *FinalizationStore) LoadFinalizationByHeight(ctx context.Context, height uint64) (
 	round uint32,
 	blockHash string,
-	vals []tmconsensus.Validator,
+	valSet tmconsensus.ValidatorSet,
 	appStateHash string,
 	err error,
 ) {
@@ -60,8 +59,8 @@ func (s *FinalizationStore) LoadFinalizationByHeight(ctx context.Context, height
 
 	fin, ok := s.byHeight[height]
 	if !ok {
-		return 0, "", nil, "", tmconsensus.HeightUnknownError{Want: height}
+		return 0, "", tmconsensus.ValidatorSet{}, "", tmconsensus.HeightUnknownError{Want: height}
 	}
 
-	return fin.R, fin.BlockHash, slices.Clone(fin.Vals), fin.AppStateHash, nil
+	return fin.R, fin.BlockHash, fin.ValSet, fin.AppStateHash, nil
 }

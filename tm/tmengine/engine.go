@@ -317,7 +317,7 @@ func (e *Engine) maybeInitializeChain(
 		ctx,
 		initFinHeight, 0,
 		string(b.Hash),
-		valSet.Validators,
+		valSet,
 		string(resp.AppStateHash),
 	); err != nil {
 		return tmconsensus.Genesis{}, fmt.Errorf("failure saving genesis finalization: %w", err)

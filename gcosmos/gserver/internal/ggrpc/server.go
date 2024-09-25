@@ -131,10 +131,11 @@ func (g *GordianGRPC) GetValidators(ctx context.Context, req *GetValidatorsReque
 		return nil, fmt.Errorf("failed to get network height and round: %w", err)
 	}
 
-	_, _, vals, _, err := g.fs.LoadFinalizationByHeight(ctx, committingHeight)
+	_, _, valSet, _, err := g.fs.LoadFinalizationByHeight(ctx, committingHeight)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load finalization by height: %w", err)
 	}
+	vals := valSet.Validators
 
 	jsonValidators := make([]*Validator, len(vals))
 	for i, v := range vals {

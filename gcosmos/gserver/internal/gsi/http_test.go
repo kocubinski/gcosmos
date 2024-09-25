@@ -121,7 +121,11 @@ func TestHTTPServer_Validators(t *testing.T) {
 	// Voting at 3/0, Committing at 2/0.
 	require.NoError(t, ms.SetNetworkHeightRound(ctx, 3, 0, 2, 0))
 
-	vals := tmconsensustest.DeterministicValidatorsEd25519(3).Vals()
+	valSet, err := tmconsensus.NewValidatorSet(
+		tmconsensustest.DeterministicValidatorsEd25519(3).Vals(),
+		tmconsensustest.SimpleHashScheme{},
+	)
+	require.NoError(t, err)
 
 	// Save the finalization at the committing height.
 	// Besides the height, the only other thing we care about for this endpoint
@@ -130,7 +134,7 @@ func TestHTTPServer_Validators(t *testing.T) {
 		ctx,
 		2, 0,
 		"block_hash",
-		vals,
+		valSet,
 		"app_state_hash",
 	))
 
@@ -162,5 +166,5 @@ func TestHTTPServer_Validators(t *testing.T) {
 		}
 	}
 
-	require.True(t, tmconsensus.ValidatorSlicesEqual(vals, outVals))
+	require.True(t, tmconsensus.ValidatorSlicesEqual(valSet.Validators, outVals))
 }

@@ -143,7 +143,7 @@ func handleValidators(log *slog.Logger, cfg HTTPServerConfig) func(w http.Respon
 			return
 		}
 
-		_, _, vals, _, err := fs.LoadFinalizationByHeight(req.Context(), committingHeight)
+		_, _, valSet, _, err := fs.LoadFinalizationByHeight(req.Context(), committingHeight)
 		if err != nil {
 			http.Error(
 				w,
@@ -152,6 +152,7 @@ func handleValidators(log *slog.Logger, cfg HTTPServerConfig) func(w http.Respon
 			)
 			return
 		}
+		vals := valSet.Validators
 
 		// Now we have the validators at the committing height.
 		type jsonValidator struct {

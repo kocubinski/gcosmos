@@ -18,6 +18,8 @@ type Validator struct {
 
 // ValidatorSet is a fixed, ordered collection of validators.
 type ValidatorSet struct {
+	// Consumers must assume that the Validators slice is shared in many places
+	// and therefore cannot be modified.
 	Validators []Validator
 
 	// Hashes generated via a [HashScheme].
