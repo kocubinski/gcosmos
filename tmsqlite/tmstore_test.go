@@ -43,10 +43,25 @@ func TestMigrate(t *testing.T) {
 		require.NotNil(t, s1)
 		require.NoError(t, s1.Close())
 
-		s2, err:= tmsqlite.NewTMStore(context.Background(), path, tmconsensustest.SimpleHashScheme{}, &reg)
+		s2, err := tmsqlite.NewTMStore(context.Background(), path, tmconsensustest.SimpleHashScheme{}, &reg)
 		require.NoError(t, err)
 		require.NotNil(t, s2)
 		require.NoError(t, s2.Close())
+	})
+}
+
+func TestFinalizationStoreCompliance(t *testing.T) {
+	t.Parallel()
+
+	tmstoretest.TestFinalizationStoreCompliance(t, func(cleanup func(func())) (tmstore.FinalizationStore, error) {
+		s, err := tmsqlite.NewTMStore(context.Background(), ":memory:", tmconsensustest.SimpleHashScheme{}, &reg)
+		if err != nil {
+			return nil, err
+		}
+		cleanup(func() {
+			require.NoError(t, s.Close())
+		})
+		return s, nil
 	})
 }
 

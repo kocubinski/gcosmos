@@ -3,10 +3,25 @@
 package tmsqlite
 
 import (
-	_ "modernc.org/sqlite"
+	"errors"
+
+	"modernc.org/sqlite"
+	sqlitelib "modernc.org/sqlite/lib"
 )
 
 const (
 	sqliteDriverType = "sqlite"
 	sqliteBuildType  = "purego"
 )
+
+func isPrimaryKeyConstraintError(e error) bool {
+	var sErr *sqlite.Error
+	if !errors.As(e, &sErr) {
+		return false
+	}
+
+	// The mattn/go-sqlite3 library separates the plain and extended error codes,
+	// but the pure Go version only exposes the extended code, under the "Code()" function.
+	// It's probably less precise but it works for what we need here.
+	return sErr.Code() == sqlitelib.SQLITE_CONSTRAINT_PRIMARYKEY
+}
