@@ -555,21 +555,24 @@ func (s *TMStore) LoadFinalizationByHeight(ctx context.Context, height uint64) (
 	// TODO: this query could also retrieve the n_validators and n_powers in order to
 	// validate the hashes refer to the same number of powers and validators.
 	var blockHashBytes, appStateHashBytes []byte
+	var nKeys, nPowers int
 	if err = tx.QueryRowContext(
 		ctx,
 		`SELECT
   f.round,
   f.block_hash, f.app_state_hash,
-  keys.hash, powers.hash
+  key_hashes.hash, power_hashes.hash,
+  key_hashes.n_keys, power_hashes.n_powers
 FROM finalizations AS f
-JOIN validator_pub_key_hashes AS keys ON keys.id = f.validator_pub_key_hash_id
-JOIN validator_power_hashes AS powers ON powers.id = f.validator_power_hash_id
+JOIN validator_pub_key_hashes AS key_hashes ON key_hashes.id = f.validator_pub_key_hash_id
+JOIN validator_power_hashes AS power_hashes ON power_hashes.id = f.validator_power_hash_id
 WHERE f.height = ?`,
 		height,
 	).Scan(
 		&round,
 		&blockHashBytes, &appStateHashBytes,
 		&valSet.PubKeyHash, &valSet.VotePowerHash,
+		&nKeys, &nPowers,
 	); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			// The compliance tests require HeightUnknownError when no finalization matches the height.
@@ -581,6 +584,15 @@ WHERE f.height = ?`,
 		err = fmt.Errorf("failed to scan finalization primitive data: %w", err)
 		return
 	}
+
+	if nKeys != nPowers {
+		// We already know they are > 0 due to checks on the respective tables.
+		panic(fmt.Errorf(
+			"DATABASE CORRUPTION: finalization for height %d references pubkey hash %x (with %d keys) and power hash %x (with %d powers)",
+			height, valSet.PubKeyHash, nKeys, valSet.VotePowerHash, nPowers,
+		))
+	}
+
 	blockHash = string(blockHashBytes)
 	appStateHash = string(appStateHashBytes)
 
