@@ -124,11 +124,11 @@ CREATE TABLE finalizations(
   height INTEGER PRIMARY KEY NOT NULL,
 	round INTEGER NOT NULL,
 	block_hash BLOB NOT NULL,
-	validator_pub_key_id INTEGER NOT NULL,
-	validator_power_id INTEGER NOT NULL,
+	validator_pub_key_hash_id INTEGER NOT NULL,
+	validator_power_hash_id INTEGER NOT NULL,
 	app_state_hash BLOB NOT NULL,
-  FOREIGN KEY(validator_pub_key_id) REFERENCES validator_pub_keys(id),
-  FOREIGN KEY(validator_power_id) REFERENCES validator_power_hashes(id)
+  FOREIGN KEY(validator_pub_key_hash_id) REFERENCES validator_pub_key_hashes(id),
+  FOREIGN KEY(validator_power_hash_id) REFERENCES validator_power_hashes(id)
 );
 `,
 	)

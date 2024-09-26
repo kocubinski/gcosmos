@@ -504,7 +504,7 @@ func (s *TMStore) SaveFinalization(
 	res, err := tx.ExecContext(
 		ctx,
 		`INSERT INTO
-finalizations(height, round, block_hash, validator_pub_key_id, validator_power_id, app_state_hash)
+finalizations(height, round, block_hash, validator_pub_key_hash_id, validator_power_hash_id, app_state_hash)
 SELECT ?, ?, ?, keys.id, powers.id, ? FROM
 (SELECT id FROM validator_pub_key_hashes WHERE hash = ?) AS keys,
 (SELECT id FROM validator_power_hashes WHERE hash = ?) AS powers
@@ -562,8 +562,8 @@ func (s *TMStore) LoadFinalizationByHeight(ctx context.Context, height uint64) (
   f.block_hash, f.app_state_hash,
   keys.hash, powers.hash
 FROM finalizations AS f
-JOIN validator_pub_key_hashes AS keys ON keys.id = f.validator_pub_key_id
-JOIN validator_power_hashes AS powers ON powers.id = f.validator_power_id
+JOIN validator_pub_key_hashes AS keys ON keys.id = f.validator_pub_key_hash_id
+JOIN validator_power_hashes AS powers ON powers.id = f.validator_power_hash_id
 WHERE f.height = ?`,
 		height,
 	).Scan(
@@ -592,14 +592,14 @@ WHERE f.height = ?`,
   SELECT validator_pub_keys.key, validator_pub_key_hash_entries.idx FROM validator_pub_keys
     JOIN validator_pub_key_hash_entries ON validator_pub_keys.id = validator_pub_key_hash_entries.key_id
     JOIN validator_pub_key_hashes ON validator_pub_key_hash_entries.hash_id = validator_pub_key_hashes.id
-    JOIN finalizations ON finalizations.validator_pub_key_id = validator_pub_key_hash_entries.hash_id
+    JOIN finalizations ON finalizations.validator_pub_key_hash_id = validator_pub_key_hash_entries.hash_id
     WHERE finalizations.height = ?1 ORDER BY validator_pub_key_hash_entries.idx ASC
 ) as keys
 JOIN
 (
   SELECT validator_power_hash_entries.power, validator_power_hash_entries.idx FROM validator_power_hash_entries
     JOIN validator_power_hashes ON validator_power_hashes.id = validator_power_hash_entries.hash_id
-    JOIN finalizations ON finalizations.validator_power_id = validator_power_hash_entries.hash_id
+    JOIN finalizations ON finalizations.validator_power_hash_id = validator_power_hash_entries.hash_id
     WHERE finalizations.height = ?1 ORDER BY validator_power_hash_entries.idx ASC
 ) as powers ON keys.idx = powers.idx
 		`,
