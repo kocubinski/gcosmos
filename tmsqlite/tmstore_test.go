@@ -66,7 +66,6 @@ func TestFinalizationStoreCompliance(t *testing.T) {
 }
 
 func TestHeaderStoreCompliance(t *testing.T) {
-	t.Skip("not ready yet")
 	t.Parallel()
 
 	tmstoretest.TestHeaderStoreCompliance(t, func(cleanup func(func())) (tmstore.HeaderStore, error) {

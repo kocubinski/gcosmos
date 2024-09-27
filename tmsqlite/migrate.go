@@ -121,12 +121,13 @@ CREATE TABLE validator_pub_key_hash_entries(
 CREATE VIEW validator_pub_keys_for_hash(
   hash_id, hash,
   idx, key
-) AS
-SELECT
+) AS SELECT
   validator_pub_key_hashes.id, validator_pub_key_hashes.hash,
   idx, key FROM validator_pub_keys
-  JOIN validator_pub_key_hash_entries ON validator_pub_keys.id = validator_pub_key_hash_entries.key_id
-  JOIN validator_pub_key_hashes ON validator_pub_key_hash_entries.hash_id = validator_pub_key_hashes.id;`+
+JOIN validator_pub_key_hash_entries
+  ON validator_pub_keys.id = validator_pub_key_hash_entries.key_id
+JOIN validator_pub_key_hashes
+  ON validator_pub_key_hash_entries.hash_id = validator_pub_key_hashes.id;`+
 
 			// Hashes of collections of validator powers.
 			`
@@ -152,11 +153,11 @@ CREATE TABLE validator_power_hash_entries(
 CREATE VIEW validator_powers_for_hash(
   hash_id, hash,
   idx, power
-) AS
-SELECT
+) AS SELECT
   validator_power_hashes.id, validator_power_hashes.hash,
   idx, power FROM validator_power_hash_entries
-  JOIN validator_power_hashes ON validator_power_hashes.id = validator_power_hash_entries.hash_id;`+
+JOIN validator_power_hashes
+  ON validator_power_hashes.id = validator_power_hash_entries.hash_id;`+
 
 			// Finalizations as reported by the state machine.
 			`
@@ -190,41 +191,45 @@ CREATE TABLE headers(
   user_annotations BLOB,
   driver_annotations BLOB,
   committed INTEGER NOT NULL CHECK (committed = 0 OR committed = 1),
-  FOREIGN KEY(prev_commit_proof_id) REFERENCES prev_commit_proofs(id),
+  FOREIGN KEY(prev_commit_proof_id) REFERENCES commit_proofs(id),
   FOREIGN KEY(validators_pub_key_hash_id) REFERENCES validator_pub_key_hashes(id),
   FOREIGN KEY(validators_power_hash_id) REFERENCES validator_power_hashes(id),
   FOREIGN KEY(next_validators_pub_key_hash_id) REFERENCES validator_pub_key_hashes(id),
   FOREIGN KEY(next_validators_power_hash_id) REFERENCES validator_power_hashes(id)
 );`+
 
-			// Table specifically for headers' previous commit proofs.
+			// Table for any commit proofs,
+			// whether it is a header's (nullable) previous commit proof,
+			// or the subjective commit proof for a header.
 			`
-CREATE TABLE prev_commit_proofs(
+CREATE TABLE commit_proofs(
   id INTEGER PRIMARY KEY NOT NULL,
   round INTEGER NOT NULL CHECK (round >= 0),
   validators_pub_key_hash_id INTEGER NOT NULL,
   FOREIGN KEY(validators_pub_key_hash_id) REFERENCES validator_pub_key_hashes(id)
 );`+
 
-			// Which block hashes are present in a previous commit proof.
+			// Which block hashes are present in a commit proof.
 			// Null block hash indicates a vote for nil.
 			`
-CREATE TABLE prev_commit_proof_voted_blocks(
+CREATE TABLE commit_proof_voted_blocks(
   id INTEGER PRIMARY KEY NOT NULL,
-  prev_commit_proof_id INTEGER NOT NULL,
+  commit_proof_id INTEGER NOT NULL,
   block_hash BLOB,
-  FOREIGN KEY(prev_commit_proof_id) REFERENCES prev_commit_proofs(id)
+  FOREIGN KEY(commit_proof_id) REFERENCES commit_proofs(id),
+  UNIQUE (commit_proof_id, block_hash)
 );`+
 
 			// Many-to-many relationship indicating
 			// which signatures are present for a particular block in a previous commit proof.
 			`
-CREATE TABLE prev_commit_proof_block_signatures(
+CREATE TABLE commit_proof_block_signatures(
   id INTEGER PRIMARY KEY NOT NULL,
-  prev_commit_proof_voted_block_id INTEGER NOT NULL,
+  commit_proof_voted_block_id INTEGER NOT NULL,
   sparse_signature_id INTEGER NOT NULL,
-  FOREIGN KEY(prev_commit_proof_voted_block_id) REFERENCES prev_commit_proof_voted_blocks(id),
-  FOREIGN KEY(sparse_signature_id) REFERENCES sparse_signatures(id)
+  FOREIGN KEY(commit_proof_voted_block_id) REFERENCES commit_proof_voted_blocks(id),
+  FOREIGN KEY(sparse_signature_id) REFERENCES sparse_signatures(id) ON DELETE CASCADE,
+  UNIQUE (commit_proof_voted_block_id, sparse_signature_id)
 );`+
 
 			// Pairings of key IDs (whose format is dependent on the signature scheme)
@@ -234,6 +239,39 @@ CREATE TABLE sparse_signatures(
   id INTEGER PRIMARY KEY NOT NULL,
   key_id BLOB NOT NULL,
   signature BLOB NOT NULL
+);`+
+
+			// Simplified view to input only a commit_proof_id
+			// and get back all the sparse signatures.
+			`
+CREATE VIEW proof_signatures(
+  commit_proof_id,
+  block_hash,
+  key_id,
+  signature
+) AS SELECT
+  blocks.commit_proof_id,
+  blocks.block_hash,
+  sigs.key_id,
+  sigs.signature
+FROM commit_proof_block_signatures
+JOIN
+  sparse_signatures AS sigs
+  ON sigs.id = commit_proof_block_signatures.sparse_signature_id
+JOIN
+  commit_proof_voted_blocks AS blocks
+  ON blocks.id = commit_proof_block_signatures.commit_proof_voted_block_id
+;`+
+
+			// The committed headers table contains an ID of a header
+			// and the ID of a subjective proof that the header is committing.
+			`
+CREATE TABLE committed_headers(
+  id INTEGER PRIMARY KEY NOT NULL,
+  header_id INTEGER NOT NULL,
+  proof_id INTEGER NOT NULL,
+  FOREIGN KEY(header_id) REFERENCES headers(id),
+  FOREIGN KEY(proof_id) REFERENCES commit_proofs(id)
 );`+
 
 			// A somewhat generic proposed header table.

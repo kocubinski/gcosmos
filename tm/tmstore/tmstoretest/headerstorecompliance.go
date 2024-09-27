@@ -26,6 +26,12 @@ func TestHeaderStoreCompliance(t *testing.T, f HeaderStoreFactory) {
 
 		ph1 := fx.NextProposedHeader([]byte("app_data_1"), 0)
 		ph1.Header.PrevAppStateHash = []byte("initial_app_state") // TODO: this should be automatically set in the fixture.
+
+		// This tends to be nil from the store.
+		// Ensure it is nil here too.
+		require.Empty(t, ph1.Header.PrevCommitProof.Proofs)
+		ph1.Header.PrevCommitProof.Proofs = nil
+
 		fx.RecalculateHash(&ph1.Header)
 		fx.SignProposal(ctx, &ph1, 0)
 

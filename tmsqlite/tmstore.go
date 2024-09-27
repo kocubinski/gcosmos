@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/rollchains/gordian/gcrypto"
 	"github.com/rollchains/gordian/tm/tmconsensus"
@@ -653,6 +654,10 @@ JOIN
 	return
 }
 
+// selectOrInsertPubKeysByHash looks up the database ID of the given pubKeyHash.
+// If the record exists, the ID is returned.
+// If the record does not exist, a new record is created
+// for the given hash and the given public keys in the provided order.
 func (s *TMStore) selectOrInsertPubKeysByHash(
 	ctx context.Context,
 	tx *sql.Tx,
@@ -677,6 +682,10 @@ func (s *TMStore) selectOrInsertPubKeysByHash(
 	return hashID, nil
 }
 
+// selectOrInsertVotePowersByHash looks up the database ID of the given votePowerHash.
+// If the record exists, the ID is returned.
+// If the record does not exist, a new record is created
+// for the given hash and the given powers in the provided order.
 func (s *TMStore) selectOrInsertVotePowersByHash(
 	ctx context.Context,
 	tx *sql.Tx,
@@ -788,7 +797,141 @@ $user_annotations, $driver_annotations,
 		return fmt.Errorf("failed to store header: %w", err)
 	}
 
-	_ = res // TODO: get LastInsertId()?
+	// Need the header ID for the committed_headers insert coming up.
+	headerID, err := res.LastInsertId()
+	if err != nil {
+		return fmt.Errorf("failed to get ID of inserted header: %w", err)
+	}
+
+	// Now store the proof.
+	res, err = tx.ExecContext(
+		ctx,
+		`INSERT INTO commit_proofs(round, validators_pub_key_hash_id) VALUES (?,?)`,
+		ch.Proof.Round, pubKeyHashID,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to insert commit proof: %w", err)
+	}
+	commitProofID, err := res.LastInsertId()
+	if err != nil {
+		return fmt.Errorf("failed to get ID of inserted commit proof: %w", err)
+	}
+
+	args := make([]any, 0, 2*len(ch.Proof.Proofs))
+	q := `INSERT INTO commit_proof_voted_blocks(commit_proof_id, block_hash) VALUES (?,?)` +
+		// We can safely assume there is at least one proof,
+		// which simplifies the comma joining.
+		strings.Repeat(", (?,?)", len(ch.Proof.Proofs)-1) +
+		// We iterate the map in arbitrary order,
+		// so it's simpler to just get back the hash-ID pairings.
+		` RETURNING id, block_hash`
+	for hash := range ch.Proof.Proofs {
+		args = append(args, commitProofID, []byte(hash))
+	}
+	rows, err := tx.QueryContext(ctx, q, args...)
+	if err != nil {
+		return fmt.Errorf("failed to insert voted blocks: %w", err)
+	}
+	defer rows.Close()
+
+	// Possible earlier GC.
+	q = ""
+	clear(args)
+
+	// Keep a running map of database details.
+	type proofTemp struct {
+		votedBlockID int64
+		sigIDs       []int64
+	}
+	votedBlocks := make(map[string]proofTemp, len(ch.Proof.Proofs))
+
+	var tempBlockHash []byte
+	for rows.Next() {
+		tempBlockHash = tempBlockHash[:0]
+		var pt proofTemp
+		if err := rows.Scan(&pt.votedBlockID, &tempBlockHash); err != nil {
+			return fmt.Errorf("failed to scan voted block ID: %w", err)
+		}
+		votedBlocks[string(tempBlockHash)] = pt
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("failure when scanning result from inserting voted blocks: %w", err)
+	}
+	_ = rows.Close()
+
+	// Now insert the sparse signatures.
+	for blockHash, sigs := range ch.Proof.Proofs {
+		// Insert all the signatures by their block hash.
+		// This is easier to manage mapping the returned IDs,
+		// compared to doing one bulk insert.
+		q := `INSERT INTO sparse_signatures(key_id, signature) VALUES (?,?)` +
+			strings.Repeat(", (?,?)", len(sigs)-1) +
+			` RETURNING id`
+
+		args = args[:0]
+		for _, sig := range sigs {
+			args = append(args, sig.KeyID, sig.Sig)
+		}
+
+		rows, err := tx.QueryContext(ctx, q, args...)
+		if err != nil {
+			return fmt.Errorf("failed to insert sparse signatures: %w", err)
+		}
+		defer rows.Close() // TODO: this loop could move to a new method, to avoid this looped defer.
+
+		sigIDs := make([]int64, 0, len(sigs))
+		for rows.Next() {
+			var id int64
+			if err := rows.Scan(&id); err != nil {
+				return fmt.Errorf("failed to scan sparse signature ID: %w", err)
+			}
+			sigIDs = append(sigIDs, id)
+		}
+		if err := rows.Err(); err != nil {
+			return fmt.Errorf("error iterating sparse signatures: %w", err)
+		}
+		rows.Close()
+
+		pt := votedBlocks[blockHash]
+		pt.sigIDs = sigIDs
+		votedBlocks[blockHash] = pt
+	}
+
+	// Store the relationship between the voted blocks and the signatures.
+	nSigs := 0
+	for _, pt := range votedBlocks {
+		nSigs += len(pt.sigIDs)
+	}
+
+	if cap(args) < 2*nSigs {
+		args = make([]any, 0, 2*nSigs)
+	} else {
+		clear(args)
+		args = args[:0]
+	}
+
+	q = `INSERT INTO commit_proof_block_signatures(
+commit_proof_voted_block_id, sparse_signature_id
+) VALUES (?,?)` +
+		strings.Repeat(", (?,?)", nSigs-1)
+	for _, pt := range votedBlocks {
+		for _, sigID := range pt.sigIDs {
+			args = append(args, pt.votedBlockID, sigID)
+		}
+	}
+
+	if _, err := tx.ExecContext(ctx, q, args...); err != nil {
+		return fmt.Errorf("failed to insert into commit_proof_block_signatures: %w", err)
+	}
+
+	// Finally, insert the committed header record.
+	if _, err := tx.ExecContext(
+		ctx,
+		`INSERT INTO committed_headers(header_id, proof_id) VALUES(?, ?)`,
+		headerID, commitProofID,
+	); err != nil {
+		return fmt.Errorf("failed to insert into commit_headers: %w", err)
+	}
 
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("failed to commit transaction to save header: %w", err)
@@ -807,10 +950,11 @@ func (s *TMStore) LoadHeader(ctx context.Context, height uint64) (tmconsensus.Co
 	defer tx.Rollback()
 
 	h := tmconsensus.Header{Height: height}
-	var pkhID, npkhID, vphID, nvphID int64
+	var headerID, pkhID, npkhID, vphID, nvphID int64
 	if err := tx.QueryRowContext(
 		ctx,
 		`SELECT
+id,
 hash, prev_block_hash,
 data_id, prev_app_state_hash,
 user_annotations, driver_annotations,
@@ -821,6 +965,7 @@ WHERE
 committed = 1 AND height = ?`,
 		height,
 	).Scan(
+		&headerID,
 		&h.Hash, &h.PrevBlockHash,
 		&h.DataID, &h.PrevAppStateHash,
 		&h.Annotations.User, &h.Annotations.Driver,
@@ -949,9 +1094,69 @@ committed = 1 AND height = ?`,
 		panic("TODO: handle different next validator set")
 	}
 
+	// TODO: ensure the header's PrevCommitProof is populated.
+	// Other than that, the header should be fully populated now.
+	// So now we load the proofs.
+
+	// First get the outer commit proof value.
+	// TODO: there is probably a way to do this in a single query.
+	var commitProofID int64
+	proof := tmconsensus.CommitProof{
+		PubKeyHash: string(h.ValidatorSet.PubKeyHash),
+		Proofs:     map[string][]gcrypto.SparseSignature{},
+	}
+	if err := tx.QueryRowContext(
+		ctx,
+		`SELECT commit_proofs.id, round FROM commit_proofs
+JOIN committed_headers ON committed_headers.proof_id = commit_proofs.id
+WHERE committed_headers.header_id = ?`,
+		headerID,
+	).Scan(&commitProofID, &proof.Round); err != nil {
+		return tmconsensus.CommittedHeader{}, fmt.Errorf(
+			"failed to retrieve commit proof: %w", err,
+		)
+	}
+
+	// Use the commit proof ID to get the actual signatures.
+	rows, err = tx.QueryContext(
+		ctx,
+		`SELECT block_hash, key_id, signature FROM proof_signatures
+WHERE commit_proof_id = ?
+ORDER BY key_id`, // Order not strictly necessary, but convenient for tests.
+		commitProofID,
+	)
+	if err != nil {
+		return tmconsensus.CommittedHeader{}, fmt.Errorf(
+			"failed to retrieve signatures: %w", err,
+		)
+	}
+
+	var blockHash, keyID, sig []byte
+	for rows.Next() {
+		// Reset and reuse each slice,
+		// so the destinations are reused repeatedly.
+		// We're going to allocate when we create the SparseSignature anyway,
+		// but those will be right-sized at creation.
+		blockHash = blockHash[:0]
+		keyID = keyID[:0]
+		sig = sig[:0]
+		if err := rows.Scan(&blockHash, &keyID, &sig); err != nil {
+			return tmconsensus.CommittedHeader{}, fmt.Errorf(
+				"failed to scan signature row: %w", err,
+			)
+		}
+		proof.Proofs[string(blockHash)] = append(
+			proof.Proofs[string(blockHash)],
+			gcrypto.SparseSignature{
+				KeyID: bytes.Clone(keyID),
+				Sig:   bytes.Clone(sig),
+			},
+		)
+	}
+
 	return tmconsensus.CommittedHeader{
 		Header: h,
-		// TODO: proofs
+		Proof:  proof,
 	}, nil
 }
 
