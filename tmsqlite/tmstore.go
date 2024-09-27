@@ -1,10 +1,12 @@
 package tmsqlite
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/rollchains/gordian/gcrypto"
 	"github.com/rollchains/gordian/tm/tmconsensus"
@@ -122,7 +124,7 @@ func (s *TMStore) SavePubKeys(ctx context.Context, keys []gcrypto.PubKey) (strin
 	}
 	defer tx.Rollback()
 
-	if err := s.savePubKeysInTx(ctx, tx, hash, keys); err != nil {
+	if _, err := s.createPubKeysInTx(ctx, tx, hash, keys); err != nil {
 		return "", err
 	}
 
@@ -133,14 +135,14 @@ func (s *TMStore) SavePubKeys(ctx context.Context, keys []gcrypto.PubKey) (strin
 	return string(hash), nil
 }
 
-// savePubKeysInTx saves the set of public keys belonging to the given hash.
+// createPubKeysInTx saves the set of public keys belonging to the given hash.
 // This method assumes that the hash does not exist in the validator_pub_key_hashes table yet.
-func (s *TMStore) savePubKeysInTx(
+func (s *TMStore) createPubKeysInTx(
 	ctx context.Context,
 	tx *sql.Tx,
 	pubKeyHash []byte,
 	keys []gcrypto.PubKey,
-) error {
+) (hashID int64, err error) {
 	// Create the key hash first.
 	res, err := tx.ExecContext(
 		ctx,
@@ -148,12 +150,12 @@ func (s *TMStore) savePubKeysInTx(
 		pubKeyHash, len(keys),
 	)
 	if err != nil {
-		return fmt.Errorf("failed to save new public key hash: %w", err)
+		return -1, fmt.Errorf("failed to save new public key hash: %w", err)
 	}
 
-	hashID, err := res.LastInsertId()
+	hashID, err = res.LastInsertId()
 	if err != nil {
-		return fmt.Errorf("failed to get last insert ID after saving new public key hash: %w", err)
+		return -1, fmt.Errorf("failed to get last insert ID after saving new public key hash: %w", err)
 	}
 
 	for i, k := range keys {
@@ -164,11 +166,11 @@ func (s *TMStore) savePubKeysInTx(
 			b,
 		)
 		if err != nil {
-			return fmt.Errorf("failed to insert validator public key: %w", err)
+			return -1, fmt.Errorf("failed to insert validator public key: %w", err)
 		}
 		n, err := res.RowsAffected()
 		if err != nil {
-			return fmt.Errorf("failed to get rows affected after inserting validator public key: %w", err)
+			return -1, fmt.Errorf("failed to get rows affected after inserting validator public key: %w", err)
 		}
 
 		var keyID int64
@@ -176,7 +178,7 @@ func (s *TMStore) savePubKeysInTx(
 		if n == 1 {
 			keyID, err = res.LastInsertId()
 			if err != nil {
-				return fmt.Errorf("failed to get insert ID after inserting validator public key: %w", err)
+				return -1, fmt.Errorf("failed to get insert ID after inserting validator public key: %w", err)
 			}
 		} else {
 			// No rows affected, so we need to query the ID.
@@ -185,7 +187,7 @@ func (s *TMStore) savePubKeysInTx(
 				`SELECT id FROM validator_pub_keys WHERE key = ?;`,
 				b,
 			).Scan(&keyID); err != nil {
-				return fmt.Errorf("failed to get key ID when querying: %w", err)
+				return -1, fmt.Errorf("failed to get key ID when querying: %w", err)
 			}
 		}
 
@@ -197,11 +199,11 @@ func (s *TMStore) savePubKeysInTx(
 VALUES(?, ?, ?);`,
 			hashID, i, keyID,
 		); err != nil {
-			return fmt.Errorf("failed to insert public key hash entry: %w", err)
+			return -1, fmt.Errorf("failed to insert public key hash entry: %w", err)
 		}
 	}
 
-	return nil
+	return hashID, nil
 }
 
 func (s *TMStore) LoadPubKeys(ctx context.Context, hash string) ([]gcrypto.PubKey, error) {
@@ -275,7 +277,7 @@ func (s *TMStore) SaveVotePowers(ctx context.Context, powers []uint64) (string, 
 	}
 	defer tx.Rollback()
 
-	if err := s.saveVotePowersInTx(ctx, tx, hash, powers); err != nil {
+	if _, err := s.createVotePowersInTx(ctx, tx, hash, powers); err != nil {
 		return "", err
 	}
 
@@ -286,12 +288,14 @@ func (s *TMStore) SaveVotePowers(ctx context.Context, powers []uint64) (string, 
 	return string(hash), nil
 }
 
-func (s *TMStore) saveVotePowersInTx(
+// createVotePowersInTx saves the set of vote powers belonging to the given hash.
+// This method assumes that the hash does not exist in the validator_vote_power_hashes table yet.
+func (s *TMStore) createVotePowersInTx(
 	ctx context.Context,
 	tx *sql.Tx,
 	votePowerHash []byte,
 	powers []uint64,
-) error {
+) (hashID int64, err error) {
 	// Create the key hash first.
 	res, err := tx.ExecContext(
 		ctx,
@@ -299,14 +303,15 @@ func (s *TMStore) saveVotePowersInTx(
 		votePowerHash, len(powers),
 	)
 	if err != nil {
-		return fmt.Errorf("failed to save new vote power hash: %w", err)
+		return -1, fmt.Errorf("failed to save new vote power hash: %w", err)
 	}
 
-	hashID, err := res.LastInsertId()
+	hashID, err = res.LastInsertId()
 	if err != nil {
-		return fmt.Errorf("failed to get last insert ID after saving new vote power hash: %w", err)
+		return -1, fmt.Errorf("failed to get last insert ID after saving new vote power hash: %w", err)
 	}
 
+	// TODO: condense this into one larger insert.
 	for i, power := range powers {
 		if _, err := tx.ExecContext(
 			ctx,
@@ -314,11 +319,11 @@ func (s *TMStore) saveVotePowersInTx(
 VALUES(?, ?, ?);`,
 			hashID, i, power,
 		); err != nil {
-			return fmt.Errorf("failed to insert vote power hash entry: %w", err)
+			return -1, fmt.Errorf("failed to insert vote power hash entry: %w", err)
 		}
 	}
 
-	return nil
+	return hashID, nil
 }
 
 func (s *TMStore) LoadVotePowers(ctx context.Context, hash string) ([]uint64, error) {
@@ -488,13 +493,13 @@ func (s *TMStore) SaveFinalization(
 	}
 
 	if nKeys == 0 {
-		if err := s.savePubKeysInTx(ctx, tx, valSet.PubKeyHash, tmconsensus.ValidatorsToPubKeys(valSet.Validators)); err != nil {
+		if _, err := s.createPubKeysInTx(ctx, tx, valSet.PubKeyHash, tmconsensus.ValidatorsToPubKeys(valSet.Validators)); err != nil {
 			return fmt.Errorf("failed to save new public key hash: %w", err)
 		}
 	}
 
 	if nPows == 0 {
-		if err := s.saveVotePowersInTx(ctx, tx, valSet.VotePowerHash, tmconsensus.ValidatorsToVotePowers(valSet.Validators)); err != nil {
+		if _, err := s.createVotePowersInTx(ctx, tx, valSet.VotePowerHash, tmconsensus.ValidatorsToVotePowers(valSet.Validators)); err != nil {
 			return fmt.Errorf("failed to save new vote power hash: %w", err)
 		}
 	}
@@ -646,6 +651,308 @@ JOIN
 	}
 
 	return
+}
+
+func (s *TMStore) selectOrInsertPubKeysByHash(
+	ctx context.Context,
+	tx *sql.Tx,
+	pubKeyHash []byte,
+	pubKeys []gcrypto.PubKey,
+) (hashID int64, err error) {
+	row := tx.QueryRowContext(
+		ctx,
+		`SELECT id FROM validator_pub_key_hashes WHERE hash = ?`,
+		pubKeyHash,
+	)
+	err = row.Scan(&hashID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return s.createPubKeysInTx(ctx, tx, pubKeyHash, pubKeys)
+		}
+
+		// Not sql.ErrNoRows, so nothing else we can do.
+		return -1, fmt.Errorf("failed to scan pub key hash ID: %w", err)
+	}
+
+	return hashID, nil
+}
+
+func (s *TMStore) selectOrInsertVotePowersByHash(
+	ctx context.Context,
+	tx *sql.Tx,
+	votePowerHash []byte,
+	votePowers []uint64,
+) (hashID int64, err error) {
+	row := tx.QueryRowContext(
+		ctx,
+		`SELECT id FROM validator_pub_key_hashes WHERE hash = ?`,
+		votePowerHash,
+	)
+	err = row.Scan(&hashID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return s.createVotePowersInTx(ctx, tx, votePowerHash, votePowers)
+		}
+
+		// Not sql.ErrNoRows, so nothing else we can do.
+		return -1, fmt.Errorf("failed to scan vote power hash ID: %w", err)
+	}
+
+	return hashID, nil
+}
+
+func (s *TMStore) SaveHeader(ctx context.Context, ch tmconsensus.CommittedHeader) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	h := ch.Header
+
+	// TODO: this method is documented to fail when the public key hash is already in the database,
+	// so this will definitely fail outside of tests.
+	pubKeyHashID, err := s.selectOrInsertPubKeysByHash(
+		ctx, tx,
+		h.ValidatorSet.PubKeyHash,
+		tmconsensus.ValidatorsToPubKeys(h.ValidatorSet.Validators),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to save validator public keys: %w", err)
+	}
+
+	votePowerHashID, err := s.createVotePowersInTx(
+		ctx, tx,
+		h.ValidatorSet.VotePowerHash,
+		tmconsensus.ValidatorsToVotePowers(h.ValidatorSet.Validators),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to save validator vote powers: %w", err)
+	}
+
+	nextPubKeyHashID := pubKeyHashID
+	if !bytes.Equal(h.ValidatorSet.PubKeyHash, h.NextValidatorSet.PubKeyHash) {
+		nextPubKeyHashID, err = s.selectOrInsertPubKeysByHash(
+			ctx, tx,
+			h.NextValidatorSet.PubKeyHash,
+			tmconsensus.ValidatorsToPubKeys(h.NextValidatorSet.Validators),
+		)
+		if err != nil {
+			return fmt.Errorf("failed to save next validator public keys: %w", err)
+		}
+	}
+
+	nextVotePowerHashID := votePowerHashID
+	if !bytes.Equal(h.ValidatorSet.VotePowerHash, h.NextValidatorSet.VotePowerHash) {
+		nextVotePowerHashID, err = s.selectOrInsertVotePowersByHash(
+			ctx, tx,
+			h.NextValidatorSet.VotePowerHash,
+			tmconsensus.ValidatorsToVotePowers(h.NextValidatorSet.Validators),
+		)
+		if err != nil {
+			return fmt.Errorf("failed to save next validator public keys: %w", err)
+		}
+	}
+
+	res, err := tx.ExecContext(
+		ctx,
+		`INSERT INTO headers(
+hash, prev_block_hash, height,
+validators_pub_key_hash_id,
+validators_power_hash_id,
+next_validators_pub_key_hash_id,
+next_validators_power_hash_id,
+-- TODO: prev_commit_proof_id
+data_id, prev_app_state_hash,
+user_annotations, driver_annotations,
+committed
+) VALUES (
+$hash, $prev_block_hash, $height,
+$pub_key_hash_id,
+$vote_power_hash_id,
+$next_pub_key_hash_id,
+$next_vote_power_hash_id,
+$data_id, $prev_app_state_hash,
+$user_annotations, $driver_annotations,
+1)`,
+		sql.Named("hash", h.Hash), sql.Named("prev_block_hash", h.PrevBlockHash), sql.Named("height", h.Height),
+		sql.Named("pub_key_hash_id", pubKeyHashID),
+		sql.Named("data_id", h.DataID), sql.Named("prev_app_state_hash", h.PrevAppStateHash),
+		sql.Named("user_annotations", h.Annotations.User), sql.Named("driver_annotations", h.Annotations.Driver),
+		sql.Named("pub_key_hash_id", pubKeyHashID),
+		sql.Named("vote_power_hash_id", votePowerHashID),
+		sql.Named("next_pub_key_hash_id", nextPubKeyHashID),
+		sql.Named("next_vote_power_hash_id", nextVotePowerHashID),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to store header: %w", err)
+	}
+
+	_ = res // TODO: get LastInsertId()?
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction to save header: %w", err)
+	}
+
+	return nil
+}
+
+func (s *TMStore) LoadHeader(ctx context.Context, height uint64) (tmconsensus.CommittedHeader, error) {
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return tmconsensus.CommittedHeader{}, fmt.Errorf(
+			"failed to begin read-only transaction: %w", err,
+		)
+	}
+	defer tx.Rollback()
+
+	h := tmconsensus.Header{Height: height}
+	var pkhID, npkhID, vphID, nvphID int64
+	if err := tx.QueryRowContext(
+		ctx,
+		`SELECT
+hash, prev_block_hash,
+data_id, prev_app_state_hash,
+user_annotations, driver_annotations,
+validators_pub_key_hash_id, next_validators_pub_key_hash_id,
+validators_power_hash_id, next_validators_power_hash_id
+FROM headers
+WHERE
+committed = 1 AND height = ?`,
+		height,
+	).Scan(
+		&h.Hash, &h.PrevBlockHash,
+		&h.DataID, &h.PrevAppStateHash,
+		&h.Annotations.User, &h.Annotations.Driver,
+		&pkhID, &npkhID,
+		&vphID, &nvphID,
+	); err != nil {
+		return tmconsensus.CommittedHeader{}, fmt.Errorf(
+			"failed to scan header values from database: %w", err,
+		)
+	}
+
+	// Assuming for now that it's better to do an extra query to get the hashes,
+	// since we don't know up front whether the current and next validator sets
+	// have the same hashes.
+	var nvs, nnvs, nps, nnps int
+	if err := tx.QueryRowContext(
+		ctx,
+		`SELECT * FROM
+(SELECT hash, n_keys FROM validator_pub_key_hashes WHERE id = ?),
+(SELECT hash, n_keys FROM validator_pub_key_hashes WHERE id = ?),
+(SELECT hash, n_powers FROM validator_power_hashes WHERE id = ?),
+(SELECT hash, n_powers FROM validator_power_hashes WHERE id = ?)`,
+		pkhID, npkhID,
+		vphID, nvphID,
+	).Scan(
+		&h.ValidatorSet.PubKeyHash, &nvs,
+		&h.NextValidatorSet.PubKeyHash, &nnvs,
+		&h.ValidatorSet.VotePowerHash, &nps,
+		&h.NextValidatorSet.VotePowerHash, &nnps,
+	); err != nil {
+		return tmconsensus.CommittedHeader{}, fmt.Errorf(
+			"failed to scan validator hashes from database: %w", err,
+		)
+	}
+
+	if nvs != nps {
+		panic(fmt.Errorf(
+			"DATABASE CORRUPTION: attempted to load header at height %d with val hash %x/%d, pow hash %x/%d",
+			height,
+			h.ValidatorSet.PubKeyHash, nvs,
+			h.ValidatorSet.VotePowerHash, nps,
+		))
+	}
+	if nnvs != nnps {
+		panic(fmt.Errorf(
+			"DATABASE CORRUPTION: attempted to load header at height %d with next val hash %x/%d, next pow hash %x/%d",
+			height,
+			h.NextValidatorSet.PubKeyHash, nnvs,
+			h.NextValidatorSet.VotePowerHash, nnps,
+		))
+	}
+
+	h.ValidatorSet.Validators = make([]tmconsensus.Validator, nvs)
+
+	// Now we can get the validator public keys.
+	rows, err := tx.QueryContext(
+		ctx,
+		`SELECT idx, key FROM validator_pub_keys_for_hash WHERE hash_id = ?`,
+		pkhID,
+	)
+	if err != nil {
+		return tmconsensus.CommittedHeader{}, fmt.Errorf(
+			"failed to query validator public keys: %w", err,
+		)
+	}
+	defer rows.Close()
+	var encKey []byte
+	for rows.Next() {
+		encKey = encKey[:0]
+		var idx int
+		if err := rows.Scan(&idx, &encKey); err != nil {
+			return tmconsensus.CommittedHeader{}, fmt.Errorf(
+				"failed to scan validator public key: %w", err,
+			)
+		}
+		key, err := s.reg.Unmarshal(encKey)
+		if err != nil {
+			return tmconsensus.CommittedHeader{}, fmt.Errorf(
+				"failed to unmarshal validator key %x: %w", encKey, err,
+			)
+		}
+
+		h.ValidatorSet.Validators[idx].PubKey = key
+	}
+	if rows.Err() != nil {
+		return tmconsensus.CommittedHeader{}, fmt.Errorf(
+			"failed to iterate validator keys: %w", rows.Err(),
+		)
+	}
+	_ = rows.Close()
+
+	// Same for the powers.
+	rows, err = tx.QueryContext(
+		ctx,
+		`SELECT idx, power FROM validator_powers_for_hash WHERE hash_id = ?`,
+		vphID,
+	)
+	if err != nil {
+		return tmconsensus.CommittedHeader{}, fmt.Errorf(
+			"failed to query validator powers: %w", err,
+		)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var idx int
+		var pow uint64
+		if err := rows.Scan(&idx, &pow); err != nil {
+			return tmconsensus.CommittedHeader{}, fmt.Errorf(
+				"failed to scan validator power: %w", err,
+			)
+		}
+
+		h.ValidatorSet.Validators[idx].Power = pow
+	}
+	if rows.Err() != nil {
+		return tmconsensus.CommittedHeader{}, fmt.Errorf(
+			"failed to iterate validator powers: %w", rows.Err(),
+		)
+	}
+	_ = rows.Close()
+
+	if bytes.Equal(h.ValidatorSet.PubKeyHash, h.NextValidatorSet.PubKeyHash) &&
+		bytes.Equal(h.ValidatorSet.VotePowerHash, h.NextValidatorSet.VotePowerHash) {
+		h.NextValidatorSet.Validators = slices.Clone(h.ValidatorSet.Validators)
+	} else {
+		panic("TODO: handle different next validator set")
+	}
+
+	return tmconsensus.CommittedHeader{
+		Header: h,
+		// TODO: proofs
+	}, nil
 }
 
 func pragmas(ctx context.Context, db *sql.DB) error {

@@ -65,6 +65,22 @@ func TestFinalizationStoreCompliance(t *testing.T) {
 	})
 }
 
+func TestHeaderStoreCompliance(t *testing.T) {
+	t.Skip("not ready yet")
+	t.Parallel()
+
+	tmstoretest.TestHeaderStoreCompliance(t, func(cleanup func(func())) (tmstore.HeaderStore, error) {
+		s, err := tmsqlite.NewTMStore(context.Background(), ":memory:", tmconsensustest.SimpleHashScheme{}, &reg)
+		if err != nil {
+			return nil, err
+		}
+		cleanup(func() {
+			require.NoError(t, s.Close())
+		})
+		return s, nil
+	})
+}
+
 func TestMirrorStoreCompliance(t *testing.T) {
 	t.Parallel()
 
