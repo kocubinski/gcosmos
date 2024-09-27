@@ -210,12 +210,7 @@ func (s *TMStore) createPubKeysInTx(
 func (s *TMStore) LoadPubKeys(ctx context.Context, hash string) ([]gcrypto.PubKey, error) {
 	rows, err := s.db.QueryContext(
 		ctx,
-		`
-SELECT validator_pub_keys.key FROM validator_pub_keys
-  JOIN validator_pub_key_hash_entries ON validator_pub_keys.id = validator_pub_key_hash_entries.key_id
-  JOIN validator_pub_key_hashes ON validator_pub_key_hash_entries.hash_id = validator_pub_key_hashes.id
-  WHERE validator_pub_key_hashes.hash = ? ORDER BY validator_pub_key_hash_entries.idx ASC;
-`,
+		`SELECT key FROM validator_pub_keys_for_hash WHERE hash = ? ORDER BY idx ASC`,
 		// This is annoying: if you leave the hash as a string,
 		// the string type apparently won't match the blob type,
 		// and so you get a misleading empty result.
@@ -366,16 +361,11 @@ func (s *TMStore) LoadValidators(ctx context.Context, keyHash, powHash string) (
 		ctx,
 		`SELECT keys.key, powers.power FROM
 (
-  SELECT validator_pub_keys.key, validator_pub_key_hash_entries.idx FROM validator_pub_keys
-    JOIN validator_pub_key_hash_entries ON validator_pub_keys.id = validator_pub_key_hash_entries.key_id
-    JOIN validator_pub_key_hashes ON validator_pub_key_hash_entries.hash_id = validator_pub_key_hashes.id
-    WHERE validator_pub_key_hashes.hash = ? ORDER BY validator_pub_key_hash_entries.idx ASC
+  SELECT key, idx FROM validator_pub_keys_for_hash WHERE hash = ? ORDER BY idx ASC
 ) as keys
 JOIN
 (
-  SELECT validator_power_hash_entries.power, validator_power_hash_entries.idx FROM validator_power_hash_entries
-    JOIN validator_power_hashes ON validator_power_hashes.id = validator_power_hash_entries.hash_id
-    WHERE validator_power_hashes.hash = ? ORDER BY validator_power_hash_entries.idx ASC
+  SELECT power, idx FROM validator_powers_for_hash WHERE hash = ? ORDER BY idx ASC
 ) as powers ON keys.idx = powers.idx
 `,
 		[]byte(keyHash), []byte(powHash),
@@ -606,20 +596,19 @@ WHERE f.height = ?`,
 	// Then extract the validators.
 	rows, err := tx.QueryContext(
 		ctx,
+		// It seems like there should be a view for this,
+		// but maybe not because we are joining on the finalizations table?
 		`SELECT keys.key, powers.power FROM
 (
-  SELECT validator_pub_keys.key, validator_pub_key_hash_entries.idx FROM validator_pub_keys
-    JOIN validator_pub_key_hash_entries ON validator_pub_keys.id = validator_pub_key_hash_entries.key_id
-    JOIN validator_pub_key_hashes ON validator_pub_key_hash_entries.hash_id = validator_pub_key_hashes.id
-    JOIN finalizations ON finalizations.validator_pub_key_hash_id = validator_pub_key_hash_entries.hash_id
-    WHERE finalizations.height = ?1 ORDER BY validator_pub_key_hash_entries.idx ASC
+  SELECT key, idx FROM validator_pub_keys_for_hash
+    JOIN finalizations ON finalizations.validator_pub_key_hash_id = validator_pub_keys_for_hash.hash_id
+    WHERE finalizations.height = ?1 ORDER BY idx ASC
 ) as keys
 JOIN
 (
-  SELECT validator_power_hash_entries.power, validator_power_hash_entries.idx FROM validator_power_hash_entries
-    JOIN validator_power_hashes ON validator_power_hashes.id = validator_power_hash_entries.hash_id
-    JOIN finalizations ON finalizations.validator_power_hash_id = validator_power_hash_entries.hash_id
-    WHERE finalizations.height = ?1 ORDER BY validator_power_hash_entries.idx ASC
+  SELECT power, idx FROM validator_powers_for_hash
+    JOIN finalizations ON finalizations.validator_power_hash_id = validator_powers_for_hash.hash_id
+    WHERE finalizations.height = ?1 ORDER BY idx ASC
 ) as powers ON keys.idx = powers.idx
 		`,
 		height,
@@ -1152,6 +1141,11 @@ ORDER BY key_id`, // Order not strictly necessary, but convenient for tests.
 				KeyID: bytes.Clone(keyID),
 				Sig:   bytes.Clone(sig),
 			},
+		)
+	}
+	if err := rows.Err(); err != nil {
+		return tmconsensus.CommittedHeader{}, fmt.Errorf(
+			"failed to iterate signature rows: %w", err,
 		)
 	}
 
