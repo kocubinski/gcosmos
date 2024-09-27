@@ -159,6 +159,7 @@ func (s *TMStore) createPubKeysInTx(
 		return -1, fmt.Errorf("failed to get last insert ID after saving new public key hash: %w", err)
 	}
 
+	args := make([]any, 0, 3*len(keys))
 	for i, k := range keys {
 		b := s.reg.Marshal(k)
 		res, err := tx.ExecContext(
@@ -193,15 +194,14 @@ func (s *TMStore) createPubKeysInTx(
 		}
 
 		// Now that we have a hash ID, key ID, and ordinal index,
-		// we can update the pub key hash entries.
-		if _, err = tx.ExecContext(
-			ctx,
-			`INSERT INTO validator_pub_key_hash_entries(hash_id, idx, key_id)
-VALUES(?, ?, ?);`,
-			hashID, i, keyID,
-		); err != nil {
-			return -1, fmt.Errorf("failed to insert public key hash entry: %w", err)
-		}
+		// we can update args we will insert into the pub key hash entries.
+		args = append(args, hashID, i, keyID)
+	}
+
+	q := `INSERT INTO validator_pub_key_hash_entries(hash_id, idx, key_id) VALUES (?,?,?)` +
+		strings.Repeat(", (?,?,?)", len(keys)-1)
+	if _, err := tx.ExecContext(ctx, q, args...); err != nil {
+		return -1, fmt.Errorf("failed to insert public key hash entry: %w", err)
 	}
 
 	return hashID, nil
@@ -312,16 +312,17 @@ func (s *TMStore) createVotePowersInTx(
 		return -1, fmt.Errorf("failed to get last insert ID after saving new vote power hash: %w", err)
 	}
 
+	args := make([]any, 0, 3*len(powers))
 	// TODO: condense this into one larger insert.
 	for i, power := range powers {
-		if _, err := tx.ExecContext(
-			ctx,
-			`INSERT INTO validator_power_hash_entries(hash_id, idx, power)
-VALUES(?, ?, ?);`,
-			hashID, i, power,
-		); err != nil {
-			return -1, fmt.Errorf("failed to insert vote power hash entry: %w", err)
-		}
+		args = append(args, hashID, i, power)
+	}
+
+	q := `INSERT INTO validator_power_hash_entries(hash_id, idx, power)
+VALUES (?,?,?)` +
+		strings.Repeat(", (?,?,?)", len(powers)-1)
+	if _, err := tx.ExecContext(ctx, q, args...); err != nil {
+		return -1, fmt.Errorf("failed to insert vote power hash entry: %w", err)
 	}
 
 	return hashID, nil
