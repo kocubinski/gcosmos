@@ -50,6 +50,23 @@ func TestMigrate(t *testing.T) {
 	})
 }
 
+func TestActionStoreCompliance(t *testing.T) {
+	t.Skip("not ready yet")
+
+	t.Parallel()
+
+	tmstoretest.TestActionStoreCompliance(t, func(cleanup func(func())) (tmstore.ActionStore, error) {
+		s, err := tmsqlite.NewTMStore(context.Background(), ":memory:", tmconsensustest.SimpleHashScheme{}, &reg)
+		if err != nil {
+			return nil, err
+		}
+		cleanup(func() {
+			require.NoError(t, s.Close())
+		})
+		return s, nil
+	})
+}
+
 func TestFinalizationStoreCompliance(t *testing.T) {
 	t.Parallel()
 

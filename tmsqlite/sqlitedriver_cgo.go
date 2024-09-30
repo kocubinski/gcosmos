@@ -21,3 +21,12 @@ func isPrimaryKeyConstraintError(e error) bool {
 
 	return sErr.Code == sqlite3.ErrConstraint && sErr.ExtendedCode == sqlite3.ErrConstraintPrimaryKey
 }
+
+func isUniqueConstraintError(e error) bool {
+	var sErr sqlite3.Error
+	if !errors.As(e, &sErr) {
+		return false
+	}
+
+	return sErr.Code == sqlite3.ErrConstraint && sErr.ExtendedCode == sqlite3.ErrConstraintUnique
+}

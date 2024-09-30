@@ -26,8 +26,13 @@ func TestActionStoreCompliance(t *testing.T, f ActionStoreFactory) {
 		ph1 := fx.NextProposedHeader([]byte("app_data_1"), 0)
 		ph1.Round = 2 // Arbitrary, test nonzero round.
 
+		// The returned data should be nil anyway.
+		ph1.Header.PrevCommitProof.Proofs = nil
+
 		fx.RecalculateHash(&ph1.Header)
 		fx.SignProposal(ctx, &ph1, 0)
+
+		attemptToSavePubKeys(t, ctx, s, ph1.Header.ValidatorSet.Validators)
 
 		require.NoError(t, s.SaveProposedHeader(ctx, ph1))
 
@@ -70,6 +75,9 @@ func TestActionStoreCompliance(t *testing.T, f ActionStoreFactory) {
 		ph1 := fx.NextProposedHeader([]byte("app_data_1"), 0)
 		ph1.Round = 2
 
+		// The returned data should be nil anyway.
+		ph1.Header.PrevCommitProof.Proofs = nil
+
 		fx.RecalculateHash(&ph1.Header)
 		fx.SignProposal(ctx, &ph1, 0)
 
@@ -79,6 +87,8 @@ func TestActionStoreCompliance(t *testing.T, f ActionStoreFactory) {
 			BlockHash: string(ph1.Header.Hash),
 		}
 		sig := fx.PrevoteSignature(ctx, vt, 0)
+
+		attemptToSavePubKeys(t, ctx, s, ph1.Header.ValidatorSet.Validators)
 
 		pubKey := fx.ValidatorPubKey(0)
 		require.NoError(t, s.SavePrevote(ctx, pubKey, vt, sig))
@@ -130,6 +140,8 @@ func TestActionStoreCompliance(t *testing.T, f ActionStoreFactory) {
 			BlockHash: string(ph1.Header.Hash),
 		}
 		sig := fx.PrecommitSignature(ctx, vt, 0)
+
+		attemptToSavePubKeys(t, ctx, s, ph1.Header.ValidatorSet.Validators)
 
 		pubKey := fx.ValidatorPubKey(0)
 		require.NoError(t, s.SavePrecommit(ctx, pubKey, vt, sig))
@@ -187,6 +199,8 @@ func TestActionStoreCompliance(t *testing.T, f ActionStoreFactory) {
 			s, err := f(t.Cleanup)
 			require.NoError(t, err)
 
+			attemptToSavePubKeys(t, ctx, s, ph1.Header.ValidatorSet.Validators)
+
 			require.NoError(t, s.SavePrevote(ctx, prevotePubKey, vt, prevoteSig))
 			err = s.SavePrecommit(ctx, precommitPubKey, vt, precommitSig)
 			require.ErrorIs(t, err, tmstore.PubKeyChangedError{
@@ -202,6 +216,8 @@ func TestActionStoreCompliance(t *testing.T, f ActionStoreFactory) {
 
 			s, err := f(t.Cleanup)
 			require.NoError(t, err)
+
+			attemptToSavePubKeys(t, ctx, s, ph1.Header.ValidatorSet.Validators)
 
 			require.NoError(t, s.SavePrecommit(ctx, precommitPubKey, vt, precommitSig))
 			err = s.SavePrevote(ctx, prevotePubKey, vt, prevoteSig)
@@ -227,8 +243,13 @@ func TestActionStoreCompliance(t *testing.T, f ActionStoreFactory) {
 			ph1 := fx.NextProposedHeader([]byte("app_data_1"), 0)
 			ph1.Round = 2 // Arbitrary, test nonzero round.
 
+			// The returned data should be nil anyway.
+			ph1.Header.PrevCommitProof.Proofs = nil
+
 			fx.RecalculateHash(&ph1.Header)
 			fx.SignProposal(ctx, &ph1, 0)
+
+			attemptToSavePubKeys(t, ctx, s, ph1.Header.ValidatorSet.Validators)
 
 			require.NoError(t, s.SaveProposedHeader(ctx, ph1))
 
@@ -260,6 +281,8 @@ func TestActionStoreCompliance(t *testing.T, f ActionStoreFactory) {
 			require.Equal(t, string(precommitSig), ra.PrecommitSignature)
 		})
 
+		// TODO: tests for missing just one out of three actions.
+
 		t.Run("returns RoundUnknownError on invalid round", func(t *testing.T) {
 			t.Parallel()
 
@@ -276,4 +299,17 @@ func TestActionStoreCompliance(t *testing.T, f ActionStoreFactory) {
 			})
 		})
 	})
+}
+
+// attemptToSavePubKeys saves the validators' public keys to the given store,
+// if the store satisfies ValidatorStore.
+// Some store implementations may assume that the validators have already been saved.
+func attemptToSavePubKeys(t *testing.T, ctx context.Context, s tmstore.ActionStore, vals []tmconsensus.Validator) {
+	t.Helper()
+
+	if vs, ok := s.(tmstore.ValidatorStore); ok {
+		pubKeys := tmconsensus.ValidatorsToPubKeys(vals)
+		_, err := vs.SavePubKeys(ctx, pubKeys)
+		require.NoError(t, err)
+	}
 }

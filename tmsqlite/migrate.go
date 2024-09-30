@@ -88,6 +88,8 @@ INSERT INTO mirror VALUES(0, 0, 0, 0, 0);`+
 
 			// Unique validator public keys.
 			// The key field is encoded through a [gcrypto.Registry].
+			// TODO: update gcrypto.PubKey interface to split out TypeName separate,
+			// so we can do a plain compare on the type name and raw bytes.
 			`
 CREATE TABLE validator_pub_keys(
   id INTEGER PRIMARY KEY NOT NULL,
@@ -285,9 +287,77 @@ CREATE TABLE proposed_headers(
   proposer_pub_key_id INTEGER NOT NULL,
   user_annotations BLOB,
   driver_annotations BLOB,
+  signature BLOB NOT NULL,
   FOREIGN KEY(header_id) REFERENCES headers(id),
   FOREIGN KEY(proposer_pub_key_id) REFERENCES validator_pub_keys(id)
-); `+
+);`+
+
+			// The headers that the local state machine has proposed to the network.
+			// Although the height and round can be determined through the proposed header,
+			// it is much simpler to just expose the height and round on this table.
+			///
+			// We check that the height is greater than 0;
+			// while the header store accepts headers for height 0,
+			// that is an edge case for the initial block.
+			// Nobody will propose a block with height 0.
+			`
+CREATE TABLE actions_proposed_headers(
+  id INTEGER PRIMARY KEY NOT NULL,
+  height INTEGER NOT NULL CHECK (height > 0),
+  round INTEGER NOT NULL CHECK (round >= 0),
+  proposed_header_id INTEGER NOT NULL,
+  FOREIGN KEY(proposed_header_id) REFERENCES proposed_headers(id),
+  UNIQUE (height, round)
+);`+
+
+			// The prevotes that the local state machine has sent.
+			`
+CREATE TABLE actions_prevotes(
+  id INTEGER PRIMARY KEY NOT NULL,
+  height INTEGER NOT NULL CHECK (height > 0),
+  round INTEGER NOT NULL CHECK (round >= 0),
+  signer_pub_key_id INTEGER NOT NULL,
+  block_hash BLOB,
+  signature BLOB NOT NULL,
+  FOREIGN KEY(signer_pub_key_id) REFERENCES validator_pub_keys(id),
+  UNIQUE (height, round)
+);`+
+
+			// The precommits that the local state machine has sent.
+			// (Identical to the actions_prevotes table.)
+			`
+CREATE TABLE actions_precommits(
+  id INTEGER PRIMARY KEY NOT NULL,
+  height INTEGER NOT NULL CHECK (height > 0),
+  round INTEGER NOT NULL CHECK (round >= 0),
+  signer_pub_key_id INTEGER NOT NULL,
+  block_hash BLOB,
+  signature BLOB NOT NULL,
+  FOREIGN KEY(signer_pub_key_id) REFERENCES validator_pub_keys(id),
+  UNIQUE (height, round)
+);`+
+
+			// Mostly joined view of the three individual actions tables.
+			// This is not working properly yet when filtering by height,
+			// if any table is lacking a record for that height and column.
+			`
+CREATE VIEW actions(
+  height,
+  round,
+  ph_id,
+  pv_block_hash, pv_signature, pv_key_id,
+  pc_block_hash, pc_signature, pc_key_id
+) AS
+SELECT
+  COALESCE(phs.height, pvs.height, pcs.height),
+  COALESCE(phs.round, pvs.round, pcs.round),
+  phs.proposed_header_id,
+  pvs.block_hash, pvs.signature, pvs.signer_pub_key_id,
+  pcs.block_hash, pcs.signature, pcs.signer_pub_key_id
+FROM actions_proposed_headers AS phs
+LEFT JOIN actions_prevotes AS pvs ON pvs.height = phs.height AND pvs.round = phs.round
+LEFT JOIN actions_precommits AS pcs ON pcs.height = phs.height AND pcs.round = phs.round;
+`+
 
 			// Consistent end of long concatenated literal, to minimize diffs.
 			"",

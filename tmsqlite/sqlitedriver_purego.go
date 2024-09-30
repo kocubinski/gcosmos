@@ -25,3 +25,12 @@ func isPrimaryKeyConstraintError(e error) bool {
 	// It's probably less precise but it works for what we need here.
 	return sErr.Code() == sqlitelib.SQLITE_CONSTRAINT_PRIMARYKEY
 }
+
+func isUniqueConstraintError(e error) bool {
+	var sErr *sqlite.Error
+	if !errors.As(e, &sErr) {
+		return false
+	}
+
+	return sErr.Code() == sqlitelib.SQLITE_CONSTRAINT_UNIQUE
+}

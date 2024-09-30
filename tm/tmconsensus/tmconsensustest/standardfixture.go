@@ -62,6 +62,8 @@ func NewStandardFixture(numVals int) *StandardFixture {
 			// This map is expected to be empty, not nil, for the initial height.
 			Proofs: map[string][]gcrypto.SparseSignature{},
 		},
+
+		prevAppStateHash: []byte("uninitialized"),
 	}
 }
 

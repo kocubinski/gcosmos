@@ -1002,226 +1002,12 @@ func (s *TMStore) LoadHeader(ctx context.Context, height uint64) (tmconsensus.Co
 	}
 	defer tx.Rollback()
 
-	h := tmconsensus.Header{Height: height}
-	var headerID, pkhID, npkhID, vphID, nvphID int64
-	var pcpID sql.NullInt64
-	if err := tx.QueryRowContext(
-		ctx,
-		`SELECT
-id,
-hash, prev_block_hash,
-data_id, prev_app_state_hash,
-user_annotations, driver_annotations,
-prev_commit_proof_id,
-validators_pub_key_hash_id, next_validators_pub_key_hash_id,
-validators_power_hash_id, next_validators_power_hash_id
-FROM headers
-WHERE
-committed = 1 AND height = ?`,
-		height,
-	).Scan(
-		&headerID,
-		&h.Hash, &h.PrevBlockHash,
-		&h.DataID, &h.PrevAppStateHash,
-		&h.Annotations.User, &h.Annotations.Driver,
-		&pcpID,
-		&pkhID, &npkhID,
-		&vphID, &nvphID,
-	); err != nil {
-		return tmconsensus.CommittedHeader{}, fmt.Errorf(
-			"failed to scan header values from database: %w", err,
-		)
-	}
-
-	// Assuming for now that it's better to do an extra query to get the hashes,
-	// since we don't know up front whether the current and next validator sets
-	// have the same hashes.
-	var nvs, nnvs, nps, nnps int
-	if err := tx.QueryRowContext(
-		ctx,
-		`SELECT * FROM
-(SELECT hash, n_keys FROM validator_pub_key_hashes WHERE id = ?),
-(SELECT hash, n_keys FROM validator_pub_key_hashes WHERE id = ?),
-(SELECT hash, n_powers FROM validator_power_hashes WHERE id = ?),
-(SELECT hash, n_powers FROM validator_power_hashes WHERE id = ?)`,
-		pkhID, npkhID,
-		vphID, nvphID,
-	).Scan(
-		&h.ValidatorSet.PubKeyHash, &nvs,
-		&h.NextValidatorSet.PubKeyHash, &nnvs,
-		&h.ValidatorSet.VotePowerHash, &nps,
-		&h.NextValidatorSet.VotePowerHash, &nnps,
-	); err != nil {
-		return tmconsensus.CommittedHeader{}, fmt.Errorf(
-			"failed to scan validator hashes from database: %w", err,
-		)
-	}
-
-	if nvs != nps {
-		panic(fmt.Errorf(
-			"DATABASE CORRUPTION: attempted to load header at height %d with val hash %x/%d, pow hash %x/%d",
-			height,
-			h.ValidatorSet.PubKeyHash, nvs,
-			h.ValidatorSet.VotePowerHash, nps,
-		))
-	}
-	if nnvs != nnps {
-		panic(fmt.Errorf(
-			"DATABASE CORRUPTION: attempted to load header at height %d with next val hash %x/%d, next pow hash %x/%d",
-			height,
-			h.NextValidatorSet.PubKeyHash, nnvs,
-			h.NextValidatorSet.VotePowerHash, nnps,
-		))
-	}
-
-	h.ValidatorSet.Validators = make([]tmconsensus.Validator, nvs)
-
-	// Now we can get the validator public keys.
-	rows, err := tx.QueryContext(
-		ctx,
-		`SELECT idx, key FROM validator_pub_keys_for_hash WHERE hash_id = ?`,
-		pkhID,
-	)
+	h, headerID, err := s.loadHeaderDynamic(ctx, tx, `committed = 1 AND height = ?`, height)
 	if err != nil {
 		return tmconsensus.CommittedHeader{}, fmt.Errorf(
-			"failed to query validator public keys: %w", err,
+			"failed to load header: %w", err,
 		)
 	}
-	defer rows.Close()
-	var encKey []byte
-	for rows.Next() {
-		encKey = encKey[:0]
-		var idx int
-		if err := rows.Scan(&idx, &encKey); err != nil {
-			return tmconsensus.CommittedHeader{}, fmt.Errorf(
-				"failed to scan validator public key: %w", err,
-			)
-		}
-		key, err := s.reg.Unmarshal(encKey)
-		if err != nil {
-			return tmconsensus.CommittedHeader{}, fmt.Errorf(
-				"failed to unmarshal validator key %x: %w", encKey, err,
-			)
-		}
-
-		h.ValidatorSet.Validators[idx].PubKey = key
-	}
-	if rows.Err() != nil {
-		return tmconsensus.CommittedHeader{}, fmt.Errorf(
-			"failed to iterate validator keys: %w", rows.Err(),
-		)
-	}
-	_ = rows.Close()
-
-	// Same for the powers.
-	rows, err = tx.QueryContext(
-		ctx,
-		`SELECT idx, power FROM validator_powers_for_hash WHERE hash_id = ?`,
-		vphID,
-	)
-	if err != nil {
-		return tmconsensus.CommittedHeader{}, fmt.Errorf(
-			"failed to query validator powers: %w", err,
-		)
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var idx int
-		var pow uint64
-		if err := rows.Scan(&idx, &pow); err != nil {
-			return tmconsensus.CommittedHeader{}, fmt.Errorf(
-				"failed to scan validator power: %w", err,
-			)
-		}
-
-		h.ValidatorSet.Validators[idx].Power = pow
-	}
-	if rows.Err() != nil {
-		return tmconsensus.CommittedHeader{}, fmt.Errorf(
-			"failed to iterate validator powers: %w", rows.Err(),
-		)
-	}
-	if err := rows.Close(); err != nil {
-		return tmconsensus.CommittedHeader{}, fmt.Errorf(
-			"failed to close validator power iterator: %w", rows.Err(),
-		)
-	}
-
-	if bytes.Equal(h.ValidatorSet.PubKeyHash, h.NextValidatorSet.PubKeyHash) &&
-		bytes.Equal(h.ValidatorSet.VotePowerHash, h.NextValidatorSet.VotePowerHash) {
-		h.NextValidatorSet.Validators = slices.Clone(h.ValidatorSet.Validators)
-	} else {
-		panic("TODO: handle different next validator set")
-	}
-
-	if pcpID.Valid {
-		// Populate the previous commit proof.
-
-		// TODO: We might be able to do this query as a join on the earlier header query?
-		pubKeyHash := make([]byte, 0, len(h.ValidatorSet.PubKeyHash))
-		if err := tx.QueryRowContext(
-			ctx,
-			`SELECT round, hashes.hash FROM commit_proofs
-JOIN validator_pub_key_hashes AS hashes ON hashes.id = commit_proofs.validators_pub_key_hash_id
-WHERE commit_proofs.id = ?`,
-			pcpID.Int64,
-		).Scan(&h.PrevCommitProof.Round, &pubKeyHash); err != nil {
-			return tmconsensus.CommittedHeader{}, fmt.Errorf(
-				"failed to retrieve scan previous commit round and pub key hash: %w", err,
-			)
-		}
-		h.PrevCommitProof.PubKeyHash = string(pubKeyHash)
-
-		rows, err := tx.QueryContext(
-			ctx,
-			`SELECT block_hash, key_id, signature FROM proof_signatures
-WHERE commit_proof_id = ?
-ORDER BY key_id`, // Order not strictly necessary, but convenient for tests.
-			pcpID.Int64,
-		)
-		if err != nil {
-			return tmconsensus.CommittedHeader{}, fmt.Errorf(
-				"failed to retrieve previous commit proof signatures: %w", err,
-			)
-		}
-		defer rows.Close()
-
-		// We are going to populate the previous commit proof map.
-		// We are assuming that most of the time, there are only votes for the main block,
-		// and maybe some votes for nil.
-		h.PrevCommitProof.Proofs = make(map[string][]gcrypto.SparseSignature, 2)
-
-		var blockHash, keyID, sig []byte
-		for rows.Next() {
-			// Reset and reuse each slice,
-			// so the destinations are reused repeatedly.
-			// We're going to allocate when we create the SparseSignature anyway,
-			// but those will be right-sized at creation.
-			blockHash = blockHash[:0]
-			keyID = keyID[:0]
-			sig = sig[:0]
-			if err := rows.Scan(&blockHash, &keyID, &sig); err != nil {
-				return tmconsensus.CommittedHeader{}, fmt.Errorf(
-					"failed to scan signature row: %w", err,
-				)
-			}
-			h.PrevCommitProof.Proofs[string(blockHash)] = append(
-				h.PrevCommitProof.Proofs[string(blockHash)],
-				gcrypto.SparseSignature{
-					KeyID: bytes.Clone(keyID),
-					Sig:   bytes.Clone(sig),
-				},
-			)
-		}
-
-		if err := rows.Close(); err != nil {
-			return tmconsensus.CommittedHeader{}, fmt.Errorf(
-				"failed to close previous commit proof signatures iterator: %w", err,
-			)
-		}
-	}
-	// The header should be fully populated now,
-	// so we can load the commit proofs for the header,
 
 	// First get the outer commit proof value.
 	// TODO: there is probably a way to do this in a single query.
@@ -1243,7 +1029,7 @@ WHERE committed_headers.header_id = ?`,
 	}
 
 	// Use the commit proof ID to get the actual signatures.
-	rows, err = tx.QueryContext(
+	rows, err := tx.QueryContext(
 		ctx,
 		`SELECT block_hash, key_id, signature FROM proof_signatures
 WHERE commit_proof_id = ?
@@ -1289,6 +1075,522 @@ ORDER BY key_id`, // Order not strictly necessary, but convenient for tests.
 		Header: h,
 		Proof:  proof,
 	}, nil
+}
+
+func (s *TMStore) loadHeaderDynamic(
+	ctx context.Context,
+	tx *sql.Tx,
+	where string,
+	queryArgs ...any,
+) (tmconsensus.Header, int64, error) {
+	var h tmconsensus.Header
+	var headerID, pkhID, npkhID, vphID, nvphID int64
+	var pcpID sql.NullInt64
+	if err := tx.QueryRowContext(
+		ctx,
+		`SELECT
+id,
+height,
+hash, prev_block_hash,
+data_id, prev_app_state_hash,
+user_annotations, driver_annotations,
+prev_commit_proof_id,
+validators_pub_key_hash_id, next_validators_pub_key_hash_id,
+validators_power_hash_id, next_validators_power_hash_id
+FROM headers
+WHERE
+`+where,
+		queryArgs...,
+	).Scan(
+		&headerID,
+		&h.Height,
+		&h.Hash, &h.PrevBlockHash,
+		&h.DataID, &h.PrevAppStateHash,
+		&h.Annotations.User, &h.Annotations.Driver,
+		&pcpID,
+		&pkhID, &npkhID,
+		&vphID, &nvphID,
+	); err != nil {
+		return tmconsensus.Header{}, headerID, fmt.Errorf(
+			"failed to scan header values from database: %w", err,
+		)
+	}
+
+	// Assuming for now that it's better to do an extra query to get the hashes,
+	// since we don't know up front whether the current and next validator sets
+	// have the same hashes.
+	var nvs, nnvs, nps, nnps int
+	if err := tx.QueryRowContext(
+		ctx,
+		`SELECT * FROM
+(SELECT hash, n_keys FROM validator_pub_key_hashes WHERE id = ?),
+(SELECT hash, n_keys FROM validator_pub_key_hashes WHERE id = ?),
+(SELECT hash, n_powers FROM validator_power_hashes WHERE id = ?),
+(SELECT hash, n_powers FROM validator_power_hashes WHERE id = ?)`,
+		pkhID, npkhID,
+		vphID, nvphID,
+	).Scan(
+		&h.ValidatorSet.PubKeyHash, &nvs,
+		&h.NextValidatorSet.PubKeyHash, &nnvs,
+		&h.ValidatorSet.VotePowerHash, &nps,
+		&h.NextValidatorSet.VotePowerHash, &nnps,
+	); err != nil {
+		return tmconsensus.Header{}, headerID, fmt.Errorf(
+			"failed to scan validator hashes from database: %w", err,
+		)
+	}
+
+	if nvs != nps {
+		panic(fmt.Errorf(
+			"DATABASE CORRUPTION: attempted to load header at height %d with val hash %x/%d, pow hash %x/%d",
+			h.Height,
+			h.ValidatorSet.PubKeyHash, nvs,
+			h.ValidatorSet.VotePowerHash, nps,
+		))
+	}
+	if nnvs != nnps {
+		panic(fmt.Errorf(
+			"DATABASE CORRUPTION: attempted to load header at height %d with next val hash %x/%d, next pow hash %x/%d",
+			h.Height,
+			h.NextValidatorSet.PubKeyHash, nnvs,
+			h.NextValidatorSet.VotePowerHash, nnps,
+		))
+	}
+
+	h.ValidatorSet.Validators = make([]tmconsensus.Validator, nvs)
+
+	// Now we can get the validator public keys.
+	rows, err := tx.QueryContext(
+		ctx,
+		`SELECT idx, key FROM validator_pub_keys_for_hash WHERE hash_id = ?`,
+		pkhID,
+	)
+	if err != nil {
+		return tmconsensus.Header{}, headerID, fmt.Errorf(
+			"failed to query validator public keys: %w", err,
+		)
+	}
+	defer rows.Close()
+	var encKey []byte
+	for rows.Next() {
+		encKey = encKey[:0]
+		var idx int
+		if err := rows.Scan(&idx, &encKey); err != nil {
+			return tmconsensus.Header{}, headerID, fmt.Errorf(
+				"failed to scan validator public key: %w", err,
+			)
+		}
+		key, err := s.reg.Unmarshal(encKey)
+		if err != nil {
+			return tmconsensus.Header{}, headerID, fmt.Errorf(
+				"failed to unmarshal validator key %x: %w", encKey, err,
+			)
+		}
+
+		h.ValidatorSet.Validators[idx].PubKey = key
+	}
+	if rows.Err() != nil {
+		return tmconsensus.Header{}, headerID, fmt.Errorf(
+			"failed to iterate validator keys: %w", rows.Err(),
+		)
+	}
+	_ = rows.Close()
+
+	// Same for the powers.
+	rows, err = tx.QueryContext(
+		ctx,
+		`SELECT idx, power FROM validator_powers_for_hash WHERE hash_id = ?`,
+		vphID,
+	)
+	if err != nil {
+		return tmconsensus.Header{}, headerID, fmt.Errorf(
+			"failed to query validator powers: %w", err,
+		)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var idx int
+		var pow uint64
+		if err := rows.Scan(&idx, &pow); err != nil {
+			return tmconsensus.Header{}, headerID, fmt.Errorf(
+				"failed to scan validator power: %w", err,
+			)
+		}
+
+		h.ValidatorSet.Validators[idx].Power = pow
+	}
+	if rows.Err() != nil {
+		return tmconsensus.Header{}, headerID, fmt.Errorf(
+			"failed to iterate validator powers: %w", rows.Err(),
+		)
+	}
+	if err := rows.Close(); err != nil {
+		return tmconsensus.Header{}, headerID, fmt.Errorf(
+			"failed to close validator power iterator: %w", rows.Err(),
+		)
+	}
+
+	if bytes.Equal(h.ValidatorSet.PubKeyHash, h.NextValidatorSet.PubKeyHash) &&
+		bytes.Equal(h.ValidatorSet.VotePowerHash, h.NextValidatorSet.VotePowerHash) {
+		h.NextValidatorSet.Validators = slices.Clone(h.ValidatorSet.Validators)
+	} else {
+		panic("TODO: handle different next validator set")
+	}
+
+	if pcpID.Valid {
+		// Populate the previous commit proof.
+
+		// TODO: We might be able to do this query as a join on the earlier header query?
+		pubKeyHash := make([]byte, 0, len(h.ValidatorSet.PubKeyHash))
+		if err := tx.QueryRowContext(
+			ctx,
+			`SELECT round, hashes.hash FROM commit_proofs
+JOIN validator_pub_key_hashes AS hashes ON hashes.id = commit_proofs.validators_pub_key_hash_id
+WHERE commit_proofs.id = ?`,
+			pcpID.Int64,
+		).Scan(&h.PrevCommitProof.Round, &pubKeyHash); err != nil {
+			return tmconsensus.Header{}, headerID, fmt.Errorf(
+				"failed to retrieve scan previous commit round and pub key hash: %w", err,
+			)
+		}
+		h.PrevCommitProof.PubKeyHash = string(pubKeyHash)
+
+		rows, err := tx.QueryContext(
+			ctx,
+			`SELECT block_hash, key_id, signature FROM proof_signatures
+WHERE commit_proof_id = ?
+ORDER BY key_id`, // Order not strictly necessary, but convenient for tests.
+			pcpID.Int64,
+		)
+		if err != nil {
+			return tmconsensus.Header{}, headerID, fmt.Errorf(
+				"failed to retrieve previous commit proof signatures: %w", err,
+			)
+		}
+		defer rows.Close()
+
+		// We are going to populate the previous commit proof map.
+		// We are assuming that most of the time, there are only votes for the main block,
+		// and maybe some votes for nil.
+		h.PrevCommitProof.Proofs = make(map[string][]gcrypto.SparseSignature, 2)
+
+		var blockHash, keyID, sig []byte
+		for rows.Next() {
+			// Reset and reuse each slice,
+			// so the destinations are reused repeatedly.
+			// We're going to allocate when we create the SparseSignature anyway,
+			// but those will be right-sized at creation.
+			blockHash = blockHash[:0]
+			keyID = keyID[:0]
+			sig = sig[:0]
+			if err := rows.Scan(&blockHash, &keyID, &sig); err != nil {
+				return tmconsensus.Header{}, headerID, fmt.Errorf(
+					"failed to scan signature row: %w", err,
+				)
+			}
+			h.PrevCommitProof.Proofs[string(blockHash)] = append(
+				h.PrevCommitProof.Proofs[string(blockHash)],
+				gcrypto.SparseSignature{
+					KeyID: bytes.Clone(keyID),
+					Sig:   bytes.Clone(sig),
+				},
+			)
+		}
+
+		if err := rows.Close(); err != nil {
+			return tmconsensus.Header{}, headerID, fmt.Errorf(
+				"failed to close previous commit proof signatures iterator: %w", err,
+			)
+		}
+	}
+
+	return h, headerID, nil
+}
+
+func (s *TMStore) SaveProposedHeader(ctx context.Context, ph tmconsensus.ProposedHeader) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	headerID, err := s.createHeaderInTx(ctx, tx, ph.Header)
+	if err != nil {
+		return fmt.Errorf("failed to create header: %w", err)
+	}
+
+	// We are assuming that our proposer's public key is already in the validators list.
+	// If it isn't, we should not be proposing a block.
+	res, err := tx.ExecContext(
+		ctx,
+		`INSERT INTO proposed_headers(
+header_id, round,
+user_annotations, driver_annotations,
+signature,
+proposer_pub_key_id
+) VALUES (
+?, ?,
+?, ?,
+?,
+(SELECT id FROM validator_pub_keys WHERE key = ?)
+)`,
+		headerID, ph.Round,
+		ph.Annotations.User, ph.Annotations.Driver,
+		ph.Signature,
+		s.reg.Marshal(ph.ProposerPubKey),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to save proposed header: %w", err)
+	}
+
+	phID, err := res.LastInsertId()
+	if err != nil {
+		return fmt.Errorf("failed to get insert ID from creating proposed header: %w", err)
+	}
+
+	res, err = tx.ExecContext(
+		ctx,
+		`INSERT INTO actions_proposed_headers(height, round, proposed_header_id) VALUES(?, ?, ?)`,
+		ph.Header.Height, ph.Round, phID,
+	)
+	if err != nil {
+		if isUniqueConstraintError(err) {
+			// Special case for action store compliance.
+			// There is only one unique constraint that we can have violated here.
+			return tmstore.DoubleActionError{Type: "proposed block"}
+		}
+
+		return fmt.Errorf("failed to save proposed header action: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit saving proposed header: %w", err)
+	}
+
+	return nil
+}
+
+func (s *TMStore) SavePrevote(
+	ctx context.Context,
+	pubKey gcrypto.PubKey,
+	vt tmconsensus.VoteTarget,
+	sig []byte,
+) error {
+	return s.saveVote(ctx, pubKey, vt, sig, "actions_prevotes", "prevote")
+}
+
+func (s *TMStore) SavePrecommit(
+	ctx context.Context,
+	pubKey gcrypto.PubKey,
+	vt tmconsensus.VoteTarget,
+	sig []byte,
+) error {
+	return s.saveVote(ctx, pubKey, vt, sig, "actions_precommits", "precommit")
+}
+
+func (s *TMStore) saveVote(
+	ctx context.Context,
+	pubKey gcrypto.PubKey,
+	vt tmconsensus.VoteTarget,
+	sig []byte,
+	tableName string,
+	actionType string,
+) error {
+	var blockHash []byte
+	if vt.BlockHash != "" {
+		blockHash = []byte(vt.BlockHash)
+	}
+	if _, err := s.db.ExecContext(
+		ctx,
+		`INSERT INTO `+tableName+`(
+height, round,
+block_hash,
+signature,
+signer_pub_key_id
+) VALUES(
+?, ?,
+?, ?,
+(SELECT id FROM validator_pub_keys WHERE key = ?))`,
+		vt.Height, vt.Round,
+		blockHash,
+		sig,
+		s.reg.Marshal(pubKey),
+	); err != nil {
+		if isUniqueConstraintError(err) {
+			// Special case for action store compliance.
+			// There is only one unique constraint that we can have violated here.
+			return tmstore.DoubleActionError{Type: actionType}
+		}
+		return fmt.Errorf("failed to insert vote to %s: %w", tableName, err)
+	}
+
+	return nil
+}
+
+func (s *TMStore) LoadActions(ctx context.Context, height uint64, round uint32) (tmstore.RoundActions, error) {
+	// LoadActions should only be called once at application startup,
+	// so it's not a big deal if we take several queries to get all the action details.
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return tmstore.RoundActions{}, fmt.Errorf(
+			"failed to begin transaction: %w", err,
+		)
+	}
+	defer tx.Rollback()
+
+	var phID int64
+	var prevoteKeyID, precommitKeyID sql.NullInt64
+	var prevoteHash, prevoteSig, precommitHash, precommitSig []byte
+	if err := tx.QueryRowContext(
+		ctx,
+		`SELECT
+ph_id,
+pv_block_hash, pv_signature, pv_key_id,
+pc_block_hash, pc_signature, pc_key_id
+FROM actions
+WHERE height = ? AND round = ?`,
+		height, round,
+	).Scan(
+		&phID,
+		&prevoteHash, &prevoteSig, &prevoteKeyID,
+		&precommitHash, &precommitSig, &precommitKeyID,
+	); err != nil {
+		if err == sql.ErrNoRows {
+			// Special case for interface compliance.
+			return tmstore.RoundActions{}, tmconsensus.RoundUnknownError{
+				WantHeight: height,
+				WantRound:  round,
+			}
+		}
+
+		return tmstore.RoundActions{}, fmt.Errorf(
+			"failed to query actions: %w", err,
+		)
+	}
+
+	if prevoteKeyID.Valid && precommitKeyID.Valid && prevoteKeyID.Int64 != precommitKeyID.Int64 {
+		panic(fmt.Errorf(
+			"DATABASE CORRUPTION: got different key IDs %d and %d for prevote and precommit at height=%d round=%d",
+			prevoteKeyID.Int64, precommitKeyID.Int64, height, round,
+		))
+	}
+
+	// Next, load the proposed header metadata.
+	var headerID int64
+	var phRound uint32
+	var proposerKeyID sql.NullInt64
+	var userAnnotations, driverAnnotations, sig []byte
+	if err := tx.QueryRowContext(
+		ctx,
+		`SELECT
+header_id,
+round, proposer_pub_key_id,
+user_annotations, driver_annotations,
+signature
+FROM proposed_headers WHERE id = ?`,
+		phID,
+	).Scan(
+		&headerID,
+		&phRound, &proposerKeyID,
+		&userAnnotations, &driverAnnotations,
+		&sig,
+	); err != nil {
+		// TODO: gracefully handle not having a proposed block.
+		return tmstore.RoundActions{}, fmt.Errorf(
+			"failed to query proposed headers: %w", err,
+		)
+	}
+
+	if phRound != round {
+		panic(fmt.Errorf(
+			"DATABASE CORRUPTION: found proposed header at round %d when requesting height=%d round=%d",
+			phRound, height, round,
+		))
+	}
+
+	if proposerKeyID.Valid &&
+		prevoteKeyID.Valid && proposerKeyID.Int64 != prevoteKeyID.Int64 {
+		panic(fmt.Errorf(
+			"DATABASE CORRUPTION: got different key IDs %d and %d for proposer and prevote at height=%d round=%d",
+			proposerKeyID.Int64, prevoteKeyID.Int64, height, round,
+		))
+	}
+	if proposerKeyID.Valid &&
+		precommitKeyID.Valid && proposerKeyID.Int64 != precommitKeyID.Int64 {
+		panic(fmt.Errorf(
+			"DATABASE CORRUPTION: got different key IDs %d and %d for proposer and prevote at height=%d round=%d",
+			proposerKeyID.Int64, precommitKeyID.Int64, height, round,
+		))
+	}
+
+	// We must have had at least one action.
+	var keyID int64
+	switch {
+	case proposerKeyID.Valid:
+		keyID = proposerKeyID.Int64
+	case prevoteKeyID.Valid:
+		keyID = prevoteKeyID.Int64
+	case precommitKeyID.Valid:
+		keyID = precommitKeyID.Int64
+	default:
+		panic(fmt.Errorf(
+			"BUG: attempting to look up unknown key at height=%d round=%d",
+			height, round,
+		))
+	}
+
+	var encKey []byte
+	if err := tx.QueryRowContext(
+		ctx,
+		`SELECT key FROM validator_pub_keys WHERE id = ?`,
+		keyID,
+	).Scan(&encKey); err != nil {
+		return tmstore.RoundActions{}, fmt.Errorf(
+			"failed to scan public key: %w", err,
+		)
+	}
+
+	key, err := s.reg.Unmarshal(encKey)
+	if err != nil {
+		return tmstore.RoundActions{}, fmt.Errorf(
+			"failed to unmarshal validator key %x: %w", encKey, err,
+		)
+	}
+
+	h, _, err := s.loadHeaderDynamic(ctx, tx, `id = ?`, headerID)
+	if err != nil {
+		return tmstore.RoundActions{}, fmt.Errorf(
+			"failed to load header: %w", err,
+		)
+	}
+
+	ra := tmstore.RoundActions{
+		Height: height,
+		Round:  round,
+
+		ProposedHeader: tmconsensus.ProposedHeader{
+			Header: h,
+
+			Round: round,
+
+			ProposerPubKey: key,
+
+			Annotations: tmconsensus.Annotations{
+				User:   userAnnotations,
+				Driver: driverAnnotations,
+			},
+
+			Signature: sig,
+		},
+
+		PubKey: key,
+
+		PrevoteTarget:      string(prevoteHash),
+		PrevoteSignature:   string(prevoteSig),
+		PrecommitTarget:    string(precommitHash),
+		PrecommitSignature: string(precommitSig),
+	}
+	return ra, nil
 }
 
 func pragmas(ctx context.Context, db *sql.DB) error {
