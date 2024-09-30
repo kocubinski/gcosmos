@@ -43,6 +43,7 @@ func TestHeaderStoreCompliance(t *testing.T, f HeaderStoreFactory) {
 		fx.CommitBlock(ph1.Header, []byte("app_state_height_1"), 0, precommitProofs1)
 
 		ph2 := fx.NextProposedHeader([]byte("app_data_2"), 0)
+		ph2.Round = 1
 
 		ch := tmconsensus.CommittedHeader{
 			Header: ph1.Header,
@@ -52,6 +53,27 @@ func TestHeaderStoreCompliance(t *testing.T, f HeaderStoreFactory) {
 		require.NoError(t, s.SaveHeader(ctx, ch))
 
 		got, err := s.LoadHeader(ctx, 1)
+		require.NoError(t, err)
+
+		require.Equal(t, ch, got)
+
+		voteMap = map[string][]int{
+			string(ph2.Header.Hash): {0, 1, 3},
+			"":                      {2},
+		}
+		precommitProofs2 := fx.PrecommitProofMap(ctx, 2, 1, voteMap)
+		fx.CommitBlock(ph2.Header, []byte("app_state_height_2"), 1, precommitProofs2)
+
+		ph3 := fx.NextProposedHeader([]byte("app_data_3"), 0)
+
+		ch = tmconsensus.CommittedHeader{
+			Header: ph2.Header,
+			Proof:  ph3.Header.PrevCommitProof,
+		}
+
+		require.NoError(t, s.SaveHeader(ctx, ch))
+
+		got, err = s.LoadHeader(ctx, 2)
 		require.NoError(t, err)
 
 		require.Equal(t, ch, got)
