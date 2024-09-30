@@ -208,6 +208,11 @@ func ConfigureChain(t *testing.T, ctx context.Context, cfg ChainConfig) Chain {
 		// so just use an anonymous port.
 		// We are not disabling the server since we expect to need it for later tests anyway.
 		c.Run("config", "set", "app", "grpc.address", "localhost:0", "--skip-validate").NoError(t)
+
+		// The telemetry servers should be irrelevant for the gcosmos tests.
+		// If we leave them enabled, they will all contend for the same default port.
+		// We are unlikely to need them in the future, so just leave them disabled.
+		c.Run("config", "set", "app", "telemetry.enable", "false", "--skip-validate").NoError(t)
 	}
 
 	return Chain{

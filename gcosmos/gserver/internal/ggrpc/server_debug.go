@@ -134,7 +134,6 @@ func getGordianResponseFromSDKResult(res coreserver.TxResult) *TxResultResponse 
 	}
 
 	resp := &TxResultResponse{
-		Code:      res.Code,
 		Events:    events,
 		GasWanted: res.GasWanted,
 		GasUsed:   res.GasUsed,

@@ -1,4 +1,4 @@
-From d7752597676ee0cfc0fac2a2fae236af7edc9832 Mon Sep 17 00:00:00 2001
+From 61ad671e0b49b702308889a3c717173bbb85b311 Mon Sep 17 00:00:00 2001
 From: Mark Rushakoff <mark@strange.love>
 Date: Wed, 17 Jul 2024 10:03:22 -0400
 Subject: [PATCH 1/6] chore: allow injecting a server component into simd root
@@ -10,18 +10,18 @@ Subject: [PATCH 1/6] chore: allow injecting a server component into simd root
  2 files changed, 24 insertions(+), 9 deletions(-)
 
 diff --git a/simapp/v2/simdv2/cmd/commands.go b/simapp/v2/simdv2/cmd/commands.go
-index 916f4b2be9..c55ad96c77 100644
+index addc7eeb76..55d3d5ace0 100644
 --- a/simapp/v2/simdv2/cmd/commands.go
 +++ b/simapp/v2/simdv2/cmd/commands.go
-@@ -15,7 +15,6 @@ import (
- 	runtimev2 "cosmossdk.io/runtime/v2"
+@@ -16,7 +16,6 @@ import (
  	serverv2 "cosmossdk.io/server/v2"
  	"cosmossdk.io/server/v2/api/grpc"
+ 	"cosmossdk.io/server/v2/api/telemetry"
 -	"cosmossdk.io/server/v2/cometbft"
  	"cosmossdk.io/server/v2/store"
  	"cosmossdk.io/simapp/v2"
  	confixcmd "cosmossdk.io/tools/confix/cmd"
-@@ -41,8 +40,9 @@ func newApp[T transaction.Tx](logger log.Logger, viper *viper.Viper) serverv2.Ap
+@@ -42,8 +41,9 @@ func newApp[T transaction.Tx](logger log.Logger, viper *viper.Viper) serverv2.Ap
  
  func initRootCmd[T transaction.Tx](
  	rootCmd *cobra.Command,
@@ -32,7 +32,7 @@ index 916f4b2be9..c55ad96c77 100644
  ) {
  	cfg := sdk.GetConfig()
  	cfg.Seal()
-@@ -74,11 +74,7 @@ func initRootCmd[T transaction.Tx](
+@@ -75,11 +75,7 @@ func initRootCmd[T transaction.Tx](
  		newApp,
  		logger,
  		initServerConfig(),
@@ -44,7 +44,7 @@ index 916f4b2be9..c55ad96c77 100644
 +		makeComponent(clientCtx),
  		grpc.New[T](),
  		store.New[T](newApp),
- 	); err != nil {
+ 		telemetry.New[T](),
 diff --git a/simapp/v2/simdv2/cmd/root_di.go b/simapp/v2/simdv2/cmd/root_di.go
 index 1ad834b53a..f9464d9cd0 100644
 --- a/simapp/v2/simdv2/cmd/root_di.go

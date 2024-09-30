@@ -1,4 +1,4 @@
-From dd4d2c3281660516f25c3edac7ab1a29edbb7c66 Mon Sep 17 00:00:00 2001
+From 2505fae64724bdb82b2ea57d709c65be69ae6ef8 Mon Sep 17 00:00:00 2001
 From: Mark Rushakoff <mark@strange.love>
 Date: Mon, 29 Jul 2024 11:57:21 -0400
 Subject: [PATCH 4/6] feat: add (AppManager[T]).SimulateWithState
