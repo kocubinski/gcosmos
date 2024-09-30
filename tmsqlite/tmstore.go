@@ -709,13 +709,60 @@ func (s *TMStore) SaveHeader(ctx context.Context, ch tmconsensus.CommittedHeader
 
 	h := ch.Header
 
+	headerID, err := s.createHeaderInTx(ctx, tx, h)
+	if err != nil {
+		return fmt.Errorf("failed to create header record: %w", err)
+	}
+
+	// Now store the proof.
+	res, err := tx.ExecContext(
+		ctx,
+		`INSERT INTO commit_proofs(round, validators_pub_key_hash_id) VALUES
+(?, (SELECT validators_pub_key_hash_id FROM headers WHERE id = ?))`,
+		ch.Proof.Round, headerID,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to insert commit proof: %w", err)
+	}
+	commitProofID, err := res.LastInsertId()
+	if err != nil {
+		return fmt.Errorf("failed to get ID of inserted commit proof: %w", err)
+	}
+
+	if err := s.saveCommitProofs(ctx, tx, commitProofID, ch.Proof.Proofs); err != nil {
+		return fmt.Errorf("failed to save header's commit proof: %w", err)
+	}
+
+	// Finally, insert the committed header record.
+	if _, err := tx.ExecContext(
+		ctx,
+		`INSERT INTO committed_headers(header_id, proof_id) VALUES(?, ?)`,
+		headerID, commitProofID,
+	); err != nil {
+		return fmt.Errorf("failed to insert into commit_headers: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction to save header: %w", err)
+	}
+
+	return nil
+}
+
+// createHeaderInTx saves a new header record
+// and returns the header ID.
+func (s *TMStore) createHeaderInTx(
+	ctx context.Context,
+	tx *sql.Tx,
+	h tmconsensus.Header,
+) (int64, error) {
 	pubKeyHashID, err := s.selectOrInsertPubKeysByHash(
 		ctx, tx,
 		h.ValidatorSet.PubKeyHash,
 		tmconsensus.ValidatorsToPubKeys(h.ValidatorSet.Validators),
 	)
 	if err != nil {
-		return fmt.Errorf("failed to save validator public keys: %w", err)
+		return -1, fmt.Errorf("failed to save validator public keys: %w", err)
 	}
 
 	votePowerHashID, err := s.selectOrInsertVotePowersByHash(
@@ -724,7 +771,7 @@ func (s *TMStore) SaveHeader(ctx context.Context, ch tmconsensus.CommittedHeader
 		tmconsensus.ValidatorsToVotePowers(h.ValidatorSet.Validators),
 	)
 	if err != nil {
-		return fmt.Errorf("failed to save validator vote powers: %w", err)
+		return -1, fmt.Errorf("failed to save validator vote powers: %w", err)
 	}
 
 	nextPubKeyHashID := pubKeyHashID
@@ -735,7 +782,7 @@ func (s *TMStore) SaveHeader(ctx context.Context, ch tmconsensus.CommittedHeader
 			tmconsensus.ValidatorsToPubKeys(h.NextValidatorSet.Validators),
 		)
 		if err != nil {
-			return fmt.Errorf("failed to save next validator public keys: %w", err)
+			return -1, fmt.Errorf("failed to save next validator public keys: %w", err)
 		}
 	}
 
@@ -747,7 +794,7 @@ func (s *TMStore) SaveHeader(ctx context.Context, ch tmconsensus.CommittedHeader
 			tmconsensus.ValidatorsToVotePowers(h.NextValidatorSet.Validators),
 		)
 		if err != nil {
-			return fmt.Errorf("failed to save next validator public keys: %w", err)
+			return -1, fmt.Errorf("failed to save next validator public keys: %w", err)
 		}
 	}
 
@@ -761,16 +808,16 @@ func (s *TMStore) SaveHeader(ctx context.Context, ch tmconsensus.CommittedHeader
 			h.PrevCommitProof.Round, []byte(h.PrevCommitProof.PubKeyHash),
 		)
 		if err != nil {
-			return fmt.Errorf("failed to create prev commit proof row: %w", err)
+			return -1, fmt.Errorf("failed to create prev commit proof row: %w", err)
 		}
 		id, err := res.LastInsertId()
 		if err != nil {
-			return fmt.Errorf("failed to get ID of prev commit proof's row: %w", err)
+			return -1, fmt.Errorf("failed to get ID of prev commit proof's row: %w", err)
 		}
 		prevCommitProofID = sql.NullInt64{Int64: id, Valid: true}
 
 		if err := s.saveCommitProofs(ctx, tx, id, h.PrevCommitProof.Proofs); err != nil {
-			return fmt.Errorf("failed to save previous commit proofs: %w", err)
+			return -1, fmt.Errorf("failed to save previous commit proofs: %w", err)
 		}
 	}
 
@@ -807,47 +854,16 @@ $user_annotations, $driver_annotations,
 		sql.Named("next_vote_power_hash_id", nextVotePowerHashID),
 	)
 	if err != nil {
-		return fmt.Errorf("failed to store header: %w", err)
+		return -1, fmt.Errorf("failed to store header: %w", err)
 	}
 
 	// Need the header ID for the committed_headers insert coming up.
 	headerID, err := res.LastInsertId()
 	if err != nil {
-		return fmt.Errorf("failed to get ID of inserted header: %w", err)
+		return -1, fmt.Errorf("failed to get ID of inserted header: %w", err)
 	}
 
-	// Now store the proof.
-	res, err = tx.ExecContext(
-		ctx,
-		`INSERT INTO commit_proofs(round, validators_pub_key_hash_id) VALUES (?,?)`,
-		ch.Proof.Round, pubKeyHashID,
-	)
-	if err != nil {
-		return fmt.Errorf("failed to insert commit proof: %w", err)
-	}
-	commitProofID, err := res.LastInsertId()
-	if err != nil {
-		return fmt.Errorf("failed to get ID of inserted commit proof: %w", err)
-	}
-
-	if err := s.saveCommitProofs(ctx, tx, commitProofID, ch.Proof.Proofs); err != nil {
-		return fmt.Errorf("failed to save header's commit proof: %w", err)
-	}
-
-	// Finally, insert the committed header record.
-	if _, err := tx.ExecContext(
-		ctx,
-		`INSERT INTO committed_headers(header_id, proof_id) VALUES(?, ?)`,
-		headerID, commitProofID,
-	); err != nil {
-		return fmt.Errorf("failed to insert into commit_headers: %w", err)
-	}
-
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("failed to commit transaction to save header: %w", err)
-	}
-
-	return nil
+	return headerID, nil
 }
 
 // saveCommitProofs accepts a commitProofID and the sparse proof to store,
