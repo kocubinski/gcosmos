@@ -1,8 +1,10 @@
 package tmstoretest
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"slices"
 	"testing"
 
 	"github.com/rollchains/gordian/gcrypto"
@@ -44,7 +46,14 @@ func TestRoundStoreCompliance(t *testing.T, f RoundStoreFactory) {
 			fx := tmconsensustest.NewStandardFixture(2)
 
 			ph0 := fx.NextProposedHeader([]byte("val0"), 0)
+			fx.SignProposal(ctx, &ph0, 0)
+			require.Empty(t, ph0.Header.PrevCommitProof.Proofs)
+			ph0.Header.PrevCommitProof.Proofs = nil
+
 			ph1 := fx.NextProposedHeader([]byte("val1"), 1)
+			fx.SignProposal(ctx, &ph1, 1)
+			require.Empty(t, ph1.Header.PrevCommitProof.Proofs)
+			ph1.Header.PrevCommitProof.Proofs = nil
 
 			require.NoError(t, s.SaveRoundProposedHeader(ctx, ph0))
 			require.NoError(t, s.SaveRoundProposedHeader(ctx, ph1))
@@ -52,8 +61,16 @@ func TestRoundStoreCompliance(t *testing.T, f RoundStoreFactory) {
 			pbs, _, _, err := s.LoadRoundState(ctx, 1, 0)
 			require.NoError(t, err)
 
-			// Contents should match, order does not matter.
-			require.ElementsMatch(t, []tmconsensus.ProposedHeader{ph0, ph1}, pbs)
+			// Using require.ElementsMatch gives poor output on mismatched lists with huge elements.
+			// Ensure the two slices are sorted the same.
+			want := []tmconsensus.ProposedHeader{ph0, ph1}
+			slices.SortFunc(want, func(a, b tmconsensus.ProposedHeader) int {
+				return bytes.Compare(a.Header.Hash, b.Header.Hash)
+			})
+			slices.SortFunc(pbs, func(a, b tmconsensus.ProposedHeader) int {
+				return bytes.Compare(a.Header.Hash, b.Header.Hash)
+			})
+			require.Equal(t, want, pbs)
 		})
 
 		t.Run("overwriting an existing proposed block", func(t *testing.T) {

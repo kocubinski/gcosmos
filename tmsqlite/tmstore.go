@@ -1728,7 +1728,254 @@ func (s *TMStore) LoadRoundState(ctx context.Context, height uint64, round uint3
 	prevotes, precommits map[string]gcrypto.CommonMessageSignatureProof,
 	err error,
 ) {
-	return
+	// LoadRoundState is only called twice at the start of the mirror kernel,
+	// so it doesn't have to be super efficient.
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf(
+			"failed to begin read-only transaction: %w", err,
+		)
+	}
+	defer tx.Rollback()
+
+	// First, collect the validator sets belonging to proposed headers in this round.
+	type dbPKH struct { // "Database public key hash".
+		Hash []byte
+		Keys []gcrypto.PubKey
+	}
+	pubKeySets := make(map[int64]dbPKH)
+	rows, err := tx.QueryContext(
+		ctx,
+		`SELECT
+vpks.hash_id, vpks.hash, vpks.idx, vpks.key, vpks.n_keys
+FROM validator_pub_keys_for_hash AS vpks
+JOIN headers ON
+  (headers.validators_pub_key_hash_id = vpks.hash_id OR headers.next_validators_pub_key_hash_id = vpks.hash_id)
+JOIN proposed_headers ON
+  proposed_headers.header_id = headers.id
+WHERE proposed_headers.height = ? AND proposed_headers.round = ?`,
+		height, round,
+	)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf(
+			"failed to select validator sets for proposed headers: %w", err,
+		)
+	}
+	defer rows.Close()
+
+	var encKey, hash []byte
+	for rows.Next() {
+		var hashID int64
+		var idx, nKeys int
+		encKey = encKey[:0]
+		hash = hash[:0]
+		if err := rows.Scan(&hashID, &hash, &idx, &encKey, &nKeys); err != nil {
+			return nil, nil, nil, fmt.Errorf(
+				"failed to scan validator set public key entry: %w", err,
+			)
+		}
+
+		e, ok := pubKeySets[hashID]
+		if !ok {
+			e = dbPKH{
+				Hash: bytes.Clone(hash),
+				Keys: make([]gcrypto.PubKey, nKeys),
+			}
+			pubKeySets[hashID] = e
+		}
+		e.Keys[idx], err = s.reg.Unmarshal(encKey)
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf(
+				"failed to unmarshal key: %w", err,
+			)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, nil, nil, fmt.Errorf(
+			"failed to iterate validator sets: %w", err,
+		)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, nil, nil, fmt.Errorf(
+			"failed to close validator set iterator: %w", err,
+		)
+	}
+
+	// Now do the same thing for the vote powers.
+	type dbVPH struct {
+		Hash   []byte
+		Powers []uint64
+	}
+	powerSets := make(map[int64]dbVPH)
+	rows, err = tx.QueryContext(
+		ctx,
+		`SELECT vps.hash_id, vps.hash, vps.idx, vps.power, vps.n_powers
+FROM validator_powers_for_hash AS vps
+JOIN headers ON
+  (headers.validators_power_hash_id = vps.hash_id OR headers.next_validators_power_hash_id = vps.hash_id)
+JOIN proposed_headers ON
+  proposed_headers.header_id = headers.id
+WHERE proposed_headers.height = ? AND proposed_headers.round = ?`,
+		height, round,
+	)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf(
+			"failed to select validator sets for proposed headers: %w", err,
+		)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var hashID int64
+		var power uint64
+		var idx, nPowers int
+		hash = hash[:0]
+		if err := rows.Scan(&hashID, &hash, &idx, &power, &nPowers); err != nil {
+			return nil, nil, nil, fmt.Errorf(
+				"failed to scan validator power set entry: %w", err,
+			)
+		}
+
+		e, ok := powerSets[hashID]
+		if !ok {
+			e = dbVPH{
+				Hash:   bytes.Clone(hash),
+				Powers: make([]uint64, nPowers),
+			}
+			powerSets[hashID] = e
+		}
+		e.Powers[idx] = power
+	}
+	if err := rows.Err(); err != nil {
+		return nil, nil, nil, fmt.Errorf(
+			"failed to select iterate validator power sets for proposed headers: %w", err,
+		)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, nil, nil, fmt.Errorf(
+			"failed to select close validator power set iterator for proposed headers: %w", err,
+		)
+	}
+
+	// Now that we have the validator details, we can collect the proposed headers.
+	rows, err = tx.QueryContext(
+		ctx,
+		`SELECT
+keys.key,
+phs.user_annotations, phs.driver_annotations,
+phs.signature,
+hs.height, hs.hash, hs.prev_block_hash,
+hs.prev_commit_proof_id,
+hs.validators_pub_key_hash_id, hs.next_validators_pub_key_hash_id,
+hs.validators_power_hash_id, hs.next_validators_power_hash_id,
+hs.data_id,
+hs.prev_app_state_hash,
+hs.user_annotations, hs.driver_annotations
+FROM proposed_headers AS phs
+JOIN headers AS hs ON hs.id = phs.header_id
+JOIN validator_pub_keys AS keys ON keys.id = phs.proposer_pub_key_id
+WHERE phs.height = ? AND phs.round = ?`,
+		height, round,
+	)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf(
+			"failed to select from proposed headers: %w", err,
+		)
+	}
+	defer rows.Close()
+
+	valSets := make(map[[2]int64]tmconsensus.ValidatorSet)
+
+	for rows.Next() {
+		var vkID, nvkID, vpID, nvpID int64
+		var pcpID sql.NullInt64
+		encKey = encKey[:0]
+		var ph tmconsensus.ProposedHeader
+		if err := rows.Scan(
+			&encKey,
+			&ph.Annotations.User, &ph.Annotations.Driver,
+			&ph.Signature,
+			&ph.Header.Height, &ph.Header.Hash, &ph.Header.PrevBlockHash,
+			&pcpID,
+			&vkID, &nvkID,
+			&vpID, &nvpID,
+			&ph.Header.DataID,
+			&ph.Header.PrevAppStateHash,
+			&ph.Header.Annotations.User, &ph.Header.Annotations.Driver,
+		); err != nil {
+			return nil, nil, nil, fmt.Errorf(
+				"failed to scan proposed headers row: %w", err,
+			)
+		}
+		key, err := s.reg.Unmarshal(encKey)
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf(
+				"failed to unmarshal key from proposed headers: %w", err,
+			)
+		}
+		ph.ProposerPubKey = key
+
+		keys := pubKeySets[vkID]
+		pows := powerSets[vpID]
+		if len(keys.Keys) != len(pows.Powers) {
+			return nil, nil, nil, fmt.Errorf(
+				"validator hash mismatch: %d keys and %d powers", len(keys.Keys), len(pows.Powers),
+			)
+		}
+
+		valSetKey := [2]int64{vkID, vpID}
+		valSet, ok := valSets[valSetKey]
+		if !ok {
+			vals := make([]tmconsensus.Validator, len(keys.Keys))
+			for i := range keys.Keys {
+				vals[i].PubKey = keys.Keys[i]
+				vals[i].Power = pows.Powers[i]
+			}
+			valSet = tmconsensus.ValidatorSet{
+				Validators:    vals,
+				PubKeyHash:    keys.Hash,
+				VotePowerHash: pows.Hash,
+			}
+			// TODO: gassert: confirm hashes
+			valSets[valSetKey] = valSet
+		}
+		ph.Header.ValidatorSet = valSet
+
+		// Do it again for the next validator set.
+		valSetKey = [2]int64{nvkID, nvpID}
+		valSet, ok = valSets[valSetKey]
+		if !ok {
+			vals := make([]tmconsensus.Validator, len(keys.Keys))
+			for i := range keys.Keys {
+				vals[i].PubKey = keys.Keys[i]
+				vals[i].Power = pows.Powers[i]
+			}
+			valSet = tmconsensus.ValidatorSet{
+				Validators:    vals,
+				PubKeyHash:    keys.Hash,
+				VotePowerHash: pows.Hash,
+			}
+			// TODO: gassert: confirm hashes
+			valSets[valSetKey] = valSet
+		}
+		ph.Header.NextValidatorSet = valSet
+
+		phs = append(phs, ph)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, nil, nil, fmt.Errorf(
+			"failed to iterate proposed headers: %w", err,
+		)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, nil, nil, fmt.Errorf(
+			"failed to close proposed headers iterator: %w", err,
+		)
+	}
+
+	// TODO: Now that we have all the proposed headers, we need to load all the commit proofs.
+
+	return phs, nil, nil, nil
 }
 
 func pragmas(ctx context.Context, db *sql.DB) error {

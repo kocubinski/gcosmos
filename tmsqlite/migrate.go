@@ -121,10 +121,10 @@ CREATE TABLE validator_pub_key_hash_entries(
 			// View to simplify querying public keys by hash.
 			`
 CREATE VIEW validator_pub_keys_for_hash(
-  hash_id, hash,
+  hash_id, hash, n_keys,
   idx, key
 ) AS SELECT
-  validator_pub_key_hashes.id, validator_pub_key_hashes.hash,
+  validator_pub_key_hashes.id, validator_pub_key_hashes.hash, validator_pub_key_hashes.n_keys,
   idx, key FROM validator_pub_keys
 JOIN validator_pub_key_hash_entries
   ON validator_pub_keys.id = validator_pub_key_hash_entries.key_id
@@ -153,10 +153,10 @@ CREATE TABLE validator_power_hash_entries(
 			// View to simplify querying powers by hash.
 			`
 CREATE VIEW validator_powers_for_hash(
-  hash_id, hash,
+  hash_id, hash, n_powers,
   idx, power
 ) AS SELECT
-  validator_power_hashes.id, validator_power_hashes.hash,
+  validator_power_hashes.id, validator_power_hashes.hash, validator_power_hashes.n_powers,
   idx, power FROM validator_power_hash_entries
 JOIN validator_power_hashes
   ON validator_power_hashes.id = validator_power_hash_entries.hash_id;`+
