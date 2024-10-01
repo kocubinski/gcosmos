@@ -51,8 +51,6 @@ func TestMigrate(t *testing.T) {
 }
 
 func TestActionStoreCompliance(t *testing.T) {
-	t.Skip("not ready yet")
-
 	t.Parallel()
 
 	tmstoretest.TestActionStoreCompliance(t, func(cleanup func(func())) (tmstore.ActionStore, error) {

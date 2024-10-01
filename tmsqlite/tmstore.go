@@ -1376,7 +1376,11 @@ func (s *TMStore) SavePrevote(
 	vt tmconsensus.VoteTarget,
 	sig []byte,
 ) error {
-	return s.saveVote(ctx, pubKey, vt, sig, "actions_prevotes", "prevote")
+	return s.saveVote(ctx, pubKey, vt, sig, voteEntryConfig{
+		IntoTable:  "actions_prevotes",
+		ActionType: "prevote",
+		OtherTable: "actions_precommits",
+	})
 }
 
 func (s *TMStore) SavePrecommit(
@@ -1385,7 +1389,17 @@ func (s *TMStore) SavePrecommit(
 	vt tmconsensus.VoteTarget,
 	sig []byte,
 ) error {
-	return s.saveVote(ctx, pubKey, vt, sig, "actions_precommits", "precommit")
+	return s.saveVote(ctx, pubKey, vt, sig, voteEntryConfig{
+		IntoTable:  "actions_precommits",
+		ActionType: "precommit",
+		OtherTable: "actions_prevotes",
+	})
+}
+
+type voteEntryConfig struct {
+	IntoTable  string
+	ActionType string
+	OtherTable string
 }
 
 func (s *TMStore) saveVote(
@@ -1393,8 +1407,7 @@ func (s *TMStore) saveVote(
 	pubKey gcrypto.PubKey,
 	vt tmconsensus.VoteTarget,
 	sig []byte,
-	tableName string,
-	actionType string,
+	vec voteEntryConfig,
 ) error {
 	var blockHash []byte
 	if vt.BlockHash != "" {
@@ -1402,26 +1415,68 @@ func (s *TMStore) saveVote(
 	}
 	if _, err := s.db.ExecContext(
 		ctx,
-		`INSERT INTO `+tableName+`(
+		// Yes, we are doing string interpolation in this query,
+		// but there are only two calls into this method,
+		// and they both use hardcoded values.
+		`INSERT INTO `+vec.IntoTable+`(
 height, round,
 block_hash,
 signature,
 signer_pub_key_id
 ) VALUES(
-?, ?,
-?, ?,
-(SELECT id FROM validator_pub_keys WHERE key = ?))`,
-		vt.Height, vt.Round,
-		blockHash,
-		sig,
-		s.reg.Marshal(pubKey),
+$height, $round,
+$block_hash, $signature,
+(
+CASE WHEN EXISTS (
+  SELECT 1 FROM `+vec.OtherTable+` WHERE
+  height = $height AND round = $round AND signer_pub_key_id != (
+    SELECT id FROM validator_pub_keys WHERE key = $key
+  )
+) THEN NULL
+ELSE
+  (SELECT id FROM validator_pub_keys WHERE key = $key)
+END
+)
+)`,
+		sql.Named("height", vt.Height),
+		sql.Named("round", vt.Round),
+		sql.Named("block_hash", blockHash),
+		sql.Named("signature", sig),
+		sql.Named("key", s.reg.Marshal(pubKey)),
 	); err != nil {
 		if isUniqueConstraintError(err) {
 			// Special case for action store compliance.
 			// There is only one unique constraint that we can have violated here.
-			return tmstore.DoubleActionError{Type: actionType}
+			return tmstore.DoubleActionError{Type: vec.ActionType}
 		}
-		return fmt.Errorf("failed to insert vote to %s: %w", tableName, err)
+		if isNotNullConstraintError(err) {
+			// Another special case for compliance.
+			// We were able to do all the prior work outside of a transaction,
+			// and this is such an exceptional case,
+			// we will do this also outside of a transaction.
+			var encHave []byte
+			if err := s.db.QueryRowContext(
+				ctx,
+				`SELECT key FROM validator_pub_keys WHERE id = (
+  SELECT signer_pub_key_id FROM `+vec.OtherTable+` WHERE height = ? AND round = ?
+)`,
+				vt.Height, vt.Round,
+			).Scan(&encHave); err != nil {
+				return fmt.Errorf("failed to query key conflict: %w", err)
+			}
+
+			haveKey, err := s.reg.Unmarshal(encHave)
+			if err != nil {
+				return fmt.Errorf("failed to unmarshal existing conflicting key: %w", err)
+			}
+
+			return tmstore.PubKeyChangedError{
+				ActionType: vec.ActionType,
+				Want:       string(haveKey.PubKeyBytes()),
+				Got:        string(pubKey.PubKeyBytes()),
+			}
+		}
+		return fmt.Errorf("failed to insert vote to %s: %w", vec.IntoTable, err)
 	}
 
 	return nil

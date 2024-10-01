@@ -34,3 +34,12 @@ func isUniqueConstraintError(e error) bool {
 
 	return sErr.Code() == sqlitelib.SQLITE_CONSTRAINT_UNIQUE
 }
+
+func isNotNullConstraintError(e error) bool {
+	var sErr *sqlite.Error
+	if !errors.As(e, &sErr) {
+		return false
+	}
+
+	return sErr.Code() == sqlitelib.SQLITE_CONSTRAINT_NOTNULL
+}
