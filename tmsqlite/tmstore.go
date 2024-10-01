@@ -1848,16 +1848,72 @@ WHERE proposed_headers.height = ? AND proposed_headers.round = ?`,
 	}
 	if err := rows.Err(); err != nil {
 		return nil, nil, nil, fmt.Errorf(
-			"failed to select iterate validator power sets for proposed headers: %w", err,
+			"failed to iterate validator power sets for proposed headers: %w", err,
 		)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, nil, nil, fmt.Errorf(
-			"failed to select close validator power set iterator for proposed headers: %w", err,
+			"failed to close validator power set iterator for proposed headers: %w", err,
 		)
 	}
 
-	// Now that we have the validator details, we can collect the proposed headers.
+	rows, err = tx.QueryContext(
+		ctx,
+		`SELECT ps.commit_proof_id, ps.block_hash, ps.key_id, ps.signature
+FROM proof_signatures AS ps
+JOIN headers AS hs ON hs.prev_commit_proof_id = ps.commit_proof_id
+JOIN proposed_headers AS phs ON phs.header_id = hs.id
+WHERE phs.height = ? AND phs.round = ?
+ORDER BY ps.key_id`,
+		height, round,
+	)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf(
+			"failed to select previous commit proofs for proposed headers: %w", err,
+		)
+	}
+	defer rows.Close()
+
+	pcps := make(map[int64]map[string][]gcrypto.SparseSignature)
+	var blockHash, keyID, sig []byte
+	for rows.Next() {
+		var cpID int64
+		blockHash = blockHash[:0]
+		keyID = keyID[:0]
+		sig = sig[:0]
+		if err := rows.Scan(&cpID, &blockHash, &keyID, &sig); err != nil {
+			return nil, nil, nil, fmt.Errorf(
+				"failed to scan previous commit proofs for proposed headers: %w", err,
+			)
+		}
+
+		m, ok := pcps[cpID]
+		if !ok {
+			m = make(map[string][]gcrypto.SparseSignature)
+			pcps[cpID] = m
+		}
+
+		m[string(blockHash)] = append(
+			m[string(blockHash)],
+			gcrypto.SparseSignature{
+				KeyID: bytes.Clone(keyID),
+				Sig:   bytes.Clone(sig),
+			},
+		)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, nil, nil, fmt.Errorf(
+			"failed to iterate previous commit proofs for proposed headers: %w", err,
+		)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, nil, nil, fmt.Errorf(
+			"failed to close previous commit proofs iterator for proposed headers: %w", err,
+		)
+	}
+
+	// Now that we have the validator and previous commit proof details,
+	// we can collect the proposed headers.
 	rows, err = tx.QueryContext(
 		ctx,
 		`SELECT
@@ -1960,6 +2016,18 @@ WHERE phs.height = ? AND phs.round = ?`,
 		}
 		ph.Header.NextValidatorSet = valSet
 
+		// And assign the previous commit proofs, if applicable.
+		if pcpID.Valid {
+			proofs, ok := pcps[pcpID.Int64]
+			if !ok {
+				return nil, nil, nil, fmt.Errorf(
+					"QUERY BUG: missing previous commit proof (id=%d)", pcpID.Int64,
+				)
+			}
+			// TODO: need the round and actual validator hash.
+			ph.Header.PrevCommitProof.Proofs = proofs
+		}
+
 		phs = append(phs, ph)
 	}
 	if err := rows.Err(); err != nil {
@@ -1973,7 +2041,7 @@ WHERE phs.height = ? AND phs.round = ?`,
 		)
 	}
 
-	// TODO: Now that we have all the proposed headers, we need to load all the commit proofs.
+	// TODO: load prevotes and precommits.
 
 	return phs, nil, nil, nil
 }

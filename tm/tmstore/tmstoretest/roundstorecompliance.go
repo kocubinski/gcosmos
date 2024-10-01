@@ -73,6 +73,8 @@ func TestRoundStoreCompliance(t *testing.T, f RoundStoreFactory) {
 			require.Equal(t, want, pbs)
 		})
 
+		// TODO: need a happy path test that involves headers beyond the initial height.
+
 		t.Run("overwriting an existing proposed block", func(t *testing.T) {
 			t.Parallel()
 
@@ -85,6 +87,9 @@ func TestRoundStoreCompliance(t *testing.T, f RoundStoreFactory) {
 			fx := tmconsensustest.NewStandardFixture(2)
 
 			ph0 := fx.NextProposedHeader([]byte("val0"), 0)
+			fx.SignProposal(ctx, &ph0, 0)
+			require.Empty(t, ph0.Header.PrevCommitProof.Proofs)
+			ph0.Header.PrevCommitProof.Proofs = nil
 
 			// First write succeeds.
 			require.NoError(t, s.SaveRoundProposedHeader(ctx, ph0))
