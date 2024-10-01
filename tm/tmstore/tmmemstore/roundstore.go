@@ -29,7 +29,7 @@ func NewRoundStore() *RoundStore {
 	}
 }
 
-func (s *RoundStore) SaveProposedHeader(ctx context.Context, ph tmconsensus.ProposedHeader) error {
+func (s *RoundStore) SaveRoundProposedHeader(ctx context.Context, ph tmconsensus.ProposedHeader) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -57,7 +57,7 @@ func (s *RoundStore) SaveProposedHeader(ctx context.Context, ph tmconsensus.Prop
 	return nil
 }
 
-func (s *RoundStore) OverwritePrevoteProofs(
+func (s *RoundStore) OverwriteRoundPrevoteProofs(
 	ctx context.Context,
 	height uint64,
 	round uint32,
@@ -76,7 +76,7 @@ func (s *RoundStore) OverwritePrevoteProofs(
 	return nil
 }
 
-func (s *RoundStore) OverwritePrecommitProofs(
+func (s *RoundStore) OverwriteRoundPrecommitProofs(
 	ctx context.Context,
 	height uint64,
 	round uint32,

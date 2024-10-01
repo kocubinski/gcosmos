@@ -46,8 +46,8 @@ func TestRoundStoreCompliance(t *testing.T, f RoundStoreFactory) {
 			ph0 := fx.NextProposedHeader([]byte("val0"), 0)
 			ph1 := fx.NextProposedHeader([]byte("val1"), 1)
 
-			require.NoError(t, s.SaveProposedHeader(ctx, ph0))
-			require.NoError(t, s.SaveProposedHeader(ctx, ph1))
+			require.NoError(t, s.SaveRoundProposedHeader(ctx, ph0))
+			require.NoError(t, s.SaveRoundProposedHeader(ctx, ph1))
 
 			pbs, _, _, err := s.LoadRoundState(ctx, 1, 0)
 			require.NoError(t, err)
@@ -70,10 +70,10 @@ func TestRoundStoreCompliance(t *testing.T, f RoundStoreFactory) {
 			ph0 := fx.NextProposedHeader([]byte("val0"), 0)
 
 			// First write succeeds.
-			require.NoError(t, s.SaveProposedHeader(ctx, ph0))
+			require.NoError(t, s.SaveRoundProposedHeader(ctx, ph0))
 
 			// And a second write is an error.
-			err = s.SaveProposedHeader(ctx, ph0)
+			err = s.SaveRoundProposedHeader(ctx, ph0)
 			require.ErrorIs(t, err, tmstore.OverwriteError{
 				Field: "hash",
 				Value: fmt.Sprintf("%x", ph0.Header.Hash),
@@ -115,7 +115,7 @@ func TestRoundStoreCompliance(t *testing.T, f RoundStoreFactory) {
 				round uint32,
 				proofs map[string]gcrypto.CommonMessageSignatureProof,
 			) error {
-				return s.OverwritePrevoteProofs
+				return s.OverwriteRoundPrevoteProofs
 			},
 			choiceFn: func(prevotes, precommits map[string]gcrypto.CommonMessageSignatureProof) (
 				want map[string]gcrypto.CommonMessageSignatureProof,
@@ -139,7 +139,7 @@ func TestRoundStoreCompliance(t *testing.T, f RoundStoreFactory) {
 				round uint32,
 				proofs map[string]gcrypto.CommonMessageSignatureProof,
 			) error {
-				return s.OverwritePrecommitProofs
+				return s.OverwriteRoundPrecommitProofs
 			},
 			choiceFn: func(prevotes, precommits map[string]gcrypto.CommonMessageSignatureProof) (
 				want map[string]gcrypto.CommonMessageSignatureProof,
@@ -195,7 +195,7 @@ func TestRoundStoreCompliance(t *testing.T, f RoundStoreFactory) {
 			fx := tmconsensustest.NewStandardFixture(2)
 
 			ph := fx.NextProposedHeader([]byte("app_data"), 0)
-			require.NoError(t, s.SaveProposedHeader(ctx, ph))
+			require.NoError(t, s.SaveRoundProposedHeader(ctx, ph))
 
 			// First validator votes for proposed block,
 			// other validator votes for nil.
@@ -204,10 +204,10 @@ func TestRoundStoreCompliance(t *testing.T, f RoundStoreFactory) {
 				"":                     {1},
 			}
 			prevoteProofMap := fx.PrevoteProofMap(ctx, 1, 0, voteMap)
-			require.NoError(t, s.OverwritePrevoteProofs(ctx, 1, 0, prevoteProofMap))
+			require.NoError(t, s.OverwriteRoundPrevoteProofs(ctx, 1, 0, prevoteProofMap))
 
 			precommitProofMap := fx.PrecommitProofMap(ctx, 1, 0, voteMap)
-			require.NoError(t, s.OverwritePrecommitProofs(ctx, 1, 0, precommitProofMap))
+			require.NoError(t, s.OverwriteRoundPrecommitProofs(ctx, 1, 0, precommitProofMap))
 
 			pbs, prevotes, precommits, err := s.LoadRoundState(ctx, 1, 0)
 			require.NoError(t, err)
@@ -228,7 +228,7 @@ func TestRoundStoreCompliance(t *testing.T, f RoundStoreFactory) {
 			fx := tmconsensustest.NewStandardFixture(2)
 
 			ph := fx.NextProposedHeader([]byte("app_data"), 0)
-			require.NoError(t, s.SaveProposedHeader(ctx, ph))
+			require.NoError(t, s.SaveRoundProposedHeader(ctx, ph))
 
 			pbs, prevotes, precommits, err := s.LoadRoundState(ctx, 1, 0)
 			require.NoError(t, err)
@@ -257,7 +257,7 @@ func TestRoundStoreCompliance(t *testing.T, f RoundStoreFactory) {
 				"":                     {1},
 			}
 			prevoteProofMap := fx.PrevoteProofMap(ctx, 1, 0, voteMap)
-			require.NoError(t, s.OverwritePrevoteProofs(ctx, 1, 0, prevoteProofMap))
+			require.NoError(t, s.OverwriteRoundPrevoteProofs(ctx, 1, 0, prevoteProofMap))
 
 			pbs, prevotes, precommits, err := s.LoadRoundState(ctx, 1, 0)
 			require.NoError(t, err)
@@ -287,7 +287,7 @@ func TestRoundStoreCompliance(t *testing.T, f RoundStoreFactory) {
 			}
 
 			precommitProofMap := fx.PrecommitProofMap(ctx, 1, 0, voteMap)
-			require.NoError(t, s.OverwritePrecommitProofs(ctx, 1, 0, precommitProofMap))
+			require.NoError(t, s.OverwriteRoundPrecommitProofs(ctx, 1, 0, precommitProofMap))
 
 			pbs, prevotes, precommits, err := s.LoadRoundState(ctx, 1, 0)
 			require.NoError(t, err)

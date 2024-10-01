@@ -427,7 +427,7 @@ func (k *Kernel) addProposedHeader(ctx context.Context, s *kState, ph tmconsensu
 	vrv.ProposedHeaders = append(vrv.ProposedHeaders, ph)
 
 	// Persist the change before updating local state.
-	if err := k.rStore.SaveProposedHeader(ctx, ph); err != nil {
+	if err := k.rStore.SaveRoundProposedHeader(ctx, ph); err != nil {
 		glog.HRE(k.log, ph.Header.Height, ph.Round, err).Warn(
 			"Failed to save proposed header to round store; this may cause issues upon restart",
 		)
@@ -472,7 +472,7 @@ func (k *Kernel) addProposedHeader(ctx context.Context, s *kState, ph tmconsensu
 
 	if mergedAny {
 		// We've updated the previous precommits, so the round store needs updated.
-		if err := k.rStore.OverwritePrecommitProofs(
+		if err := k.rStore.OverwriteRoundPrecommitProofs(
 			ctx,
 			ph.Header.Height-1, ph.Header.PrevCommitProof.Round, // TODO: Don't assume this matches the committing view.
 			backfillVRV.PrecommitProofs,
@@ -565,7 +565,7 @@ func (k *Kernel) addPrevote(ctx context.Context, s *kState, req AddPrevoteReques
 		vrv.VoteSummary.SetPrevotePowers(vrv.ValidatorSet.Validators, vrv.PrevoteProofs)
 		s.MarkViewUpdated(vID)
 
-		if err := k.rStore.OverwritePrevoteProofs(
+		if err := k.rStore.OverwriteRoundPrevoteProofs(
 			ctx,
 			req.H, req.R,
 			vrv.PrevoteProofs,
@@ -666,7 +666,7 @@ func (k *Kernel) addPrecommit(ctx context.Context, s *kState, req AddPrecommitRe
 		vrv.VoteSummary.SetPrecommitPowers(vrv.ValidatorSet.Validators, vrv.PrecommitProofs)
 		s.MarkViewUpdated(vID)
 
-		if err := k.rStore.OverwritePrecommitProofs(
+		if err := k.rStore.OverwriteRoundPrecommitProofs(
 			ctx,
 			req.H, req.R,
 			vrv.PrecommitProofs,
@@ -1776,7 +1776,7 @@ func (k *Kernel) handleReplayedHeader(
 			// That is fine, as noted in the documentation for the RoundStore.
 		}
 
-		if err := k.rStore.SaveProposedHeader(ctx, fakePH); err != nil {
+		if err := k.rStore.SaveRoundProposedHeader(ctx, fakePH); err != nil {
 			return tmelink.ReplayedHeaderInternalError{
 				Err: fmt.Errorf(
 					"failed to replay saved header to round store: %w",
@@ -1823,7 +1823,7 @@ func (k *Kernel) handleReplayedHeader(
 	// Since this was a replayed header and we know it was in the voting round,
 	// we must have added precommits.
 	// Update the store with whatever the new set of precommits is.
-	if err := k.rStore.OverwritePrecommitProofs(ctx, h, r, s.Voting.PrecommitProofs); err != nil {
+	if err := k.rStore.OverwriteRoundPrecommitProofs(ctx, h, r, s.Voting.PrecommitProofs); err != nil {
 		return tmelink.ReplayedHeaderInternalError{
 			Err: fmt.Errorf(
 				"failed to save replayed commits to round store: %w",

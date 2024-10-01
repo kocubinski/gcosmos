@@ -10,19 +10,19 @@ import (
 // RoundStore stores and retrieves the proposed headers, prevotes, and precommits
 // observed during each round.
 type RoundStore interface {
-	// SaveProposedHeader saves the given proposed block header
+	// SaveRoundProposedHeader saves the given proposed block header
 	// as a candidate proposed header in the given height and round.
-	SaveProposedHeader(ctx context.Context, ph tmconsensus.ProposedHeader) error
+	SaveRoundProposedHeader(ctx context.Context, ph tmconsensus.ProposedHeader) error
 
 	// The overwrite proofs methods overwrite existing entries
 	// for the corresponding proof at the given height and round.
-	OverwritePrevoteProofs(
+	OverwriteRoundPrevoteProofs(
 		ctx context.Context,
 		height uint64,
 		round uint32,
 		proofs map[string]gcrypto.CommonMessageSignatureProof,
 	) error
-	OverwritePrecommitProofs(
+	OverwriteRoundPrecommitProofs(
 		ctx context.Context,
 		height uint64,
 		round uint32,

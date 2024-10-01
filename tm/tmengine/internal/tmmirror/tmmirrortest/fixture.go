@@ -159,7 +159,7 @@ func (f *Fixture) CommitInitialHeight(
 	// Sign it so it is valid.
 	pb := f.Fx.NextProposedHeader(initialAppStateHash, initialProposerIndex)
 	f.Fx.SignProposal(ctx, &pb, initialProposerIndex)
-	if err := f.Cfg.RoundStore.SaveProposedHeader(ctx, pb); err != nil {
+	if err := f.Cfg.RoundStore.SaveRoundProposedHeader(ctx, pb); err != nil {
 		panic(fmt.Errorf("failed to save proposed block: %w", err))
 	}
 
@@ -169,7 +169,7 @@ func (f *Fixture) CommitInitialHeight(
 	}
 	precommitProofs := f.Fx.PrecommitProofMap(ctx, f.Cfg.InitialHeight, 0, voteMap)
 
-	if err := f.Cfg.RoundStore.OverwritePrecommitProofs(ctx, f.Cfg.InitialHeight, 0, precommitProofs); err != nil {
+	if err := f.Cfg.RoundStore.OverwriteRoundPrecommitProofs(ctx, f.Cfg.InitialHeight, 0, precommitProofs); err != nil {
 		panic(fmt.Errorf("failed to overwrite precommit proofs: %w", err))
 	}
 
