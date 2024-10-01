@@ -110,6 +110,23 @@ func TestMirrorStoreCompliance(t *testing.T) {
 	})
 }
 
+func TestRoundStoreCompliance(t *testing.T) {
+	t.Skip("not ready")
+
+	t.Parallel()
+
+	tmstoretest.TestRoundStoreCompliance(t, func(cleanup func(func())) (tmstore.RoundStore, error) {
+		s, err := tmsqlite.NewTMStore(context.Background(), ":memory:", tmconsensustest.SimpleHashScheme{}, &reg)
+		if err != nil {
+			return nil, err
+		}
+		cleanup(func() {
+			require.NoError(t, s.Close())
+		})
+		return s, nil
+	})
+}
+
 func TestValidatorStoreCompliance(t *testing.T) {
 	t.Parallel()
 

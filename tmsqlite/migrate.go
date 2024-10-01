@@ -283,13 +283,15 @@ CREATE TABLE committed_headers(
 CREATE TABLE proposed_headers(
   id INTEGER PRIMARY KEY NOT NULL,
   header_id INTEGER NOT NULL,
+  height INTEGER NOT NULL CHECK (height >= 0),
   round INTEGER NOT NULL CHECK (round >= 0),
   proposer_pub_key_id INTEGER NOT NULL,
   user_annotations BLOB,
   driver_annotations BLOB,
   signature BLOB NOT NULL,
   FOREIGN KEY(header_id) REFERENCES headers(id),
-  FOREIGN KEY(proposer_pub_key_id) REFERENCES validator_pub_keys(id)
+  FOREIGN KEY(proposer_pub_key_id) REFERENCES validator_pub_keys(id),
+  UNIQUE (height, round, proposer_pub_key_id)
 );`+
 
 			// The headers that the local state machine has proposed to the network.

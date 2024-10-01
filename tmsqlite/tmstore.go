@@ -1324,22 +1324,27 @@ func (s *TMStore) SaveProposedHeader(ctx context.Context, ph tmconsensus.Propose
 	res, err := tx.ExecContext(
 		ctx,
 		`INSERT INTO proposed_headers(
-header_id, round,
+header_id, height, round,
 user_annotations, driver_annotations,
 signature,
 proposer_pub_key_id
 ) VALUES (
-?, ?,
+?, ?, ?,
 ?, ?,
 ?,
 (SELECT id FROM validator_pub_keys WHERE key = ?)
 )`,
-		headerID, ph.Round,
+		headerID, ph.Header.Height, ph.Round,
 		ph.Annotations.User, ph.Annotations.Driver,
 		ph.Signature,
 		s.reg.Marshal(ph.ProposerPubKey),
 	)
 	if err != nil {
+		if isUniqueConstraintError(err) {
+			// Special case for action store compliance.
+			// There is only one unique constraint on the proposed headers table.
+			return tmstore.DoubleActionError{Type: "proposed block"}
+		}
 		return fmt.Errorf("failed to save proposed header: %w", err)
 	}
 
@@ -1357,6 +1362,8 @@ proposer_pub_key_id
 		if isUniqueConstraintError(err) {
 			// Special case for action store compliance.
 			// There is only one unique constraint that we can have violated here.
+			// But, we probably can never reach this, as the proposed_headers unique constraint
+			// should have failed before we got here.
 			return tmstore.DoubleActionError{Type: "proposed block"}
 		}
 
@@ -1655,6 +1662,73 @@ FROM proposed_headers WHERE id = ?`,
 	}
 
 	return ra, nil
+}
+
+func (s *TMStore) SaveRoundProposedHeader(ctx context.Context, ph tmconsensus.ProposedHeader) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	headerID, err := s.createHeaderInTx(ctx, tx, ph.Header)
+	if err != nil {
+		return fmt.Errorf("failed to create header: %w", err)
+	}
+
+	// We are assuming that our proposer's public key is already in the validators list.
+	// If it isn't, we should not be accepting their proposed header.
+	if _, err := tx.ExecContext(
+		ctx,
+		`INSERT INTO proposed_headers(
+header_id, height, round,
+user_annotations, driver_annotations,
+signature,
+proposer_pub_key_id
+) VALUES (
+?, ?, ?,
+?, ?,
+?,
+(SELECT id FROM validator_pub_keys WHERE key = ?)
+)`,
+		headerID, ph.Header.Height, ph.Round,
+		ph.Annotations.User, ph.Annotations.Driver,
+		ph.Signature,
+		s.reg.Marshal(ph.ProposerPubKey),
+	); err != nil {
+		return fmt.Errorf("failed to save proposed header: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	return nil
+}
+
+func (s *TMStore) OverwriteRoundPrevoteProofs(
+	ctx context.Context,
+	height uint64,
+	round uint32,
+	proofs map[string]gcrypto.CommonMessageSignatureProof,
+) error {
+	return nil
+}
+func (s *TMStore) OverwriteRoundPrecommitProofs(
+	ctx context.Context,
+	height uint64,
+	round uint32,
+	proofs map[string]gcrypto.CommonMessageSignatureProof,
+) error {
+	return nil
+}
+
+func (s *TMStore) LoadRoundState(ctx context.Context, height uint64, round uint32) (
+	phs []tmconsensus.ProposedHeader,
+	prevotes, precommits map[string]gcrypto.CommonMessageSignatureProof,
+	err error,
+) {
+	return
 }
 
 func pragmas(ctx context.Context, db *sql.DB) error {
