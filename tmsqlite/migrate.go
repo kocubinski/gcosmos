@@ -355,8 +355,8 @@ SELECT
   pvs.block_hash, pvs.signature, pvs.signer_pub_key_id,
   pcs.block_hash, pcs.signature, pcs.signer_pub_key_id
 FROM actions_proposed_headers AS phs
-LEFT JOIN actions_prevotes AS pvs ON pvs.height = phs.height AND pvs.round = phs.round
-LEFT JOIN actions_precommits AS pcs ON pcs.height = phs.height AND pcs.round = phs.round;
+FULL OUTER JOIN actions_prevotes AS pvs ON pvs.height = phs.height AND pvs.round = phs.round
+FULL OUTER JOIN actions_precommits AS pcs ON pcs.height = phs.height AND pcs.round = phs.round;
 `+
 
 			// Consistent end of long concatenated literal, to minimize diffs.

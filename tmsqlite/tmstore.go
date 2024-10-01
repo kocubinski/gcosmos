@@ -1438,8 +1438,7 @@ func (s *TMStore) LoadActions(ctx context.Context, height uint64, round uint32) 
 	}
 	defer tx.Rollback()
 
-	var phID int64
-	var prevoteKeyID, precommitKeyID sql.NullInt64
+	var phID, prevoteKeyID, precommitKeyID sql.NullInt64
 	var prevoteHash, prevoteSig, precommitHash, precommitSig []byte
 	if err := tx.QueryRowContext(
 		ctx,
@@ -1476,51 +1475,76 @@ WHERE height = ? AND round = ?`,
 	}
 
 	// Next, load the proposed header metadata.
-	var headerID int64
-	var phRound uint32
 	var proposerKeyID sql.NullInt64
-	var userAnnotations, driverAnnotations, sig []byte
-	if err := tx.QueryRowContext(
-		ctx,
-		`SELECT
+	var ph tmconsensus.ProposedHeader
+	if phID.Valid {
+		var headerID int64
+		var phRound uint32
+		var userAnnotations, driverAnnotations, sig []byte
+		if err := tx.QueryRowContext(
+			ctx,
+			`SELECT
 header_id,
 round, proposer_pub_key_id,
 user_annotations, driver_annotations,
 signature
 FROM proposed_headers WHERE id = ?`,
-		phID,
-	).Scan(
-		&headerID,
-		&phRound, &proposerKeyID,
-		&userAnnotations, &driverAnnotations,
-		&sig,
-	); err != nil {
-		// TODO: gracefully handle not having a proposed block.
-		return tmstore.RoundActions{}, fmt.Errorf(
-			"failed to query proposed headers: %w", err,
-		)
-	}
+			phID,
+		).Scan(
+			&headerID,
+			&phRound, &proposerKeyID,
+			&userAnnotations, &driverAnnotations,
+			&sig,
+		); err != nil {
+			// TODO: gracefully handle not having a proposed block.
+			return tmstore.RoundActions{}, fmt.Errorf(
+				"failed to query proposed headers: %w", err,
+			)
+		}
 
-	if phRound != round {
-		panic(fmt.Errorf(
-			"DATABASE CORRUPTION: found proposed header at round %d when requesting height=%d round=%d",
-			phRound, height, round,
-		))
-	}
+		if phRound != round {
+			panic(fmt.Errorf(
+				"DATABASE CORRUPTION: found proposed header at round %d when requesting height=%d round=%d",
+				phRound, height, round,
+			))
+		}
 
-	if proposerKeyID.Valid &&
-		prevoteKeyID.Valid && proposerKeyID.Int64 != prevoteKeyID.Int64 {
-		panic(fmt.Errorf(
-			"DATABASE CORRUPTION: got different key IDs %d and %d for proposer and prevote at height=%d round=%d",
-			proposerKeyID.Int64, prevoteKeyID.Int64, height, round,
-		))
-	}
-	if proposerKeyID.Valid &&
-		precommitKeyID.Valid && proposerKeyID.Int64 != precommitKeyID.Int64 {
-		panic(fmt.Errorf(
-			"DATABASE CORRUPTION: got different key IDs %d and %d for proposer and prevote at height=%d round=%d",
-			proposerKeyID.Int64, precommitKeyID.Int64, height, round,
-		))
+		if proposerKeyID.Valid &&
+			prevoteKeyID.Valid && proposerKeyID.Int64 != prevoteKeyID.Int64 {
+			panic(fmt.Errorf(
+				"DATABASE CORRUPTION: got different key IDs %d and %d for proposer and prevote at height=%d round=%d",
+				proposerKeyID.Int64, prevoteKeyID.Int64, height, round,
+			))
+		}
+		if proposerKeyID.Valid &&
+			precommitKeyID.Valid && proposerKeyID.Int64 != precommitKeyID.Int64 {
+			panic(fmt.Errorf(
+				"DATABASE CORRUPTION: got different key IDs %d and %d for proposer and prevote at height=%d round=%d",
+				proposerKeyID.Int64, precommitKeyID.Int64, height, round,
+			))
+		}
+
+		h, _, err := s.loadHeaderDynamic(ctx, tx, `id = ?`, headerID)
+		if err != nil {
+			return tmstore.RoundActions{}, fmt.Errorf(
+				"failed to load header: %w", err,
+			)
+		}
+
+		ph = tmconsensus.ProposedHeader{
+			Header: h,
+			Round:  round,
+
+			// We don't have the proposer pub key yet --
+			// we are about to load the key after this branch.
+
+			Annotations: tmconsensus.Annotations{
+				User:   userAnnotations,
+				Driver: driverAnnotations,
+			},
+
+			Signature: sig,
+		}
 	}
 
 	// We must have had at least one action.
@@ -1557,31 +1581,11 @@ FROM proposed_headers WHERE id = ?`,
 		)
 	}
 
-	h, _, err := s.loadHeaderDynamic(ctx, tx, `id = ?`, headerID)
-	if err != nil {
-		return tmstore.RoundActions{}, fmt.Errorf(
-			"failed to load header: %w", err,
-		)
-	}
-
 	ra := tmstore.RoundActions{
 		Height: height,
 		Round:  round,
 
-		ProposedHeader: tmconsensus.ProposedHeader{
-			Header: h,
-
-			Round: round,
-
-			ProposerPubKey: key,
-
-			Annotations: tmconsensus.Annotations{
-				User:   userAnnotations,
-				Driver: driverAnnotations,
-			},
-
-			Signature: sig,
-		},
+		ProposedHeader: ph,
 
 		PubKey: key,
 
@@ -1590,6 +1594,11 @@ FROM proposed_headers WHERE id = ?`,
 		PrecommitTarget:    string(precommitHash),
 		PrecommitSignature: string(precommitSig),
 	}
+
+	if len(ra.ProposedHeader.Signature) > 0 {
+		ra.ProposedHeader.ProposerPubKey = key
+	}
+
 	return ra, nil
 }
 
