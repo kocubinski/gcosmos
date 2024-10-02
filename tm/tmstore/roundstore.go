@@ -16,6 +16,8 @@ type RoundStore interface {
 
 	// The overwrite proofs methods overwrite existing entries
 	// for the corresponding proof at the given height and round.
+	// TODO: these methods should both accept sparse proofs,
+	// as sparse proofs are more suited to storage.
 	OverwriteRoundPrevoteProofs(
 		ctx context.Context,
 		height uint64,
@@ -41,6 +43,8 @@ type RoundStore interface {
 	// [tmconsensus.RoundUnknownError] is returned.
 	// If at least one proposed block, prevote, or precommit exists at the height and round,
 	// a nil error is returned.
+	// TODO: this should return sparse proofs,
+	// so that the store can remain agnostic of signature proof schemes.
 	LoadRoundState(ctx context.Context, height uint64, round uint32) (
 		phs []tmconsensus.ProposedHeader,
 		prevotes, precommits map[string]gcrypto.CommonMessageSignatureProof,

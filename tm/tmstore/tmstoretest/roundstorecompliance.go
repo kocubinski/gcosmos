@@ -219,6 +219,7 @@ func TestRoundStoreCompliance(t *testing.T, f RoundStoreFactory) {
 				require.NoError(t, err)
 
 				fx := tmconsensustest.NewStandardFixture(2)
+				attemptToSavePubKeys(t, ctx, s, fx.Vals())
 
 				ph := fx.NextProposedHeader([]byte("app_data"), 0)
 

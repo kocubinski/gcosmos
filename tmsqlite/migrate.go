@@ -361,6 +361,69 @@ FULL OUTER JOIN actions_prevotes AS pvs ON pvs.height = phs.height AND pvs.round
 FULL OUTER JOIN actions_precommits AS pcs ON pcs.height = phs.height AND pcs.round = phs.round;
 `+
 
+			// The round_votes table tracks the prevotes and precommits
+			// that the mirror observes during a single round.
+			// This is similar to the commit proofs table,
+			// but it has a bit of a semantic difference
+			// in collecting live prevotes and precommits,
+			// rather than finalized commit proofs.
+			// Furthermore, it has a different access pattern in that
+			// rows in round_*_signatures may be deleted
+			// as new votes are received, if signature aggregation is used.
+			`
+CREATE TABLE round_votes(
+  id INTEGER PRIMARY KEY NOT NULL,
+  height INTEGER NOT NULL CHECK (height > 0),
+  round INTEGER NOT NULL CHECK (round >= 0),
+  validators_pub_key_hash_id INTEGER NOT NULL,
+  FOREIGN KEY(validators_pub_key_hash_id) REFERENCES validator_pub_key_hashes(id),
+  UNIQUE (height, round)
+);`+
+
+			// The blocks in the round which have received prevotes.
+			`
+CREATE TABLE round_prevote_blocks(
+  id INTEGER PRIMARY KEY NOT NULL,
+  block_hash BLOB,
+  round_vote_id INTEGER NOT NULL,
+  FOREIGN KEY(round_vote_id) REFERENCES round_votes(id) ON DELETE CASCADE,
+  UNIQUE (round_vote_id, block_hash)
+);`+
+
+			// The blocks in the round which have received precommits.
+			// (Identical schema to round_prevote_blocks.)
+			`
+CREATE TABLE round_precommit_blocks(
+  id INTEGER PRIMARY KEY NOT NULL,
+  block_hash BLOB,
+  round_vote_id INTEGER NOT NULL,
+  FOREIGN KEY(round_vote_id) REFERENCES round_votes(id) ON DELETE CASCADE,
+  UNIQUE (round_vote_id, block_hash)
+);`+
+
+			// The prevote signatures for a particular block or null,
+			// within a particular round.
+			`
+CREATE TABLE round_prevote_signatures(
+  id INTEGER PRIMARY KEY NOT NULL,
+  block_id INTEGER NOT NULL,
+  key_id BLOB NOT NULL,
+  signature BLOB NOT NULL,
+  FOREIGN KEY(block_id) REFERENCES round_prevote_blocks(id) ON DELETE CASCADE,
+  UNIQUE (block_id, key_id)
+);`+
+
+			// The precommit signatures for a particular block or null,
+			// within a particular round.
+			`
+CREATE TABLE round_precommit_signatures(
+  id INTEGER PRIMARY KEY NOT NULL,
+  block_id INTEGER NOT NULL,
+  key_id BLOB NOT NULL,
+  signature BLOB NOT NULL,
+  FOREIGN KEY(block_id) REFERENCES round_precommit_blocks(id) ON DELETE CASCADE
+);`+
+
 			// Consistent end of long concatenated literal, to minimize diffs.
 			"",
 	)

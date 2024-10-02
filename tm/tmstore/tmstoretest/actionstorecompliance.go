@@ -304,7 +304,7 @@ func TestActionStoreCompliance(t *testing.T, f ActionStoreFactory) {
 // attemptToSavePubKeys saves the validators' public keys to the given store,
 // if the store satisfies ValidatorStore.
 // Some store implementations may assume that the validators have already been saved.
-func attemptToSavePubKeys(t *testing.T, ctx context.Context, s tmstore.ActionStore, vals []tmconsensus.Validator) {
+func attemptToSavePubKeys(t *testing.T, ctx context.Context, s any, vals []tmconsensus.Validator) {
 	t.Helper()
 
 	if vs, ok := s.(tmstore.ValidatorStore); ok {

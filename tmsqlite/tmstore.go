@@ -1722,14 +1722,147 @@ func (s *TMStore) OverwriteRoundPrevoteProofs(
 	round uint32,
 	proofs map[string]gcrypto.CommonMessageSignatureProof,
 ) error {
-	return nil
+	return s.overwriteRoundProofs(
+		ctx, height, round, proofs, "prevote",
+	)
 }
+
 func (s *TMStore) OverwriteRoundPrecommitProofs(
 	ctx context.Context,
 	height uint64,
 	round uint32,
 	proofs map[string]gcrypto.CommonMessageSignatureProof,
 ) error {
+	return s.overwriteRoundProofs(
+		ctx, height, round, proofs, "precommit",
+	)
+}
+
+func (s *TMStore) overwriteRoundProofs(
+	ctx context.Context,
+	height uint64,
+	round uint32,
+	proofs map[string]gcrypto.CommonMessageSignatureProof,
+	voteType string,
+) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	// TODO: delete superseded signatures; tests need updated first.
+
+	// TODO: gassert: all key IDs in proofs are unique.
+	// TODO: gassert: all proofs have the same pub key hash.
+
+	var pubKeyHash []byte
+	for _, proof := range proofs {
+		pubKeyHash = proof.PubKeyHash()
+		break
+	}
+
+	// For now, do three insert attempts to cover everything here.
+	// First, create or get the ID of the round_votes row.
+	var roundVoteID int64
+	if err := tx.QueryRowContext(
+		ctx,
+		// Hacky way to attempt an insert
+		// and return either the new or existing ID.
+		// This RETURNING is fine since we know we only touch one record.
+		`INSERT INTO round_votes(height, round, validators_pub_key_hash_id)
+VALUES (
+?, ?,
+(SELECT id FROM validator_pub_key_hashes WHERE hash = ?)
+) ON CONFLICT DO UPDATE SET id=id RETURNING id`,
+		height, round,
+		pubKeyHash,
+	).Scan(&roundVoteID); err != nil {
+		return fmt.Errorf("failed to get round vote ID: %w", err)
+	}
+
+	type bhid struct {
+		Hash []byte
+		ID   int64
+	}
+	blockHashesAndIDs := make([]bhid, 0, len(proofs))
+	args := make([]any, 0, 2*len(proofs))
+	for blockHash := range proofs {
+		var x bhid
+		if blockHash != "" {
+			x.Hash = []byte(blockHash)
+		}
+		blockHashesAndIDs = append(blockHashesAndIDs, x)
+		args = append(args, x.Hash, roundVoteID)
+	}
+
+	// Now we have our block hashes, in an arbitrary order.
+	// Do another hacky insert to ensure all the block records exist.
+	rows, err := tx.QueryContext(
+		ctx,
+		`INSERT INTO round_`+voteType+`_blocks(block_hash, round_vote_id) VALUES (?, ?) `+
+			strings.Repeat(", (?,?)", len(blockHashesAndIDs)-1)+
+			// TODO: RETURNING id is insufficient:
+			// https://sqlite.org/lang_returning.html#limitations_and_caveats
+			// "The rows emitted by the RETURNING clause appear in an arbitrary order. ...
+			// That order might change depending on the database schema,
+			// upon the specific release of SQLite used,
+			// or even from one execution of the same statement to the next.
+			// There is no way to cause the output rows to appear in a particular order."
+			// So we need to also return the block_hash.
+			` ON CONFLICT DO UPDATE SET id=id RETURNING id`,
+		args...,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to get %s block IDs: %w", voteType, err)
+	}
+	defer rows.Close()
+
+	var i int
+	for rows.Next() {
+		if err := rows.Scan(&blockHashesAndIDs[i].ID); err != nil {
+			return fmt.Errorf("failed to scan %s block ID: %w", voteType, err)
+		}
+		i++
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("failed to iterate %s block IDs: %w", voteType, err)
+	}
+	if err := rows.Close(); err != nil {
+		return fmt.Errorf("failed to close %s block ID iterator: %w", voteType, err)
+	}
+	if i != len(blockHashesAndIDs) {
+		panic(fmt.Errorf(
+			"IMPOSSIBLE: expected %d blocks but got %d", len(blockHashesAndIDs), i,
+		))
+	}
+
+	// Now our last bulk insert attempt, to put in the sparse signatures.
+	// If there are many signatures, this is potentially a high cost insert.
+	// It might be better to do a select to discover the existing key IDs,
+	// so we only insert new ones.
+	nSigs := 0
+	args = args[:0]
+	for _, bhid := range blockHashesAndIDs {
+		for _, sig := range proofs[string(bhid.Hash)].AsSparse().Signatures {
+			args = append(args, bhid.ID, sig.KeyID, sig.Sig)
+			nSigs++
+		}
+	}
+	if _, err := tx.ExecContext(
+		ctx,
+		`INSERT OR IGNORE INTO round_`+voteType+`_signatures(block_id, key_id, signature)
+VALUES (?, ?, ?)`+
+			strings.Repeat(",(?,?,?) ", nSigs-1),
+		args...,
+	); err != nil {
+		return fmt.Errorf("failed to bulk insert %s signatures: %w", voteType, err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit saving %ss: %w", voteType, err)
+	}
+
 	return nil
 }
 
