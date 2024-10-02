@@ -45,32 +45,67 @@ func TestRoundStoreCompliance(t *testing.T, f RoundStoreFactory) {
 
 			fx := tmconsensustest.NewStandardFixture(2)
 
-			ph0 := fx.NextProposedHeader([]byte("val0"), 0)
-			fx.SignProposal(ctx, &ph0, 0)
-			require.Empty(t, ph0.Header.PrevCommitProof.Proofs)
-			ph0.Header.PrevCommitProof.Proofs = nil
+			ph10 := fx.NextProposedHeader([]byte("val0"), 0)
+			ph10.Round = 1
+			fx.RecalculateHash(&ph10.Header)
+			fx.SignProposal(ctx, &ph10, 0)
+			require.Empty(t, ph10.Header.PrevCommitProof.Proofs)
+			ph10.Header.PrevCommitProof.Proofs = nil
 
-			ph1 := fx.NextProposedHeader([]byte("val1"), 1)
-			fx.SignProposal(ctx, &ph1, 1)
-			require.Empty(t, ph1.Header.PrevCommitProof.Proofs)
-			ph1.Header.PrevCommitProof.Proofs = nil
+			ph11 := fx.NextProposedHeader([]byte("val1"), 1)
+			ph11.Round = 1
+			fx.RecalculateHash(&ph11.Header)
+			fx.SignProposal(ctx, &ph11, 1)
+			require.Empty(t, ph11.Header.PrevCommitProof.Proofs)
+			ph11.Header.PrevCommitProof.Proofs = nil
 
-			require.NoError(t, s.SaveRoundProposedHeader(ctx, ph0))
-			require.NoError(t, s.SaveRoundProposedHeader(ctx, ph1))
+			require.NoError(t, s.SaveRoundProposedHeader(ctx, ph10))
+			require.NoError(t, s.SaveRoundProposedHeader(ctx, ph11))
 
-			pbs, _, _, err := s.LoadRoundState(ctx, 1, 0)
+			phs, _, _, err := s.LoadRoundState(ctx, 1, 1)
 			require.NoError(t, err)
 
 			// Using require.ElementsMatch gives poor output on mismatched lists with huge elements.
 			// Ensure the two slices are sorted the same.
-			want := []tmconsensus.ProposedHeader{ph0, ph1}
+			want := []tmconsensus.ProposedHeader{ph10, ph11}
 			slices.SortFunc(want, func(a, b tmconsensus.ProposedHeader) int {
 				return bytes.Compare(a.Header.Hash, b.Header.Hash)
 			})
-			slices.SortFunc(pbs, func(a, b tmconsensus.ProposedHeader) int {
+			slices.SortFunc(phs, func(a, b tmconsensus.ProposedHeader) int {
 				return bytes.Compare(a.Header.Hash, b.Header.Hash)
 			})
-			require.Equal(t, want, pbs)
+			require.Equal(t, want, phs)
+
+			// Now that we've done the header at initial height, let's say ph10 was committed,
+			// and the next proposed header contains an actual PrevCommitProof.
+
+			voteMap := map[string][]int{
+				string(ph10.Header.Hash): {0, 1}, // Only two validators in this test.
+			}
+			fx.CommitBlock(ph10.Header, []byte("app_state_10"), 1, fx.PrecommitProofMap(ctx, 1, 1, voteMap))
+
+			ph20 := fx.NextProposedHeader([]byte("val0_2"), 0)
+			fx.SignProposal(ctx, &ph20, 0)
+
+			ph21 := fx.NextProposedHeader([]byte("val1_2"), 1)
+			fx.SignProposal(ctx, &ph21, 1)
+
+			require.NoError(t, s.SaveRoundProposedHeader(ctx, ph20))
+			require.NoError(t, s.SaveRoundProposedHeader(ctx, ph21))
+
+			phs, _, _, err = s.LoadRoundState(ctx, 2, 0)
+			require.NoError(t, err)
+
+			// Using require.ElementsMatch gives poor output on mismatched lists with huge elements.
+			// Ensure the two slices are sorted the same.
+			want = []tmconsensus.ProposedHeader{ph20, ph21}
+			slices.SortFunc(want, func(a, b tmconsensus.ProposedHeader) int {
+				return bytes.Compare(a.Header.Hash, b.Header.Hash)
+			})
+			slices.SortFunc(phs, func(a, b tmconsensus.ProposedHeader) int {
+				return bytes.Compare(a.Header.Hash, b.Header.Hash)
+			})
+			require.Equal(t, want, phs)
 		})
 
 		// TODO: need a happy path test that involves headers beyond the initial height.
@@ -231,9 +266,9 @@ func TestRoundStoreCompliance(t *testing.T, f RoundStoreFactory) {
 			precommitProofMap := fx.PrecommitProofMap(ctx, 1, 0, voteMap)
 			require.NoError(t, s.OverwriteRoundPrecommitProofs(ctx, 1, 0, precommitProofMap))
 
-			pbs, prevotes, precommits, err := s.LoadRoundState(ctx, 1, 0)
+			phs, prevotes, precommits, err := s.LoadRoundState(ctx, 1, 0)
 			require.NoError(t, err)
-			require.Equal(t, []tmconsensus.ProposedHeader{ph}, pbs)
+			require.Equal(t, []tmconsensus.ProposedHeader{ph}, phs)
 			require.Equal(t, prevoteProofMap, prevotes)
 			require.Equal(t, precommitProofMap, precommits)
 		})

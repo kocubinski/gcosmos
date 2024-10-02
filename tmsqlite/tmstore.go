@@ -1922,6 +1922,8 @@ phs.user_annotations, phs.driver_annotations,
 phs.signature,
 hs.height, hs.hash, hs.prev_block_hash,
 hs.prev_commit_proof_id,
+pcp.round,
+pcphash.hash,
 hs.validators_pub_key_hash_id, hs.next_validators_pub_key_hash_id,
 hs.validators_power_hash_id, hs.next_validators_power_hash_id,
 hs.data_id,
@@ -1930,6 +1932,8 @@ hs.user_annotations, hs.driver_annotations
 FROM proposed_headers AS phs
 JOIN headers AS hs ON hs.id = phs.header_id
 JOIN validator_pub_keys AS keys ON keys.id = phs.proposer_pub_key_id
+LEFT JOIN commit_proofs AS pcp ON pcp.id = hs.prev_commit_proof_id
+LEFT JOIN validator_pub_key_hashes AS pcphash ON pcphash.id = pcp.validators_pub_key_hash_id
 WHERE phs.height = ? AND phs.round = ?`,
 		height, round,
 	)
@@ -1942,17 +1946,22 @@ WHERE phs.height = ? AND phs.round = ?`,
 
 	valSets := make(map[[2]int64]tmconsensus.ValidatorSet)
 
+	var pcpValHash []byte
 	for rows.Next() {
 		var vkID, nvkID, vpID, nvpID int64
 		var pcpID sql.NullInt64
+		var pcpRound sql.Null[uint32]
 		encKey = encKey[:0]
-		var ph tmconsensus.ProposedHeader
+		pcpValHash = pcpValHash[:0]
+		ph := tmconsensus.ProposedHeader{Round: round}
 		if err := rows.Scan(
 			&encKey,
 			&ph.Annotations.User, &ph.Annotations.Driver,
 			&ph.Signature,
 			&ph.Header.Height, &ph.Header.Hash, &ph.Header.PrevBlockHash,
 			&pcpID,
+			&pcpRound,
+			&pcpValHash,
 			&vkID, &nvkID,
 			&vpID, &nvpID,
 			&ph.Header.DataID,
@@ -2024,8 +2033,17 @@ WHERE phs.height = ? AND phs.round = ?`,
 					"QUERY BUG: missing previous commit proof (id=%d)", pcpID.Int64,
 				)
 			}
+			if !pcpRound.Valid {
+				return nil, nil, nil, fmt.Errorf(
+					"QUERY BUG: had previous commit proof (id=%d) but no round", pcpID.Int64,
+				)
+			}
 			// TODO: need the round and actual validator hash.
-			ph.Header.PrevCommitProof.Proofs = proofs
+			ph.Header.PrevCommitProof = tmconsensus.CommitProof{
+				Round:      pcpRound.V,
+				PubKeyHash: string(pcpValHash),
+				Proofs:     proofs,
+			}
 		}
 
 		phs = append(phs, ph)
