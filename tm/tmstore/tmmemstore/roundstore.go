@@ -13,8 +13,12 @@ import (
 type RoundStore struct {
 	mu sync.RWMutex
 
-	// Height -> Round -> Hash -> Header.
-	phs map[uint64]map[uint32]map[string]tmconsensus.ProposedHeader
+	// Height -> Round -> Hash -> Headers.
+	// There will almost always be a single proposed header under the hash,
+	// but with multiple proposers, it is possible that two independent proposers
+	// will propose an identical header,
+	// differing only by the proposal metadata.
+	phs map[uint64]map[uint32]map[string][]tmconsensus.ProposedHeader
 
 	// Height -> Round -> Hash -> signature proofs.
 	prevotes, precommits map[uint64]map[uint32]map[string]gcrypto.CommonMessageSignatureProof
@@ -22,7 +26,7 @@ type RoundStore struct {
 
 func NewRoundStore() *RoundStore {
 	return &RoundStore{
-		phs: make(map[uint64]map[uint32]map[string]tmconsensus.ProposedHeader),
+		phs: make(map[uint64]map[uint32]map[string][]tmconsensus.ProposedHeader),
 
 		prevotes:   make(map[uint64]map[uint32]map[string]gcrypto.CommonMessageSignatureProof),
 		precommits: make(map[uint64]map[uint32]map[string]gcrypto.CommonMessageSignatureProof),
@@ -35,24 +39,30 @@ func (s *RoundStore) SaveRoundProposedHeader(ctx context.Context, ph tmconsensus
 
 	byRound, ok := s.phs[ph.Header.Height]
 	if !ok {
-		byRound = make(map[uint32]map[string]tmconsensus.ProposedHeader)
+		byRound = make(map[uint32]map[string][]tmconsensus.ProposedHeader)
 		s.phs[ph.Header.Height] = byRound
 	}
 
 	byHash, ok := byRound[ph.Round]
 	if !ok {
-		byHash = make(map[string]tmconsensus.ProposedHeader)
+		byHash = make(map[string][]tmconsensus.ProposedHeader)
 		byRound[ph.Round] = byHash
 	}
 
-	if _, ok := byHash[string(ph.Header.Hash)]; ok {
-		return tmstore.OverwriteError{
-			Field: "hash",
-			Value: fmt.Sprintf("%x", ph.Header.Hash),
+	if havePHs, ok := byHash[string(ph.Header.Hash)]; ok {
+		// Already have a proposed header for this hash.
+		// See if it is from the same proposer.
+		for _, have := range havePHs {
+			if ph.ProposerPubKey.Equal(have.ProposerPubKey) {
+				return tmstore.OverwriteError{
+					Field: "pubkey",
+					Value: fmt.Sprintf("%x", ph.ProposerPubKey.PubKeyBytes()),
+				}
+			}
 		}
 	}
 
-	byHash[string(ph.Header.Hash)] = ph
+	byHash[string(ph.Header.Hash)] = append(byHash[string(ph.Header.Hash)], ph)
 
 	return nil
 }
@@ -106,8 +116,8 @@ func (s *RoundStore) LoadRoundState(ctx context.Context, height uint64, round ui
 	if roundMap, ok := s.phs[height]; ok {
 		if hashMap, ok := roundMap[round]; ok && len(hashMap) > 0 {
 			phs = make([]tmconsensus.ProposedHeader, 0, len(hashMap))
-			for _, ph := range hashMap {
-				phs = append(phs, ph)
+			for _, phsForHash := range hashMap {
+				phs = append(phs, phsForHash...)
 			}
 		}
 	}

@@ -1696,6 +1696,16 @@ proposer_pub_key_id
 		ph.Signature,
 		s.reg.Marshal(ph.ProposerPubKey),
 	); err != nil {
+		if isUniqueConstraintError(err) {
+			// This is a special case for compliance tests.
+			// There is only one unique constraint across height/round/pubkey.
+			// If we hit the constraint, it was because we tried to save a proposed header
+			// at the same height and round for the one public key.
+			return tmstore.OverwriteError{
+				Field: "pubkey",
+				Value: fmt.Sprintf("%x", ph.ProposerPubKey.PubKeyBytes()),
+			}
+		}
 		return fmt.Errorf("failed to save proposed header: %w", err)
 	}
 
@@ -2038,7 +2048,6 @@ WHERE phs.height = ? AND phs.round = ?`,
 					"QUERY BUG: had previous commit proof (id=%d) but no round", pcpID.Int64,
 				)
 			}
-			// TODO: need the round and actual validator hash.
 			ph.Header.PrevCommitProof = tmconsensus.CommitProof{
 				Round:      pcpRound.V,
 				PubKeyHash: string(pcpValHash),

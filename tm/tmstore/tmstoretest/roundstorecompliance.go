@@ -130,10 +130,12 @@ func TestRoundStoreCompliance(t *testing.T, f RoundStoreFactory) {
 			require.NoError(t, s.SaveRoundProposedHeader(ctx, ph0))
 
 			// And a second write is an error.
+			// It is possible for two independent proposed blocks to have the same block hash,
+			// but one proposer is not allowed to propose two different blocks in one round.
 			err = s.SaveRoundProposedHeader(ctx, ph0)
 			require.ErrorIs(t, err, tmstore.OverwriteError{
-				Field: "hash",
-				Value: fmt.Sprintf("%x", ph0.Header.Hash),
+				Field: "pubkey",
+				Value: fmt.Sprintf("%x", ph0.ProposerPubKey.PubKeyBytes()),
 			})
 		})
 	})
