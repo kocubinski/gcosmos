@@ -7,7 +7,6 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/rollchains/gordian/gcrypto"
 	"github.com/rollchains/gordian/tm/tmconsensus"
 	"github.com/rollchains/gordian/tm/tmconsensus/tmconsensustest"
 	"github.com/rollchains/gordian/tm/tmstore"
@@ -141,21 +140,24 @@ func TestRoundStoreCompliance(t *testing.T, f RoundStoreFactory) {
 	})
 
 	for _, tc := range []struct {
-		typ        string
+		typ string
+
 		proofMapFn func(f *tmconsensustest.StandardFixture) func(
 			ctx context.Context,
 			height uint64,
 			round uint32,
-			voteMap map[string][]int, // Map of block hash to prevote, to validator indices.
-		) map[string]gcrypto.CommonMessageSignatureProof
+			voteMap map[string][]int, // Map of block hash to vote, to validator indices.
+		) tmconsensus.SparseSignatureCollection
+
 		overwriteFn func(s tmstore.RoundStore) func(
 			ctx context.Context,
 			height uint64,
 			round uint32,
-			proofs map[string]gcrypto.CommonMessageSignatureProof,
+			proofs tmconsensus.SparseSignatureCollection,
 		) error
-		choiceFn func(prevotes, precommits map[string]gcrypto.CommonMessageSignatureProof) (
-			want map[string]gcrypto.CommonMessageSignatureProof,
+
+		choiceFn func(prevotes, precommits tmconsensus.SparseSignatureCollection) (
+			want tmconsensus.SparseSignatureCollection,
 		)
 	}{
 		{
@@ -165,19 +167,19 @@ func TestRoundStoreCompliance(t *testing.T, f RoundStoreFactory) {
 				height uint64,
 				round uint32,
 				voteMap map[string][]int, // Map of block hash to prevote, to validator indices.
-			) map[string]gcrypto.CommonMessageSignatureProof {
-				return f.PrevoteProofMap
+			) tmconsensus.SparseSignatureCollection {
+				return f.SparsePrevoteSignatureCollection
 			},
 			overwriteFn: func(s tmstore.RoundStore) func(
 				ctx context.Context,
 				height uint64,
 				round uint32,
-				proofs map[string]gcrypto.CommonMessageSignatureProof,
+				proofs tmconsensus.SparseSignatureCollection,
 			) error {
 				return s.OverwriteRoundPrevoteProofs
 			},
-			choiceFn: func(prevotes, precommits map[string]gcrypto.CommonMessageSignatureProof) (
-				want map[string]gcrypto.CommonMessageSignatureProof,
+			choiceFn: func(prevotes, precommits tmconsensus.SparseSignatureCollection) (
+				want tmconsensus.SparseSignatureCollection,
 			) {
 				return prevotes
 			},
@@ -188,20 +190,20 @@ func TestRoundStoreCompliance(t *testing.T, f RoundStoreFactory) {
 				ctx context.Context,
 				height uint64,
 				round uint32,
-				voteMap map[string][]int, // Map of block hash to prevote, to validator indices.
-			) map[string]gcrypto.CommonMessageSignatureProof {
-				return f.PrecommitProofMap
+				voteMap map[string][]int, // Map of block hash to precommit, to validator indices.
+			) tmconsensus.SparseSignatureCollection {
+				return f.SparsePrecommitSignatureCollection
 			},
 			overwriteFn: func(s tmstore.RoundStore) func(
 				ctx context.Context,
 				height uint64,
 				round uint32,
-				proofs map[string]gcrypto.CommonMessageSignatureProof,
+				proofs tmconsensus.SparseSignatureCollection,
 			) error {
 				return s.OverwriteRoundPrecommitProofs
 			},
-			choiceFn: func(prevotes, precommits map[string]gcrypto.CommonMessageSignatureProof) (
-				want map[string]gcrypto.CommonMessageSignatureProof,
+			choiceFn: func(prevotes, precommits tmconsensus.SparseSignatureCollection) (
+				want tmconsensus.SparseSignatureCollection,
 			) {
 				return precommits
 			},
@@ -263,17 +265,17 @@ func TestRoundStoreCompliance(t *testing.T, f RoundStoreFactory) {
 				string(ph.Header.Hash): {0},
 				"":                     {1},
 			}
-			prevoteProofMap := fx.PrevoteProofMap(ctx, 1, 0, voteMap)
-			require.NoError(t, s.OverwriteRoundPrevoteProofs(ctx, 1, 0, prevoteProofMap))
+			prevoteSigs := fx.SparsePrevoteSignatureCollection(ctx, 1, 0, voteMap)
+			require.NoError(t, s.OverwriteRoundPrevoteProofs(ctx, 1, 0, prevoteSigs))
 
-			precommitProofMap := fx.PrecommitProofMap(ctx, 1, 0, voteMap)
-			require.NoError(t, s.OverwriteRoundPrecommitProofs(ctx, 1, 0, precommitProofMap))
+			precommitSigs := fx.SparsePrecommitSignatureCollection(ctx, 1, 0, voteMap)
+			require.NoError(t, s.OverwriteRoundPrecommitProofs(ctx, 1, 0, precommitSigs))
 
 			phs, prevotes, precommits, err := s.LoadRoundState(ctx, 1, 0)
 			require.NoError(t, err)
 			require.Equal(t, []tmconsensus.ProposedHeader{ph}, phs)
-			require.Equal(t, prevoteProofMap, prevotes)
-			require.Equal(t, precommitProofMap, precommits)
+			require.Equal(t, prevoteSigs, prevotes)
+			require.Equal(t, precommitSigs, precommits)
 		})
 
 		t.Run("only proposed blocks set", func(t *testing.T) {
@@ -293,8 +295,10 @@ func TestRoundStoreCompliance(t *testing.T, f RoundStoreFactory) {
 			pbs, prevotes, precommits, err := s.LoadRoundState(ctx, 1, 0)
 			require.NoError(t, err)
 			require.Equal(t, []tmconsensus.ProposedHeader{ph}, pbs)
-			require.Nil(t, prevotes)
-			require.Nil(t, precommits)
+			require.Nil(t, prevotes.PubKeyHash)
+			require.Nil(t, prevotes.BlockSignatures)
+			require.Nil(t, precommits.PubKeyHash)
+			require.Nil(t, precommits.BlockSignatures)
 		})
 
 		t.Run("only prevotes set", func(t *testing.T) {
@@ -316,14 +320,15 @@ func TestRoundStoreCompliance(t *testing.T, f RoundStoreFactory) {
 				string(ph.Header.Hash): {0},
 				"":                     {1},
 			}
-			prevoteProofMap := fx.PrevoteProofMap(ctx, 1, 0, voteMap)
-			require.NoError(t, s.OverwriteRoundPrevoteProofs(ctx, 1, 0, prevoteProofMap))
+			prevoteSigs := fx.SparsePrevoteSignatureCollection(ctx, 1, 0, voteMap)
+			require.NoError(t, s.OverwriteRoundPrevoteProofs(ctx, 1, 0, prevoteSigs))
 
 			pbs, prevotes, precommits, err := s.LoadRoundState(ctx, 1, 0)
 			require.NoError(t, err)
 			require.Nil(t, pbs)
-			require.Equal(t, prevoteProofMap, prevotes)
-			require.Nil(t, precommits)
+			require.Equal(t, prevoteSigs, prevotes)
+			require.Nil(t, precommits.PubKeyHash)
+			require.Nil(t, precommits.BlockSignatures)
 		})
 
 		t.Run("only precommits set", func(t *testing.T) {
@@ -346,14 +351,15 @@ func TestRoundStoreCompliance(t *testing.T, f RoundStoreFactory) {
 				"":                     {1},
 			}
 
-			precommitProofMap := fx.PrecommitProofMap(ctx, 1, 0, voteMap)
-			require.NoError(t, s.OverwriteRoundPrecommitProofs(ctx, 1, 0, precommitProofMap))
+			precommitSigs := fx.SparsePrecommitSignatureCollection(ctx, 1, 0, voteMap)
+			require.NoError(t, s.OverwriteRoundPrecommitProofs(ctx, 1, 0, precommitSigs))
 
 			pbs, prevotes, precommits, err := s.LoadRoundState(ctx, 1, 0)
 			require.NoError(t, err)
 			require.Nil(t, pbs)
-			require.Nil(t, prevotes)
-			require.Equal(t, precommitProofMap, precommits)
+			require.Nil(t, prevotes.PubKeyHash)
+			require.Nil(t, prevotes.BlockSignatures)
+			require.Equal(t, precommitSigs, precommits)
 		})
 	})
 }

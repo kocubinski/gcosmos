@@ -3,7 +3,6 @@ package tmstore
 import (
 	"context"
 
-	"github.com/rollchains/gordian/gcrypto"
 	"github.com/rollchains/gordian/tm/tmconsensus"
 )
 
@@ -22,13 +21,13 @@ type RoundStore interface {
 		ctx context.Context,
 		height uint64,
 		round uint32,
-		proofs map[string]gcrypto.CommonMessageSignatureProof,
+		proofs tmconsensus.SparseSignatureCollection,
 	) error
 	OverwriteRoundPrecommitProofs(
 		ctx context.Context,
 		height uint64,
 		round uint32,
-		proofs map[string]gcrypto.CommonMessageSignatureProof,
+		proofs tmconsensus.SparseSignatureCollection,
 	) error
 
 	// LoadRoundState returns the saved proposed blocks and votes
@@ -47,7 +46,7 @@ type RoundStore interface {
 	// so that the store can remain agnostic of signature proof schemes.
 	LoadRoundState(ctx context.Context, height uint64, round uint32) (
 		phs []tmconsensus.ProposedHeader,
-		prevotes, precommits map[string]gcrypto.CommonMessageSignatureProof,
+		prevotes, precommits tmconsensus.SparseSignatureCollection,
 		err error,
 	)
 }

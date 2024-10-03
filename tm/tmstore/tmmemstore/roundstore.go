@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/rollchains/gordian/gcrypto"
 	"github.com/rollchains/gordian/tm/tmconsensus"
 	"github.com/rollchains/gordian/tm/tmstore"
 )
@@ -20,16 +19,16 @@ type RoundStore struct {
 	// differing only by the proposal metadata.
 	phs map[uint64]map[uint32]map[string][]tmconsensus.ProposedHeader
 
-	// Height -> Round -> Hash -> signature proofs.
-	prevotes, precommits map[uint64]map[uint32]map[string]gcrypto.CommonMessageSignatureProof
+	// Height -> Round -> collection.
+	prevotes, precommits map[uint64]map[uint32]tmconsensus.SparseSignatureCollection
 }
 
 func NewRoundStore() *RoundStore {
 	return &RoundStore{
 		phs: make(map[uint64]map[uint32]map[string][]tmconsensus.ProposedHeader),
 
-		prevotes:   make(map[uint64]map[uint32]map[string]gcrypto.CommonMessageSignatureProof),
-		precommits: make(map[uint64]map[uint32]map[string]gcrypto.CommonMessageSignatureProof),
+		prevotes:   make(map[uint64]map[uint32]tmconsensus.SparseSignatureCollection),
+		precommits: make(map[uint64]map[uint32]tmconsensus.SparseSignatureCollection),
 	}
 }
 
@@ -71,14 +70,14 @@ func (s *RoundStore) OverwriteRoundPrevoteProofs(
 	ctx context.Context,
 	height uint64,
 	round uint32,
-	proofs map[string]gcrypto.CommonMessageSignatureProof,
+	proofs tmconsensus.SparseSignatureCollection,
 ) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	byRound, ok := s.prevotes[height]
 	if !ok {
-		byRound = make(map[uint32]map[string]gcrypto.CommonMessageSignatureProof)
+		byRound = make(map[uint32]tmconsensus.SparseSignatureCollection)
 		s.prevotes[height] = byRound
 	}
 
@@ -90,14 +89,14 @@ func (s *RoundStore) OverwriteRoundPrecommitProofs(
 	ctx context.Context,
 	height uint64,
 	round uint32,
-	proofs map[string]gcrypto.CommonMessageSignatureProof,
+	proofs tmconsensus.SparseSignatureCollection,
 ) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	byRound, ok := s.precommits[height]
 	if !ok {
-		byRound = make(map[uint32]map[string]gcrypto.CommonMessageSignatureProof)
+		byRound = make(map[uint32]tmconsensus.SparseSignatureCollection)
 		s.precommits[height] = byRound
 	}
 
@@ -107,7 +106,7 @@ func (s *RoundStore) OverwriteRoundPrecommitProofs(
 
 func (s *RoundStore) LoadRoundState(ctx context.Context, height uint64, round uint32) (
 	phs []tmconsensus.ProposedHeader,
-	prevotes, precommits map[string]gcrypto.CommonMessageSignatureProof,
+	prevotes, precommits tmconsensus.SparseSignatureCollection,
 	err error,
 ) {
 	s.mu.RLock()
@@ -130,8 +129,8 @@ func (s *RoundStore) LoadRoundState(ctx context.Context, height uint64, round ui
 		precommits = precommitHeightMap[round]
 	}
 
-	if phs == nil && prevotes == nil && precommits == nil {
-		return nil, nil, nil, tmconsensus.RoundUnknownError{WantHeight: height, WantRound: round}
+	if phs == nil && prevotes.BlockSignatures == nil && precommits.BlockSignatures == nil {
+		return nil, prevotes, precommits, tmconsensus.RoundUnknownError{WantHeight: height, WantRound: round}
 	}
 
 	return phs, prevotes, precommits, nil

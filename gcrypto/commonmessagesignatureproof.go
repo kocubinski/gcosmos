@@ -88,7 +88,7 @@ type CommonMessageSignatureProof interface {
 	AsSparse() SparseSignatureProof
 }
 
-// SparseSignatureProof is a minimal representation of a signature proof.
+// SparseSignatureProof is a minimal representation of a single signature proof.
 //
 // This format is suitable for network transmission,
 // as it does not encode the entire proof state,

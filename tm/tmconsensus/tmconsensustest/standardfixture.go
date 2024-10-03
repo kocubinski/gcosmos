@@ -366,6 +366,30 @@ func (f *StandardFixture) SparsePrevoteProofMap(
 	return out
 }
 
+func (f *StandardFixture) SparsePrevoteSignatureCollection(
+	ctx context.Context,
+	height uint64,
+	round uint32,
+	voteMap map[string][]int, // Map of block hash to prevote, to validator indices.
+) tmconsensus.SparseSignatureCollection {
+	fullProof := f.PrevoteProofMap(ctx, height, round, voteMap)
+	out := tmconsensus.SparseSignatureCollection{
+		BlockSignatures: make(map[string][]gcrypto.SparseSignature, len(voteMap)),
+	}
+
+	pubKeys := tmconsensus.ValidatorsToPubKeys(f.Vals())
+	pubKeyHash, err := f.HashScheme.PubKeys(pubKeys)
+	if err != nil {
+		panic(fmt.Errorf("error getting pub key hash: %w", err))
+	}
+	out.PubKeyHash = pubKeyHash
+
+	for blockHash, p := range fullProof {
+		out.BlockSignatures[blockHash] = p.AsSparse().Signatures
+	}
+	return out
+}
+
 // PrecommitProofMap creates a map of precommit signatures that can be passed
 // directly to [tmstore.ConsensusStore.OverwritePrecommitProof].
 func (f *StandardFixture) PrecommitProofMap(
@@ -407,6 +431,30 @@ func (f *StandardFixture) SparsePrecommitProofMap(
 
 	for blockHash, p := range fullProof {
 		out[blockHash] = p.AsSparse().Signatures
+	}
+	return out
+}
+
+func (f *StandardFixture) SparsePrecommitSignatureCollection(
+	ctx context.Context,
+	height uint64,
+	round uint32,
+	voteMap map[string][]int, // Map of block hash to precommit, to validator indices.
+) tmconsensus.SparseSignatureCollection {
+	fullProof := f.PrecommitProofMap(ctx, height, round, voteMap)
+	out := tmconsensus.SparseSignatureCollection{
+		BlockSignatures: make(map[string][]gcrypto.SparseSignature, len(voteMap)),
+	}
+
+	pubKeys := tmconsensus.ValidatorsToPubKeys(f.Vals())
+	pubKeyHash, err := f.HashScheme.PubKeys(pubKeys)
+	if err != nil {
+		panic(fmt.Errorf("error getting pub key hash: %w", err))
+	}
+	out.PubKeyHash = pubKeyHash
+
+	for blockHash, p := range fullProof {
+		out.BlockSignatures[blockHash] = p.AsSparse().Signatures
 	}
 	return out
 }

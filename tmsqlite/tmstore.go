@@ -1720,7 +1720,7 @@ func (s *TMStore) OverwriteRoundPrevoteProofs(
 	ctx context.Context,
 	height uint64,
 	round uint32,
-	proofs map[string]gcrypto.CommonMessageSignatureProof,
+	proofs tmconsensus.SparseSignatureCollection,
 ) error {
 	return s.overwriteRoundProofs(
 		ctx, height, round, proofs, "prevote",
@@ -1731,7 +1731,7 @@ func (s *TMStore) OverwriteRoundPrecommitProofs(
 	ctx context.Context,
 	height uint64,
 	round uint32,
-	proofs map[string]gcrypto.CommonMessageSignatureProof,
+	proofs tmconsensus.SparseSignatureCollection,
 ) error {
 	return s.overwriteRoundProofs(
 		ctx, height, round, proofs, "precommit",
@@ -1742,7 +1742,7 @@ func (s *TMStore) overwriteRoundProofs(
 	ctx context.Context,
 	height uint64,
 	round uint32,
-	proofs map[string]gcrypto.CommonMessageSignatureProof,
+	proofs tmconsensus.SparseSignatureCollection,
 	voteType string,
 ) error {
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -1754,13 +1754,9 @@ func (s *TMStore) overwriteRoundProofs(
 	// TODO: delete superseded signatures; tests need updated first.
 
 	// TODO: gassert: all key IDs in proofs are unique.
-	// TODO: gassert: all proofs have the same pub key hash.
 
-	var pubKeyHash []byte
-	for _, proof := range proofs {
-		pubKeyHash = proof.PubKeyHash()
-		break
-	}
+	// TODO instead: select the joined result,
+	// then don't overwrite anything that didn't exist.
 
 	// For now, do three insert attempts to cover everything here.
 	// First, create or get the ID of the round_votes row.
@@ -1776,7 +1772,7 @@ VALUES (
 (SELECT id FROM validator_pub_key_hashes WHERE hash = ?)
 ) ON CONFLICT DO UPDATE SET id=id RETURNING id`,
 		height, round,
-		pubKeyHash,
+		proofs.PubKeyHash,
 	).Scan(&roundVoteID); err != nil {
 		return fmt.Errorf("failed to get round vote ID: %w", err)
 	}
@@ -1785,9 +1781,9 @@ VALUES (
 		Hash []byte
 		ID   int64
 	}
-	blockHashesAndIDs := make([]bhid, 0, len(proofs))
-	args := make([]any, 0, 2*len(proofs))
-	for blockHash := range proofs {
+	blockHashesAndIDs := make([]bhid, 0, len(proofs.BlockSignatures))
+	args := make([]any, 0, 2*len(proofs.BlockSignatures))
+	for blockHash := range proofs.BlockSignatures {
 		var x bhid
 		if blockHash != "" {
 			x.Hash = []byte(blockHash)
@@ -1844,7 +1840,7 @@ VALUES (
 	nSigs := 0
 	args = args[:0]
 	for _, bhid := range blockHashesAndIDs {
-		for _, sig := range proofs[string(bhid.Hash)].AsSparse().Signatures {
+		for _, sig := range proofs.BlockSignatures[string(bhid.Hash)] {
 			args = append(args, bhid.ID, sig.KeyID, sig.Sig)
 			nSigs++
 		}
@@ -1868,14 +1864,14 @@ VALUES (?, ?, ?)`+
 
 func (s *TMStore) LoadRoundState(ctx context.Context, height uint64, round uint32) (
 	phs []tmconsensus.ProposedHeader,
-	prevotes, precommits map[string]gcrypto.CommonMessageSignatureProof,
+	prevotes, precommits tmconsensus.SparseSignatureCollection,
 	err error,
 ) {
 	// LoadRoundState is only called twice at the start of the mirror kernel,
 	// so it doesn't have to be super efficient.
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf(
+		return nil, prevotes, precommits, fmt.Errorf(
 			"failed to begin read-only transaction: %w", err,
 		)
 	}
@@ -1900,7 +1896,7 @@ WHERE proposed_headers.height = ? AND proposed_headers.round = ?`,
 		height, round,
 	)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf(
+		return nil, prevotes, precommits, fmt.Errorf(
 			"failed to select validator sets for proposed headers: %w", err,
 		)
 	}
@@ -1913,7 +1909,7 @@ WHERE proposed_headers.height = ? AND proposed_headers.round = ?`,
 		encKey = encKey[:0]
 		hash = hash[:0]
 		if err := rows.Scan(&hashID, &hash, &idx, &encKey, &nKeys); err != nil {
-			return nil, nil, nil, fmt.Errorf(
+			return nil, prevotes, precommits, fmt.Errorf(
 				"failed to scan validator set public key entry: %w", err,
 			)
 		}
@@ -1928,18 +1924,18 @@ WHERE proposed_headers.height = ? AND proposed_headers.round = ?`,
 		}
 		e.Keys[idx], err = s.reg.Unmarshal(encKey)
 		if err != nil {
-			return nil, nil, nil, fmt.Errorf(
+			return nil, prevotes, precommits, fmt.Errorf(
 				"failed to unmarshal key: %w", err,
 			)
 		}
 	}
 	if err := rows.Err(); err != nil {
-		return nil, nil, nil, fmt.Errorf(
+		return nil, prevotes, precommits, fmt.Errorf(
 			"failed to iterate validator sets: %w", err,
 		)
 	}
 	if err := rows.Close(); err != nil {
-		return nil, nil, nil, fmt.Errorf(
+		return nil, prevotes, precommits, fmt.Errorf(
 			"failed to close validator set iterator: %w", err,
 		)
 	}
@@ -1962,7 +1958,7 @@ WHERE proposed_headers.height = ? AND proposed_headers.round = ?`,
 		height, round,
 	)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf(
+		return nil, prevotes, precommits, fmt.Errorf(
 			"failed to select validator sets for proposed headers: %w", err,
 		)
 	}
@@ -1974,7 +1970,7 @@ WHERE proposed_headers.height = ? AND proposed_headers.round = ?`,
 		var idx, nPowers int
 		hash = hash[:0]
 		if err := rows.Scan(&hashID, &hash, &idx, &power, &nPowers); err != nil {
-			return nil, nil, nil, fmt.Errorf(
+			return nil, prevotes, precommits, fmt.Errorf(
 				"failed to scan validator power set entry: %w", err,
 			)
 		}
@@ -1990,12 +1986,12 @@ WHERE proposed_headers.height = ? AND proposed_headers.round = ?`,
 		e.Powers[idx] = power
 	}
 	if err := rows.Err(); err != nil {
-		return nil, nil, nil, fmt.Errorf(
+		return nil, prevotes, precommits, fmt.Errorf(
 			"failed to iterate validator power sets for proposed headers: %w", err,
 		)
 	}
 	if err := rows.Close(); err != nil {
-		return nil, nil, nil, fmt.Errorf(
+		return nil, prevotes, precommits, fmt.Errorf(
 			"failed to close validator power set iterator for proposed headers: %w", err,
 		)
 	}
@@ -2011,7 +2007,7 @@ ORDER BY ps.key_id`,
 		height, round,
 	)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf(
+		return nil, prevotes, precommits, fmt.Errorf(
 			"failed to select previous commit proofs for proposed headers: %w", err,
 		)
 	}
@@ -2025,7 +2021,7 @@ ORDER BY ps.key_id`,
 		keyID = keyID[:0]
 		sig = sig[:0]
 		if err := rows.Scan(&cpID, &blockHash, &keyID, &sig); err != nil {
-			return nil, nil, nil, fmt.Errorf(
+			return nil, prevotes, precommits, fmt.Errorf(
 				"failed to scan previous commit proofs for proposed headers: %w", err,
 			)
 		}
@@ -2045,12 +2041,12 @@ ORDER BY ps.key_id`,
 		)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, nil, nil, fmt.Errorf(
+		return nil, prevotes, precommits, fmt.Errorf(
 			"failed to iterate previous commit proofs for proposed headers: %w", err,
 		)
 	}
 	if err := rows.Close(); err != nil {
-		return nil, nil, nil, fmt.Errorf(
+		return nil, prevotes, precommits, fmt.Errorf(
 			"failed to close previous commit proofs iterator for proposed headers: %w", err,
 		)
 	}
@@ -2081,7 +2077,7 @@ WHERE phs.height = ? AND phs.round = ?`,
 		height, round,
 	)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf(
+		return nil, prevotes, precommits, fmt.Errorf(
 			"failed to select from proposed headers: %w", err,
 		)
 	}
@@ -2111,13 +2107,13 @@ WHERE phs.height = ? AND phs.round = ?`,
 			&ph.Header.PrevAppStateHash,
 			&ph.Header.Annotations.User, &ph.Header.Annotations.Driver,
 		); err != nil {
-			return nil, nil, nil, fmt.Errorf(
+			return nil, prevotes, precommits, fmt.Errorf(
 				"failed to scan proposed headers row: %w", err,
 			)
 		}
 		key, err := s.reg.Unmarshal(encKey)
 		if err != nil {
-			return nil, nil, nil, fmt.Errorf(
+			return nil, prevotes, precommits, fmt.Errorf(
 				"failed to unmarshal key from proposed headers: %w", err,
 			)
 		}
@@ -2126,7 +2122,7 @@ WHERE phs.height = ? AND phs.round = ?`,
 		keys := pubKeySets[vkID]
 		pows := powerSets[vpID]
 		if len(keys.Keys) != len(pows.Powers) {
-			return nil, nil, nil, fmt.Errorf(
+			return nil, prevotes, precommits, fmt.Errorf(
 				"validator hash mismatch: %d keys and %d powers", len(keys.Keys), len(pows.Powers),
 			)
 		}
@@ -2172,12 +2168,12 @@ WHERE phs.height = ? AND phs.round = ?`,
 		if pcpID.Valid {
 			proofs, ok := pcps[pcpID.Int64]
 			if !ok {
-				return nil, nil, nil, fmt.Errorf(
+				return nil, prevotes, precommits, fmt.Errorf(
 					"QUERY BUG: missing previous commit proof (id=%d)", pcpID.Int64,
 				)
 			}
 			if !pcpRound.Valid {
-				return nil, nil, nil, fmt.Errorf(
+				return nil, prevotes, precommits, fmt.Errorf(
 					"QUERY BUG: had previous commit proof (id=%d) but no round", pcpID.Int64,
 				)
 			}
@@ -2191,19 +2187,19 @@ WHERE phs.height = ? AND phs.round = ?`,
 		phs = append(phs, ph)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, nil, nil, fmt.Errorf(
+		return nil, prevotes, precommits, fmt.Errorf(
 			"failed to iterate proposed headers: %w", err,
 		)
 	}
 	if err := rows.Close(); err != nil {
-		return nil, nil, nil, fmt.Errorf(
+		return nil, prevotes, precommits, fmt.Errorf(
 			"failed to close proposed headers iterator: %w", err,
 		)
 	}
 
 	// TODO: load prevotes and precommits.
 
-	return phs, nil, nil, nil
+	return phs, prevotes, precommits, nil
 }
 
 func pragmas(ctx context.Context, db *sql.DB) error {
