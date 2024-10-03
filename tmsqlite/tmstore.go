@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"runtime/trace"
 	"slices"
 	"strings"
 
@@ -65,6 +66,8 @@ func (s *TMStore) SetNetworkHeightRound(
 	votingHeight uint64, votingRound uint32,
 	committingHeight uint64, committingRound uint32,
 ) error {
+	defer trace.StartRegion(ctx, "SetNetworkHeightRound").End()
+
 	_, err := s.db.ExecContext(
 		ctx,
 		`UPDATE mirror SET vh = ?, vr = ?, ch = ?, cr = ? WHERE id=0`,
@@ -78,6 +81,8 @@ func (s *TMStore) NetworkHeightRound(ctx context.Context) (
 	committingHeight uint64, committingRound uint32,
 	err error,
 ) {
+	defer trace.StartRegion(ctx, "NetworkHeightRound").End()
+
 	err = s.db.QueryRowContext(
 		ctx,
 		`SELECT vh, vr, ch, cr FROM mirror WHERE id=0`,
@@ -94,6 +99,8 @@ func (s *TMStore) NetworkHeightRound(ctx context.Context) (
 }
 
 func (s *TMStore) SavePubKeys(ctx context.Context, keys []gcrypto.PubKey) (string, error) {
+	defer trace.StartRegion(ctx, "SavePubKeys").End()
+
 	hash, err := s.hs.PubKeys(keys)
 	if err != nil {
 		return "", fmt.Errorf("failed to calculate public key hash: %w", err)
@@ -144,6 +151,8 @@ func (s *TMStore) createPubKeysInTx(
 	pubKeyHash []byte,
 	keys []gcrypto.PubKey,
 ) (hashID int64, err error) {
+	defer trace.StartRegion(ctx, "createPubKeysInTx").End()
+
 	// Create the key hash first.
 	res, err := tx.ExecContext(
 		ctx,
@@ -208,6 +217,8 @@ func (s *TMStore) createPubKeysInTx(
 }
 
 func (s *TMStore) LoadPubKeys(ctx context.Context, hash string) ([]gcrypto.PubKey, error) {
+	defer trace.StartRegion(ctx, "LoadPubKeys").End()
+
 	rows, err := s.db.QueryContext(
 		ctx,
 		`SELECT key FROM validator_pub_keys_for_hash WHERE hash = ? ORDER BY idx ASC`,
@@ -242,6 +253,8 @@ func (s *TMStore) LoadPubKeys(ctx context.Context, hash string) ([]gcrypto.PubKe
 }
 
 func (s *TMStore) SaveVotePowers(ctx context.Context, powers []uint64) (string, error) {
+	defer trace.StartRegion(ctx, "SaveVotePowers").End()
+
 	hash, err := s.hs.VotePowers(powers)
 	if err != nil {
 		return "", fmt.Errorf("failed to calculate vote power hash: %w", err)
@@ -292,6 +305,8 @@ func (s *TMStore) createVotePowersInTx(
 	votePowerHash []byte,
 	powers []uint64,
 ) (hashID int64, err error) {
+	defer trace.StartRegion(ctx, "createVotePowersInTx").End()
+
 	// Create the key hash first.
 	res, err := tx.ExecContext(
 		ctx,
@@ -324,6 +339,8 @@ VALUES (?,?,?)` +
 }
 
 func (s *TMStore) LoadVotePowers(ctx context.Context, hash string) ([]uint64, error) {
+	defer trace.StartRegion(ctx, "LoadVotePowers").End()
+
 	rows, err := s.db.QueryContext(
 		ctx,
 		`
@@ -357,6 +374,8 @@ SELECT validator_power_hash_entries.power FROM validator_power_hash_entries
 }
 
 func (s *TMStore) LoadValidators(ctx context.Context, keyHash, powHash string) ([]tmconsensus.Validator, error) {
+	defer trace.StartRegion(ctx, "LoadValidators").End()
+
 	rows, err := s.db.QueryContext(
 		ctx,
 		`SELECT keys.key, powers.power FROM
@@ -463,6 +482,8 @@ func (s *TMStore) SaveFinalization(
 	valSet tmconsensus.ValidatorSet,
 	appStateHash string,
 ) error {
+	defer trace.StartRegion(ctx, "SaveFinalization").End()
+
 	// We're going to need to touch a couple tables, so do this all within a transaction.
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -536,6 +557,8 @@ func (s *TMStore) LoadFinalizationByHeight(ctx context.Context, height uint64) (
 	appStateHash string,
 	err error,
 ) {
+	defer trace.StartRegion(ctx, "LoadFinalizationByHeight").End()
+
 	// This two-stage query seems like a prime candidate for NextResultSet,
 	// but it appears neither SQLite driver supports it.
 	// So use a read-only transaction instead.
@@ -654,6 +677,8 @@ func (s *TMStore) selectOrInsertPubKeysByHash(
 	pubKeyHash []byte,
 	pubKeys []gcrypto.PubKey,
 ) (hashID int64, err error) {
+	defer trace.StartRegion(ctx, "selectOrInsertPubKeysByHash").End()
+
 	row := tx.QueryRowContext(
 		ctx,
 		`SELECT id FROM validator_pub_key_hashes WHERE hash = ?`,
@@ -682,6 +707,8 @@ func (s *TMStore) selectOrInsertVotePowersByHash(
 	votePowerHash []byte,
 	votePowers []uint64,
 ) (hashID int64, err error) {
+	defer trace.StartRegion(ctx, "selectOrInsertVotePowersByHash").End()
+
 	row := tx.QueryRowContext(
 		ctx,
 		`SELECT id FROM validator_power_hashes WHERE hash = ?`,
@@ -701,6 +728,8 @@ func (s *TMStore) selectOrInsertVotePowersByHash(
 }
 
 func (s *TMStore) SaveHeader(ctx context.Context, ch tmconsensus.CommittedHeader) error {
+	defer trace.StartRegion(ctx, "SaveHeader").End()
+
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
@@ -756,6 +785,8 @@ func (s *TMStore) createHeaderInTx(
 	tx *sql.Tx,
 	h tmconsensus.Header,
 ) (int64, error) {
+	defer trace.StartRegion(ctx, "createHeaderInTx").End()
+
 	pubKeyHashID, err := s.selectOrInsertPubKeysByHash(
 		ctx, tx,
 		h.ValidatorSet.PubKeyHash,
@@ -876,6 +907,8 @@ func (s *TMStore) saveCommitProofs(
 	commitProofID int64,
 	proofs map[string][]gcrypto.SparseSignature,
 ) error {
+	defer trace.StartRegion(ctx, "saveCommitProofs").End()
+
 	// First create the voted blocks.
 	args := make([]any, 0, 2*len(proofs))
 	q := `INSERT INTO commit_proof_voted_blocks(commit_proof_id, block_hash) VALUES (?,?)` +
@@ -994,6 +1027,8 @@ commit_proof_voted_block_id, sparse_signature_id
 }
 
 func (s *TMStore) LoadHeader(ctx context.Context, height uint64) (tmconsensus.CommittedHeader, error) {
+	defer trace.StartRegion(ctx, "LoadHeader").End()
+
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		return tmconsensus.CommittedHeader{}, fmt.Errorf(
@@ -1083,6 +1118,8 @@ func (s *TMStore) loadHeaderDynamic(
 	where string,
 	queryArgs ...any,
 ) (tmconsensus.Header, int64, error) {
+	defer trace.StartRegion(ctx, "loadHeaderDynamic").End()
+
 	var h tmconsensus.Header
 	var headerID, pkhID, npkhID, vphID, nvphID int64
 	var pcpID sql.NullInt64
@@ -1308,6 +1345,8 @@ ORDER BY key_id`, // Order not strictly necessary, but convenient for tests.
 }
 
 func (s *TMStore) SaveProposedHeader(ctx context.Context, ph tmconsensus.ProposedHeader) error {
+	defer trace.StartRegion(ctx, "SaveProposedHeader").End()
+
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
@@ -1383,6 +1422,8 @@ func (s *TMStore) SavePrevote(
 	vt tmconsensus.VoteTarget,
 	sig []byte,
 ) error {
+	defer trace.StartRegion(ctx, "SavePrevote").End()
+
 	return s.saveVote(ctx, pubKey, vt, sig, voteEntryConfig{
 		IntoTable:  "actions_prevotes",
 		ActionType: "prevote",
@@ -1396,6 +1437,8 @@ func (s *TMStore) SavePrecommit(
 	vt tmconsensus.VoteTarget,
 	sig []byte,
 ) error {
+	defer trace.StartRegion(ctx, "SavePrecommit").End()
+
 	return s.saveVote(ctx, pubKey, vt, sig, voteEntryConfig{
 		IntoTable:  "actions_precommits",
 		ActionType: "precommit",
@@ -1416,6 +1459,8 @@ func (s *TMStore) saveVote(
 	sig []byte,
 	vec voteEntryConfig,
 ) error {
+	defer trace.StartRegion(ctx, "saveVote").End()
+
 	var blockHash []byte
 	if vt.BlockHash != "" {
 		blockHash = []byte(vt.BlockHash)
@@ -1490,6 +1535,8 @@ END
 }
 
 func (s *TMStore) LoadActions(ctx context.Context, height uint64, round uint32) (tmstore.RoundActions, error) {
+	defer trace.StartRegion(ctx, "LoadActions").End()
+
 	// LoadActions should only be called once at application startup,
 	// so it's not a big deal if we take several queries to get all the action details.
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
@@ -1665,6 +1712,8 @@ FROM proposed_headers WHERE id = ?`,
 }
 
 func (s *TMStore) SaveRoundProposedHeader(ctx context.Context, ph tmconsensus.ProposedHeader) error {
+	defer trace.StartRegion(ctx, "SaveRoundProposedHeader").End()
+
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
@@ -1722,6 +1771,8 @@ func (s *TMStore) OverwriteRoundPrevoteProofs(
 	round uint32,
 	proofs tmconsensus.SparseSignatureCollection,
 ) error {
+	defer trace.StartRegion(ctx, "OverwriteRoundPrevoteProofs").End()
+
 	return s.overwriteRoundProofs(
 		ctx, height, round, proofs, "prevote",
 	)
@@ -1733,6 +1784,8 @@ func (s *TMStore) OverwriteRoundPrecommitProofs(
 	round uint32,
 	proofs tmconsensus.SparseSignatureCollection,
 ) error {
+	defer trace.StartRegion(ctx, "OverwriteRoundPrecommitProofs").End()
+
 	return s.overwriteRoundProofs(
 		ctx, height, round, proofs, "precommit",
 	)
@@ -1745,6 +1798,8 @@ func (s *TMStore) overwriteRoundProofs(
 	proofs tmconsensus.SparseSignatureCollection,
 	voteType string,
 ) error {
+	defer trace.StartRegion(ctx, "overwriteRoundProofs").End()
+
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
@@ -1867,6 +1922,8 @@ func (s *TMStore) LoadRoundState(ctx context.Context, height uint64, round uint3
 	prevotes, precommits tmconsensus.SparseSignatureCollection,
 	err error,
 ) {
+	defer trace.StartRegion(ctx, "LoadRoundState").End()
+
 	// LoadRoundState is only called twice at the start of the mirror kernel,
 	// so it doesn't have to be super efficient.
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
@@ -2234,6 +2291,8 @@ func (s *TMStore) loadRoundStateVotes(
 	round uint32,
 	tableName string,
 ) (out tmconsensus.SparseSignatureCollection, err error) {
+	defer trace.StartRegion(ctx, "loadRoundStateVotes").End()
+
 	switch tableName {
 	case "round_prevotes", "round_precommits":
 		// Okay.
@@ -2294,6 +2353,8 @@ func (s *TMStore) loadRoundStateVotes(
 }
 
 func pragmas(ctx context.Context, db *sql.DB) error {
+	defer trace.StartRegion(ctx, "pragmas").End()
+
 	if _, err := db.ExecContext(ctx, `PRAGMA foreign_keys = ON;`); err != nil {
 		return fmt.Errorf("failed to set foreign keys on: %w", err)
 	}
