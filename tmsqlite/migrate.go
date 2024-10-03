@@ -67,6 +67,16 @@ func migrateFrom(ctx context.Context, tx *sql.Tx, version int) error {
 		return fmt.Errorf("unknown migration version %d", version)
 	}
 
+	// If we didn't return inside the above switch statement,
+	// then we did something with migrations.
+	// According to https://sqlite.org/pragma.html#pragma_optimize,
+	// "All applications should run `PRAGMA optimize;` after a schema change,
+	// especially after one or more CREATE INDEX statements."
+	// Creating tables is a schema change, so here we go.
+	if _, err := tx.ExecContext(ctx, "PRAGMA optimize"); err != nil {
+		return fmt.Errorf("failed to run PRAGMA optimize after migration: %w", err)
+	}
+
 	return nil
 }
 

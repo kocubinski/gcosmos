@@ -2294,9 +2294,23 @@ func (s *TMStore) loadRoundStateVotes(
 }
 
 func pragmas(ctx context.Context, db *sql.DB) error {
-	_, err := db.ExecContext(ctx, `PRAGMA foreign_keys = ON;`)
-	if err != nil {
+	if _, err := db.ExecContext(ctx, `PRAGMA foreign_keys = ON;`); err != nil {
 		return fmt.Errorf("failed to set foreign keys on: %w", err)
 	}
+
+	// https://www.sqlite.org/lang_analyze.html#periodically_run_pragma_optimize_
+	// "Applications that use long-lived database connections should run `PRAGMA optimize=0x10002;`
+	// when the connection is first opened,
+	// and then also run `PRAGMA optimize;` periodically,
+	// perhaps once per day, or more if the database is evolving rapidly."
+	//
+	// TODO: according to https://www.sqlite.org/lang_analyze.html#automatically_running_analyze
+	// we should probably set up a timer to periodically re-run PRAGMA optimize,
+	// as it is influenced by exactly which queries are run,
+	// and those statistics are held in-memory.
+	if _, err := db.ExecContext(ctx, `PRAGMA optimize(0x10002);`); err != nil {
+		return fmt.Errorf("failed to run startup PRAGMA optimize: %w", err)
+	}
+
 	return nil
 }
