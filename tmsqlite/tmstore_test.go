@@ -111,8 +111,6 @@ func TestMirrorStoreCompliance(t *testing.T) {
 }
 
 func TestRoundStoreCompliance(t *testing.T) {
-	t.Skip("not ready")
-
 	t.Parallel()
 
 	tmstoretest.TestRoundStoreCompliance(t, func(cleanup func(func())) (tmstore.RoundStore, error) {

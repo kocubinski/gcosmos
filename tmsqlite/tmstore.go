@@ -2197,9 +2197,100 @@ WHERE phs.height = ? AND phs.round = ?`,
 		)
 	}
 
-	// TODO: load prevotes and precommits.
+	prevotes, err = s.loadRoundStateVotes(ctx, tx, height, round, "round_prevotes")
+	if err != nil {
+		return nil, prevotes, precommits, fmt.Errorf(
+			"failed to load round state prevotes: %w", err,
+		)
+	}
+	precommits, err = s.loadRoundStateVotes(ctx, tx, height, round, "round_precommits")
+	if err != nil {
+		return nil, prevotes, precommits, fmt.Errorf(
+			"failed to load round state prevotes: %w", err,
+		)
+	}
+
+	if len(prevotes.PubKeyHash) > 0 && len(precommits.PubKeyHash) > 0 &&
+		!bytes.Equal(prevotes.PubKeyHash, precommits.PubKeyHash) {
+		panic(fmt.Errorf(
+			"DATABASE CONSISTENCY BUG: for height=%d and round=%d, loaded prevote pub key hash %x and precommit pub key hash %x",
+			height, round, prevotes.PubKeyHash, precommits.PubKeyHash,
+		))
+	}
+
+	if len(phs) == 0 && len(prevotes.BlockSignatures) == 0 && len(precommits.BlockSignatures) == 0 {
+		return phs, prevotes, precommits, tmconsensus.RoundUnknownError{
+			WantHeight: height, WantRound: round,
+		}
+	}
 
 	return phs, prevotes, precommits, nil
+}
+
+func (s *TMStore) loadRoundStateVotes(
+	ctx context.Context,
+	tx *sql.Tx,
+	height uint64,
+	round uint32,
+	tableName string,
+) (out tmconsensus.SparseSignatureCollection, err error) {
+	switch tableName {
+	case "round_prevotes", "round_precommits":
+		// Okay.
+	default:
+		panic(fmt.Errorf("BUG: illegal table name %s for loadRoundStateVotes", tableName))
+	}
+
+	rows, err := tx.QueryContext(
+		ctx,
+		`SELECT pub_key_hash, block_hash, key_id, sig FROM `+tableName+` WHERE height=? AND round=?`,
+		height, round,
+	)
+	if err != nil {
+		return out, fmt.Errorf(
+			"failed to select from %s: %w", tableName, err,
+		)
+	}
+	defer rows.Close()
+
+	isFirstScan := true
+	var pubKeyHash, blockHash, keyID, sig []byte
+	for rows.Next() {
+		pubKeyHash = pubKeyHash[:0]
+		blockHash = blockHash[:0]
+		keyID = keyID[:0]
+		sig = sig[:0]
+		if err := rows.Scan(&pubKeyHash, &blockHash, &keyID, &sig); err != nil {
+			return out, fmt.Errorf(
+				"failed to scan %s row: %w", tableName, err,
+			)
+		}
+		if isFirstScan {
+			out.PubKeyHash = bytes.Clone(pubKeyHash)
+			out.BlockSignatures = make(map[string][]gcrypto.SparseSignature)
+		}
+		isFirstScan = false
+
+		out.BlockSignatures[string(blockHash)] = append(
+			out.BlockSignatures[string(blockHash)],
+			gcrypto.SparseSignature{
+				KeyID: bytes.Clone(keyID),
+				Sig:   bytes.Clone(sig),
+			},
+		)
+	}
+	if err := rows.Err(); err != nil {
+		return out, fmt.Errorf(
+			"error when iterating %s: %w", tableName, err,
+		)
+	}
+	if err := rows.Close(); err != nil {
+		return out, fmt.Errorf(
+			"error when closing %s iterator: %w", tableName, err,
+		)
+	}
+
+	return out, nil
 }
 
 func pragmas(ctx context.Context, db *sql.DB) error {

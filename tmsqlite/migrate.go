@@ -424,6 +424,39 @@ CREATE TABLE round_precommit_signatures(
   FOREIGN KEY(block_id) REFERENCES round_precommit_blocks(id) ON DELETE CASCADE
 );`+
 
+			// Views for getting prevotes and precommits from round_votes.
+			`
+CREATE VIEW round_prevotes(
+  height, round,
+  pub_key_hash,
+  block_hash,
+  key_id, sig
+) AS SELECT
+  rv.height, rv.round,
+  keys.hash,
+  blocks.block_hash,
+  sigs.key_id, sigs.signature
+FROM validator_pub_key_hashes AS keys
+JOIN round_votes AS rv ON rv.validators_pub_key_hash_id = keys.id
+JOIN round_prevote_blocks AS blocks ON blocks.round_vote_id = rv.id
+JOIN round_prevote_signatures AS sigs ON sigs.block_id = blocks.id;
+
+CREATE VIEW round_precommits(
+  height, round,
+  pub_key_hash,
+  block_hash,
+  key_id, sig
+) AS SELECT
+  rv.height, rv.round,
+  keys.hash,
+  blocks.block_hash,
+  sigs.key_id, sigs.signature
+FROM validator_pub_key_hashes AS keys
+JOIN round_votes AS rv ON rv.validators_pub_key_hash_id = keys.id
+JOIN round_precommit_blocks AS blocks ON blocks.round_vote_id = rv.id
+JOIN round_precommit_signatures AS sigs ON sigs.block_id = blocks.id;
+`+
+
 			// Consistent end of long concatenated literal, to minimize diffs.
 			"",
 	)

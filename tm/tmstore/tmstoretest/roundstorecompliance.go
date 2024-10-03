@@ -255,8 +255,12 @@ func TestRoundStoreCompliance(t *testing.T, f RoundStoreFactory) {
 			require.NoError(t, err)
 
 			fx := tmconsensustest.NewStandardFixture(2)
+			attemptToSavePubKeys(t, ctx, s, fx.Vals())
 
 			ph := fx.NextProposedHeader([]byte("app_data"), 0)
+			fx.SignProposal(ctx, &ph, 0)
+			require.Empty(t, ph.Header.PrevCommitProof.Proofs)
+			ph.Header.PrevCommitProof.Proofs = nil
 			require.NoError(t, s.SaveRoundProposedHeader(ctx, ph))
 
 			// First validator votes for proposed block,
@@ -288,8 +292,12 @@ func TestRoundStoreCompliance(t *testing.T, f RoundStoreFactory) {
 			require.NoError(t, err)
 
 			fx := tmconsensustest.NewStandardFixture(2)
+			attemptToSavePubKeys(t, ctx, s, fx.Vals())
 
 			ph := fx.NextProposedHeader([]byte("app_data"), 0)
+			fx.SignProposal(ctx, &ph, 0)
+			require.Empty(t, ph.Header.PrevCommitProof.Proofs)
+			ph.Header.PrevCommitProof.Proofs = nil
 			require.NoError(t, s.SaveRoundProposedHeader(ctx, ph))
 
 			pbs, prevotes, precommits, err := s.LoadRoundState(ctx, 1, 0)
@@ -311,8 +319,12 @@ func TestRoundStoreCompliance(t *testing.T, f RoundStoreFactory) {
 			require.NoError(t, err)
 
 			fx := tmconsensustest.NewStandardFixture(2)
+			attemptToSavePubKeys(t, ctx, s, fx.Vals())
 
 			ph := fx.NextProposedHeader([]byte("app_data"), 0)
+			fx.SignProposal(ctx, &ph, 0)
+			require.Empty(t, ph.Header.PrevCommitProof.Proofs)
+			ph.Header.PrevCommitProof.Proofs = nil
 
 			// First validator votes for proposed block,
 			// other validator votes for nil.
@@ -341,8 +353,12 @@ func TestRoundStoreCompliance(t *testing.T, f RoundStoreFactory) {
 			require.NoError(t, err)
 
 			fx := tmconsensustest.NewStandardFixture(2)
+			attemptToSavePubKeys(t, ctx, s, fx.Vals())
 
 			ph := fx.NextProposedHeader([]byte("app_data"), 0)
+			fx.SignProposal(ctx, &ph, 0)
+			require.Empty(t, ph.Header.PrevCommitProof.Proofs)
+			ph.Header.PrevCommitProof.Proofs = nil
 
 			// First validator votes for proposed block,
 			// other validator votes for nil.
