@@ -910,14 +910,16 @@ func (s *TMStore) saveCommitProofs(
 	defer trace.StartRegion(ctx, "saveCommitProofs").End()
 
 	// First create the voted blocks.
-	args := make([]any, 0, 2*len(proofs))
 	q := `INSERT INTO commit_proof_voted_blocks(commit_proof_id, block_hash) VALUES (?,?)` +
 		// We can safely assume there is at least one proof,
 		// which simplifies the comma joining.
 		strings.Repeat(", (?,?)", len(proofs)-1) +
 		// We iterate the map in arbitrary order,
 		// so it's simpler to just get back the hash-ID pairings.
+		// Plus, this is the only safe way to use RETURNING,
+		// which is defined to report back results in arbitrary order.
 		` RETURNING id, block_hash`
+	args := make([]any, 0, 2*len(proofs))
 	for hash := range proofs {
 		args = append(args, commitProofID, []byte(hash))
 	}
@@ -1037,7 +1039,7 @@ func (s *TMStore) LoadHeader(ctx context.Context, height uint64) (tmconsensus.Co
 	}
 	defer tx.Rollback()
 
-	h, headerID, err := s.loadHeaderDynamic(ctx, tx, `committed = 1 AND height = ?`, height)
+	h, headerID, err := s.loadCommittedHeaderByHeight(ctx, tx, height)
 	if err != nil {
 		return tmconsensus.CommittedHeader{}, fmt.Errorf(
 			"failed to load header: %w", err,
@@ -1112,6 +1114,25 @@ ORDER BY key_id`, // Order not strictly necessary, but convenient for tests.
 	}, nil
 }
 
+func (s *TMStore) loadHeaderByID(ctx context.Context, tx *sql.Tx, id int64) (
+	tmconsensus.Header, error,
+) {
+	defer trace.StartRegion(ctx, "loadHeaderByID").End()
+
+	h, _, err := s.loadHeaderDynamic(ctx, tx, `id = ?`, id)
+	return h, err
+}
+
+func (s *TMStore) loadCommittedHeaderByHeight(
+	ctx context.Context,
+	tx *sql.Tx,
+	height uint64,
+) (tmconsensus.Header, int64, error) {
+	defer trace.StartRegion(ctx, "loadCommittedHeaderByHeight").End()
+
+	return s.loadHeaderDynamic(ctx, tx, `committed = 1 AND height = ?`, height)
+}
+
 func (s *TMStore) loadHeaderDynamic(
 	ctx context.Context,
 	tx *sql.Tx,
@@ -1136,7 +1157,7 @@ validators_pub_key_hash_id, next_validators_pub_key_hash_id,
 validators_power_hash_id, next_validators_power_hash_id
 FROM headers
 WHERE
-`+where,
+`+where, // Dynamic where here, but you can see the callers are hardcoded to use bound arguments.
 		queryArgs...,
 	).Scan(
 		&headerID,
@@ -1461,6 +1482,13 @@ func (s *TMStore) saveVote(
 ) error {
 	defer trace.StartRegion(ctx, "saveVote").End()
 
+	switch vec.IntoTable {
+	case "actions_prevotes", "actions_precommits":
+		// Okay.
+	default:
+		panic(fmt.Errorf("BUG: illegal IntoTable name %s for saveVote", vec.IntoTable))
+	}
+
 	var blockHash []byte
 	if vt.BlockHash != "" {
 		blockHash = []byte(vt.BlockHash)
@@ -1633,7 +1661,7 @@ FROM proposed_headers WHERE id = ?`,
 			))
 		}
 
-		h, _, err := s.loadHeaderDynamic(ctx, tx, `id = ?`, headerID)
+		h, err := s.loadHeaderByID(ctx, tx, headerID)
 		if err != nil {
 			return tmstore.RoundActions{}, fmt.Errorf(
 				"failed to load header: %w", err,
@@ -1799,6 +1827,15 @@ func (s *TMStore) overwriteRoundProofs(
 	voteType string,
 ) error {
 	defer trace.StartRegion(ctx, "overwriteRoundProofs").End()
+
+	switch voteType {
+	case "prevote", "precommit":
+		// Okay.
+	default:
+		panic(fmt.Errorf(
+			"BUG: illegal voteType %s in overwriteRoundProofs", voteType,
+		))
+	}
 
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
