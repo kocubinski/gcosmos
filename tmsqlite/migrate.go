@@ -431,7 +431,8 @@ CREATE TABLE round_precommit_signatures(
   block_id INTEGER NOT NULL,
   key_id BLOB NOT NULL,
   signature BLOB NOT NULL,
-  FOREIGN KEY(block_id) REFERENCES round_precommit_blocks(id) ON DELETE CASCADE
+  FOREIGN KEY(block_id) REFERENCES round_precommit_blocks(id) ON DELETE CASCADE,
+  UNIQUE (block_id, key_id)
 );`+
 
 			// Views for getting prevotes and precommits from round_votes.
