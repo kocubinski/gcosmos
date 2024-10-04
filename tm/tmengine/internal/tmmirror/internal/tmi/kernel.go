@@ -134,25 +134,13 @@ func NewKernel(ctx context.Context, log *slog.Logger, cfg KernelConfig) (*Kernel
 	_, _, precommits, err := cfg.RoundStore.LoadRoundState(ctx, nhr.CommittingHeight, nhr.CommittingRound)
 	if err == nil {
 		committingProof = tmconsensus.CommitProof{
-			Round:  nhr.CommittingRound,
-			Proofs: make(map[string][]gcrypto.SparseSignature, len(precommits)),
+			PubKeyHash: string(precommits.PubKeyHash),
+			Round:      nhr.CommittingRound,
+			Proofs:     make(map[string][]gcrypto.SparseSignature, len(precommits.BlockSignatures)),
 		}
 
-		isFirst := true
-		for hash, proof := range precommits {
-			sparse := proof.AsSparse()
-			committingProof.Proofs[hash] = sparse.Signatures
-			if isFirst {
-				committingProof.PubKeyHash = sparse.PubKeyHash
-				isFirst = false
-			} else {
-				if sparse.PubKeyHash != committingProof.PubKeyHash {
-					panic(fmt.Errorf(
-						"CORRUPT STATE IN ROUND STORE: differing pub key hashes %x and %x in commit proofs",
-						sparse.PubKeyHash, committingProof.PubKeyHash,
-					))
-				}
-			}
+		for hash, sigs := range precommits.BlockSignatures {
+			committingProof.Proofs[hash] = sigs
 		}
 	} else if errors.As(err, new(tmconsensus.RoundUnknownError)) {
 		// Assuming that means we are voting at initial height.
@@ -475,7 +463,7 @@ func (k *Kernel) addProposedHeader(ctx context.Context, s *kState, ph tmconsensu
 		if err := k.rStore.OverwriteRoundPrecommitProofs(
 			ctx,
 			ph.Header.Height-1, ph.Header.PrevCommitProof.Round, // TODO: Don't assume this matches the committing view.
-			backfillVRV.PrecommitProofs,
+			mapToSparseSignatureCollection(backfillVRV.PrecommitProofs),
 		); err != nil {
 			glog.HRE(k.log, ph.Header.Height, ph.Round, err).Warn(
 				"Failed to save backfilled commit info to round store; this may cause issues upon restart",
@@ -501,6 +489,40 @@ func (k *Kernel) addProposedHeader(ctx context.Context, s *kState, ph tmconsensu
 			k.checkVotingPrecommitViewShift(ctx, s)
 		}
 	}
+}
+
+// mapToSparseSignatureCollection converts a mapped full proof
+// to a SparseSignatureCollection.
+// TODO: we should extract a type for the full map
+// and add this as a method there.
+func mapToSparseSignatureCollection(
+	proofs map[string]gcrypto.CommonMessageSignatureProof,
+) tmconsensus.SparseSignatureCollection {
+	out := tmconsensus.SparseSignatureCollection{
+		BlockSignatures: make(map[string][]gcrypto.SparseSignature, len(proofs)),
+	}
+
+	isFirst := true
+	for hash, proof := range proofs {
+		if isFirst {
+			out.PubKeyHash = proof.PubKeyHash()
+			isFirst = false
+		} else {
+			if !bytes.Equal(out.PubKeyHash, proof.PubKeyHash()) {
+				panic(fmt.Errorf(
+					"public key hash mismatch in signature proofs: %x and %x",
+					out.PubKeyHash, proof.PubKeyHash(),
+				))
+			}
+		}
+
+		sp := proof.AsSparse()
+		for _, sig := range sp.Signatures {
+			out.BlockSignatures[hash] = append(out.BlockSignatures[hash], sig)
+		}
+	}
+
+	return out
 }
 
 // addPrevote is the kernel method to add prevotes to the current state.
@@ -568,7 +590,7 @@ func (k *Kernel) addPrevote(ctx context.Context, s *kState, req AddPrevoteReques
 		if err := k.rStore.OverwriteRoundPrevoteProofs(
 			ctx,
 			req.H, req.R,
-			vrv.PrevoteProofs,
+			mapToSparseSignatureCollection(vrv.PrevoteProofs),
 		); err != nil {
 			glog.HRE(k.log, req.H, req.R, err).Warn(
 				"Failed to save prevotes to round store; this may cause issues upon restart",
@@ -669,7 +691,7 @@ func (k *Kernel) addPrecommit(ctx context.Context, s *kState, req AddPrecommitRe
 		if err := k.rStore.OverwriteRoundPrecommitProofs(
 			ctx,
 			req.H, req.R,
-			vrv.PrecommitProofs,
+			mapToSparseSignatureCollection(vrv.PrecommitProofs),
 		); err != nil {
 			glog.HRE(k.log, req.H, req.R, err).Warn(
 				"Failed to save precommits to round store; this may cause issues upon restart",
@@ -1823,7 +1845,11 @@ func (k *Kernel) handleReplayedHeader(
 	// Since this was a replayed header and we know it was in the voting round,
 	// we must have added precommits.
 	// Update the store with whatever the new set of precommits is.
-	if err := k.rStore.OverwriteRoundPrecommitProofs(ctx, h, r, s.Voting.PrecommitProofs); err != nil {
+	if err := k.rStore.OverwriteRoundPrecommitProofs(
+		ctx,
+		h, r,
+		mapToSparseSignatureCollection(s.Voting.PrecommitProofs),
+	); err != nil {
 		return tmelink.ReplayedHeaderInternalError{
 			Err: fmt.Errorf(
 				"failed to save replayed commits to round store: %w",
@@ -1853,7 +1879,7 @@ func (k *Kernel) loadInitialView(
 	vs tmconsensus.ValidatorSet,
 ) (tmconsensus.RoundView, error) {
 	var rv tmconsensus.RoundView
-	phs, prevotes, precommits, err := k.rStore.LoadRoundState(ctx, h, r)
+	phs, sparsePrevotes, sparsePrecommits, err := k.rStore.LoadRoundState(ctx, h, r)
 	if err != nil && !errors.Is(err, tmconsensus.RoundUnknownError{WantHeight: h, WantRound: r}) {
 		return rv, err
 	}
@@ -1892,38 +1918,27 @@ func (k *Kernel) loadInitialView(
 		)
 	}
 
-	// Now that we have the validator public keys,
-	// we can ensure that the view has the nil proof set.
-	nilVT := tmconsensus.VoteTarget{Height: h, Round: r}
-	if prevotes == nil {
-		prevotes = make(map[string]gcrypto.CommonMessageSignatureProof)
+	rv.PrevoteProofs, err = sparsePrevotes.ToFullPrevoteProofMap(
+		h, r,
+		vs,
+		k.sigScheme, k.cmspScheme,
+	)
+	if err != nil {
+		return tmconsensus.RoundView{}, fmt.Errorf(
+			"failed to load full prevote proof map: %w", err,
+		)
 	}
-	if prevotes[""] == nil {
-		content, err := tmconsensus.PrevoteSignBytes(nilVT, k.sigScheme)
-		if err != nil {
-			return tmconsensus.RoundView{}, fmt.Errorf("failed to get initial nil prevote sign bytes: %w", err)
-		}
-		prevotes[""], err = k.cmspScheme.New(content, valPubKeys, string(rv.ValidatorSet.PubKeyHash))
-		if err != nil {
-			return tmconsensus.RoundView{}, fmt.Errorf("failed to get initial nil prevote proof: %w", err)
-		}
-	}
-	rv.PrevoteProofs = prevotes
 
-	if precommits == nil {
-		precommits = make(map[string]gcrypto.CommonMessageSignatureProof)
+	rv.PrecommitProofs, err = sparsePrecommits.ToFullPrecommitProofMap(
+		h, r,
+		vs,
+		k.sigScheme, k.cmspScheme,
+	)
+	if err != nil {
+		return tmconsensus.RoundView{}, fmt.Errorf(
+			"failed to load full precommit proof map: %w", err,
+		)
 	}
-	if precommits[""] == nil {
-		content, err := tmconsensus.PrecommitSignBytes(nilVT, k.sigScheme)
-		if err != nil {
-			return tmconsensus.RoundView{}, fmt.Errorf("failed to get initial nil precommit sign bytes: %w", err)
-		}
-		precommits[""], err = k.cmspScheme.New(content, valPubKeys, string(rv.ValidatorSet.PubKeyHash))
-		if err != nil {
-			return tmconsensus.RoundView{}, fmt.Errorf("failed to get initial nil precommit proof: %w", err)
-		}
-	}
-	rv.PrecommitProofs = precommits
 
 	rv.VoteSummary = tmconsensus.NewVoteSummary()
 	rv.VoteSummary.SetAvailablePower(rv.ValidatorSet.Validators)

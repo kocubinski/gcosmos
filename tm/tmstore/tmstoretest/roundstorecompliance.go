@@ -107,8 +107,6 @@ func TestRoundStoreCompliance(t *testing.T, f RoundStoreFactory) {
 			require.Equal(t, want, phs)
 		})
 
-		// TODO: need a happy path test that involves headers beyond the initial height.
-
 		t.Run("overwriting an existing proposed block", func(t *testing.T) {
 			t.Parallel()
 

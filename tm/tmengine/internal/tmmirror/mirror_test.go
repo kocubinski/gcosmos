@@ -736,7 +736,14 @@ func TestMirror_HandlePrevoteProofs(t *testing.T) {
 
 		_, prevotes, _, err := mfx.Cfg.RoundStore.LoadRoundState(ctx, 1, 0)
 		require.NoError(t, err)
-		require.Equal(t, fullPrevoteProofMap, prevotes)
+
+		newFullPrevotes, err := prevotes.ToFullPrevoteProofMap(
+			1, 0,
+			mfx.Fx.ValSet(),
+			mfx.Fx.SignatureScheme, mfx.Fx.CommonMessageSignatureProofScheme,
+		)
+		require.NoError(t, err)
+		require.Equal(t, fullPrevoteProofMap, newFullPrevotes)
 	})
 
 	t.Run("concurrent independent updates accepted", func(t *testing.T) {
@@ -822,7 +829,15 @@ func TestMirror_HandlePrevoteProofs(t *testing.T) {
 
 		_, prevotes, _, err := mfx.Cfg.RoundStore.LoadRoundState(ctx, 1, 0)
 		require.NoError(t, err)
-		require.Equal(t, fullPrevoteProofMap, prevotes)
+
+		newFullPrevotes, err := prevotes.ToFullPrevoteProofMap(
+			1, 0,
+			mfx.Fx.ValSet(),
+			mfx.Fx.SignatureScheme, mfx.Fx.CommonMessageSignatureProofScheme,
+		)
+		require.NoError(t, err)
+
+		require.Equal(t, fullPrevoteProofMap, newFullPrevotes)
 
 		gso := gtest.ReceiveSoon(t, mfx.GossipStrategyOut)
 
@@ -905,7 +920,15 @@ func TestMirror_HandlePrecommitProofs(t *testing.T) {
 
 		_, _, precommits, err := mfx.Cfg.RoundStore.LoadRoundState(ctx, 1, 0)
 		require.NoError(t, err)
-		require.Equal(t, fullPrecommitProofMap, precommits)
+
+		newFullPrecommits, err := precommits.ToFullPrecommitProofMap(
+			1, 0,
+			mfx.Fx.ValSet(),
+			mfx.Fx.SignatureScheme, mfx.Fx.CommonMessageSignatureProofScheme,
+		)
+		require.NoError(t, err)
+
+		require.Equal(t, fullPrecommitProofMap, newFullPrecommits)
 	})
 }
 
@@ -1117,7 +1140,7 @@ func TestMirror_pastInitialHeight(t *testing.T) {
 			// Round store matches too.
 			_, prevotes, precommits, err := mfx.Cfg.RoundStore.LoadRoundState(ctx, 1, 0)
 			require.NoError(t, err)
-			votes := voter.ProofsFromRoundStateMaps(prevotes, precommits)
+			votes := voter.FullProofsFromRoundStateMaps(1, 0, mfx.Fx.ValSet(), prevotes, precommits)
 			require.Equal(t, expVoteCount, votes[ph1].SignatureBitSet().Count())
 		})
 	}
@@ -1812,7 +1835,7 @@ func TestMirror_nextRound(t *testing.T) {
 			// And so does the round store.
 			_, prevotes, precommits, err := mfx.Cfg.RoundStore.LoadRoundState(ctx, 1, 1)
 			require.NoError(t, err)
-			votes := voter.ProofsFromRoundStateMaps(prevotes, precommits)
+			votes := voter.FullProofsFromRoundStateMaps(1, 1, mfx.Fx.ValSet(), prevotes, precommits)
 			require.Equal(t, uint(1), votes[string(ph11.Header.Hash)].SignatureBitSet().Count())
 
 			// Now if we exceed the minority vote for that header on 1/1...
@@ -2949,10 +2972,16 @@ func TestMirror_replayedHeaders(t *testing.T) {
 				Header: ph1.Header,
 			},
 		}, phs)
-		require.Empty(t, prevotes)
-		require.Len(t, precommits, 2) // Block hash and nil.
-		require.Zero(t, precommits[""].SignatureBitSet().Count())
-		require.Equal(t, uint(4), precommits[string(ph1.Header.Hash)].SignatureBitSet().Count())
+		require.Empty(t, prevotes.BlockSignatures)
+		fullPrecommits, err := precommits.ToFullPrecommitProofMap(
+			1, 0,
+			mfx.Fx.ValSet(),
+			mfx.Fx.SignatureScheme, mfx.Fx.CommonMessageSignatureProofScheme,
+		)
+		require.NoError(t, err)
+		require.Len(t, fullPrecommits, 2) // Block hash and nil.
+		require.Zero(t, fullPrecommits[""].SignatureBitSet().Count())
+		require.Equal(t, uint(4), fullPrecommits[string(ph1.Header.Hash)].SignatureBitSet().Count())
 
 		// So, let's replay the next header too.
 		voteMap = map[string][]int{
@@ -3040,11 +3069,17 @@ func TestMirror_replayedHeaders(t *testing.T) {
 			// And we don't store the header for the proposed-but-not-committed block,
 			// so phs only contains the one element.
 		}, phs)
-		require.Empty(t, prevotes)
-		require.Len(t, precommits, 3)
-		require.Equal(t, uint(1), precommits[""].SignatureBitSet().Count())
-		require.Equal(t, uint(1), precommits[string(ph1Bad.Header.Hash)].SignatureBitSet().Count())
-		require.Equal(t, uint(6), precommits[string(ph1Good.Header.Hash)].SignatureBitSet().Count())
+		require.Empty(t, prevotes.BlockSignatures)
+		fullPrecommits, err := precommits.ToFullPrecommitProofMap(
+			1, 0,
+			mfx.Fx.ValSet(),
+			mfx.Fx.SignatureScheme, mfx.Fx.CommonMessageSignatureProofScheme,
+		)
+		require.NoError(t, err)
+		require.Len(t, fullPrecommits, 3)
+		require.Equal(t, uint(1), fullPrecommits[""].SignatureBitSet().Count())
+		require.Equal(t, uint(1), fullPrecommits[string(ph1Bad.Header.Hash)].SignatureBitSet().Count())
+		require.Equal(t, uint(6), fullPrecommits[string(ph1Good.Header.Hash)].SignatureBitSet().Count())
 	})
 
 	t.Run("indicative error when replayed block has wrong height", func(t *testing.T) {

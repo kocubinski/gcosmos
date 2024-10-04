@@ -167,9 +167,10 @@ func (f *Fixture) CommitInitialHeight(
 	voteMap := map[string][]int{
 		string(pb.Header.Hash): committerIdxs,
 	}
-	precommitProofs := f.Fx.PrecommitProofMap(ctx, f.Cfg.InitialHeight, 0, voteMap)
+	fullPrecommitProofs := f.Fx.PrecommitProofMap(ctx, f.Cfg.InitialHeight, 0, voteMap)
+	sparsePrecommits := f.Fx.SparsePrecommitSignatureCollection(ctx, f.Cfg.InitialHeight, 0, voteMap)
 
-	if err := f.Cfg.RoundStore.OverwriteRoundPrecommitProofs(ctx, f.Cfg.InitialHeight, 0, precommitProofs); err != nil {
+	if err := f.Cfg.RoundStore.OverwriteRoundPrecommitProofs(ctx, f.Cfg.InitialHeight, 0, sparsePrecommits); err != nil {
 		panic(fmt.Errorf("failed to overwrite precommit proofs: %w", err))
 	}
 
@@ -198,7 +199,7 @@ func (f *Fixture) CommitInitialHeight(
 	}
 
 	// Finally, update the fixture to reflect the committed block.
-	f.Fx.CommitBlock(pb.Header, []byte("app_state_height_1"), 0, precommitProofs)
+	f.Fx.CommitBlock(pb.Header, []byte("app_state_height_1"), 0, fullPrecommitProofs)
 }
 
 // Prevoter returns a [Voter] for prevotes.
@@ -226,7 +227,11 @@ type Voter interface {
 	) tmconsensus.HandleVoteProofsResult
 
 	ProofsFromView(tmconsensus.RoundView) map[string]gcrypto.CommonMessageSignatureProof
-	ProofsFromRoundStateMaps(prevotes, precommits map[string]gcrypto.CommonMessageSignatureProof) map[string]gcrypto.CommonMessageSignatureProof
+	FullProofsFromRoundStateMaps(
+		height uint64, round uint32,
+		valSet tmconsensus.ValidatorSet,
+		prevotes, precommits tmconsensus.SparseSignatureCollection,
+	) map[string]gcrypto.CommonMessageSignatureProof
 }
 
 type prevoteVoter struct {
@@ -253,8 +258,22 @@ func (v prevoteVoter) HandleProofs(
 func (v prevoteVoter) ProofsFromView(rv tmconsensus.RoundView) map[string]gcrypto.CommonMessageSignatureProof {
 	return rv.PrevoteProofs
 }
-func (v prevoteVoter) ProofsFromRoundStateMaps(prevotes, _ map[string]gcrypto.CommonMessageSignatureProof) map[string]gcrypto.CommonMessageSignatureProof {
-	return prevotes
+func (v prevoteVoter) FullProofsFromRoundStateMaps(
+	height uint64,
+	round uint32,
+	valSet tmconsensus.ValidatorSet,
+	prevotes, _ tmconsensus.SparseSignatureCollection,
+) map[string]gcrypto.CommonMessageSignatureProof {
+	out, err := prevotes.ToFullPrevoteProofMap(
+		height, round,
+		valSet,
+		v.mfx.Fx.SignatureScheme,
+		v.mfx.Fx.CommonMessageSignatureProofScheme,
+	)
+	if err != nil {
+		panic(err)
+	}
+	return out
 }
 
 type precommitVoter struct {
@@ -282,6 +301,20 @@ func (v precommitVoter) ProofsFromView(rv tmconsensus.RoundView) map[string]gcry
 	return rv.PrecommitProofs
 }
 
-func (v precommitVoter) ProofsFromRoundStateMaps(_, precommits map[string]gcrypto.CommonMessageSignatureProof) map[string]gcrypto.CommonMessageSignatureProof {
-	return precommits
+func (v precommitVoter) FullProofsFromRoundStateMaps(
+	height uint64,
+	round uint32,
+	valSet tmconsensus.ValidatorSet,
+	_, precommits tmconsensus.SparseSignatureCollection,
+) map[string]gcrypto.CommonMessageSignatureProof {
+	out, err := precommits.ToFullPrecommitProofMap(
+		height, round,
+		valSet,
+		v.mfx.Fx.SignatureScheme,
+		v.mfx.Fx.CommonMessageSignatureProofScheme,
+	)
+	if err != nil {
+		panic(err)
+	}
+	return out
 }

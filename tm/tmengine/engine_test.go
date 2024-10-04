@@ -746,7 +746,15 @@ func TestEngine_plumbing_ReplayedHeaders(t *testing.T) {
 				// PubKey and Signature missing from round store during replay.
 			},
 		}, phs)
-		require.Equal(t, uint(4), precommits[string(ph1.Header.Hash)].SignatureBitSet().Count())
+
+		fullPrecommits, err := precommits.ToFullPrecommitProofMap(
+			1, 0,
+			efx.Fx.ValSet(),
+			efx.Fx.SignatureScheme, efx.Fx.CommonMessageSignatureProofScheme,
+		)
+		require.NoError(t, err)
+
+		require.Equal(t, uint(4), fullPrecommits[string(ph1.Header.Hash)].SignatureBitSet().Count())
 
 		// The state machine should be finalizing 1/0.
 		finReq := gtest.ReceiveSoon(t, efx.FinalizeBlockRequests)
@@ -833,7 +841,15 @@ func TestEngine_plumbing_ReplayedHeaders(t *testing.T) {
 				// PubKey and Signature missing from round store during replay.
 			},
 		}, phs)
-		require.Equal(t, uint(4), precommits[string(ph1.Header.Hash)].SignatureBitSet().Count())
+
+		fullPrecommits, err := precommits.ToFullPrecommitProofMap(
+			1, 1,
+			efx.Fx.ValSet(),
+			efx.Fx.SignatureScheme, efx.Fx.CommonMessageSignatureProofScheme,
+		)
+		require.NoError(t, err)
+
+		require.Equal(t, uint(4), fullPrecommits[string(ph1.Header.Hash)].SignatureBitSet().Count())
 
 		// The state machine should be finalizing 1/1.
 		finReq := gtest.ReceiveSoon(t, efx.FinalizeBlockRequests)

@@ -41,8 +41,15 @@ func TestFixture_CommitInitialHeight(t *testing.T) {
 			ph := phs[0]
 			require.Equal(t, []byte("initial_height"), ph.Header.DataID)
 
-			require.Len(t, precommits, 1)
-			precommitProof := precommits[string(ph.Header.Hash)]
+			require.Len(t, precommits.BlockSignatures, 1)
+			fullPrecommits, err := precommits.ToFullPrecommitProofMap(
+				1, 0,
+				mfx.Fx.ValSet(),
+				mfx.Fx.SignatureScheme, mfx.Fx.CommonMessageSignatureProofScheme,
+			)
+			require.NoError(t, err)
+
+			precommitProof := fullPrecommits[string(ph.Header.Hash)]
 			require.NotNil(t, precommitProof)
 
 			require.Equal(t, uint(nVals), precommitProof.SignatureBitSet().Count())

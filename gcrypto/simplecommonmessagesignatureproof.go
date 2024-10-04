@@ -32,9 +32,6 @@ type SimpleCommonMessageSignatureProof struct {
 	// Indication of the set of candidate keys,
 	// so that different proofs can agree that they are comparing
 	// against the same public key set.
-	//
-	// This is currently implementation-specific,
-	// but in the future it will probably be derived from a scheme.
 	keyHash string
 
 	bitset *bitset.BitSet
