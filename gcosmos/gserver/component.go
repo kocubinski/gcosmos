@@ -42,6 +42,7 @@ import (
 	"github.com/rollchains/gordian/tm/tmp2p/tmlibp2p"
 	"github.com/rollchains/gordian/tm/tmstore"
 	"github.com/rollchains/gordian/tm/tmstore/tmmemstore"
+	"github.com/rollchains/gordian/tmsqlite"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )
@@ -53,6 +54,12 @@ var (
 	_ serverv2.ServerComponent[transaction.Tx] = (*Component)(nil)
 	_ serverv2.HasStartFlags                   = (*Component)(nil)
 )
+
+// We intend to migrate to using SQLite,
+// but there are outstanding bugs preventing the tmsqlite storage from working correctly.
+// This is a cheap compile-time setting to quickly test using tmsqlite
+// or switch back to tmmemstore where the tests are still passing.
+const useSQLite = false
 
 // Component is a server component to be injected into the Cosmos SDK server module.
 type Component struct {
@@ -86,10 +93,20 @@ type Component struct {
 	httpLn net.Listener
 	grpcLn net.Listener
 
-	bds        gcstore.BlockDataStore
-	hs         tmstore.HeaderStore
-	fs         tmstore.FinalizationStore
-	ms         tmstore.MirrorStore
+	reg *gcrypto.Registry
+
+	tmsql *tmsqlite.TMStore // Conditionally set.
+
+	// These stores are unconditionally set,
+	// and they may be either explicit in-memory stores,
+	// or they may all be pointing at tmsql.
+	// We have them as fields on the Component
+	// because they need to cross the Init-Start boundaries.
+	bds gcstore.BlockDataStore
+	hs  tmstore.HeaderStore
+	fs  tmstore.FinalizationStore
+	ms  tmstore.MirrorStore
+
 	httpServer *gsi.HTTPServer
 	grpcServer *ggrpc.GordianGRPC
 }
@@ -109,6 +126,9 @@ func NewComponent(
 	c.log = log.With("sys", "engine")
 	c.txc = txc
 	c.codec = codec
+
+	c.reg = new(gcrypto.Registry)
+	gcrypto.RegisterEd25519(c.reg)
 
 	return &c, nil
 }
@@ -197,22 +217,47 @@ func (c *Component) Init(app serverv2.AppI[transaction.Tx], cfg map[string]any, 
 		SignatureScheme: tmconsensustest.SimpleSignatureScheme{},
 	}
 
-	var as *tmmemstore.ActionStore
-	if c.signer != nil {
-		as = tmmemstore.NewActionStore()
+	if useSQLite {
+		c.tmsql, err = tmsqlite.NewTMStore(
+			c.rootCtx,
+			":memory:",
+			tmconsensustest.SimpleHashScheme{},
+			c.reg,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to start tmsqlite store: %w", err)
+		}
 	}
 
-	bds := gcmemstore.NewBlockDataStore()
-	fs := tmmemstore.NewFinalizationStore()
-	hs := tmmemstore.NewHeaderStore()
-	ms := tmmemstore.NewMirrorStore()
-	rs := tmmemstore.NewRoundStore()
-	vs := tmmemstore.NewValidatorStore(tmconsensustest.SimpleHashScheme{})
+	// No SQLite implementation for this yet.
+	c.bds = gcmemstore.NewBlockDataStore()
 
-	c.bds = bds
-	c.fs = fs
-	c.hs = hs
-	c.ms = ms
+	var as tmstore.ActionStore
+	var rs tmstore.RoundStore = c.tmsql
+	var vs tmstore.ValidatorStore = c.tmsql
+
+	if c.tmsql == nil {
+		if c.signer != nil {
+			as = tmmemstore.NewActionStore()
+		}
+		rs = tmmemstore.NewRoundStore()
+		vs = tmmemstore.NewValidatorStore(tmconsensustest.SimpleHashScheme{})
+
+		c.fs = tmmemstore.NewFinalizationStore()
+		c.hs = tmmemstore.NewHeaderStore()
+		c.ms = tmmemstore.NewMirrorStore()
+	} else {
+		if c.signer != nil {
+			as = c.tmsql
+		}
+
+		rs = c.tmsql
+		vs = c.tmsql
+
+		c.fs = c.tmsql
+		c.hs = c.tmsql
+		c.ms = c.tmsql
+	}
 
 	// Is it possible for the genesis path to ever be rooted somewhere else?
 	genesisPath := filepath.Join(homeDir, "config", "genesis.json")
@@ -245,9 +290,9 @@ func (c *Component) Init(app serverv2.AppI[transaction.Tx], cfg map[string]any, 
 		tmengine.WithSigner(c.signer),
 
 		tmengine.WithActionStore(as),
-		tmengine.WithFinalizationStore(fs),
-		tmengine.WithHeaderStore(hs),
-		tmengine.WithMirrorStore(ms),
+		tmengine.WithFinalizationStore(c.fs),
+		tmengine.WithHeaderStore(c.hs),
+		tmengine.WithMirrorStore(c.ms),
 		tmengine.WithRoundStore(rs),
 		tmengine.WithValidatorStore(vs),
 
@@ -307,10 +352,8 @@ func (c *Component) Start(ctx context.Context) error {
 		}
 	}
 
-	reg := new(gcrypto.Registry)
-	gcrypto.RegisterEd25519(reg)
 	codec := tmjson.MarshalCodec{
-		CryptoRegistry: reg,
+		CryptoRegistry: c.reg,
 	}
 
 	// TODO: allow c.dh to be conditionally set,
@@ -497,7 +540,7 @@ func (c *Component) Start(ctx context.Context) error {
 			MirrorStore:       c.ms,
 			FinalizationStore: c.fs,
 
-			CryptoRegistry: reg,
+			CryptoRegistry: c.reg,
 
 			AppManager: am,
 			TxCodec:    c.txc,
@@ -514,7 +557,7 @@ func (c *Component) Start(ctx context.Context) error {
 			MirrorStore:       c.ms,
 			FinalizationStore: c.fs,
 
-			CryptoRegistry: reg,
+			CryptoRegistry: c.reg,
 
 			Libp2pHost: c.h,
 			Libp2pconn: c.conn,
@@ -582,6 +625,11 @@ func (c *Component) Stop(_ context.Context) error {
 		}
 		if c.grpcServer != nil {
 			c.grpcServer.Wait()
+		}
+	}
+	if c.tmsql != nil {
+		if err := c.tmsql.Close(); err != nil {
+			c.log.Warn("Error closing tmsqlite store", "err", err)
 		}
 	}
 	return nil

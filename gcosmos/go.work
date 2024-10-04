@@ -3,5 +3,6 @@ go 1.23.1
 use (
 	.
 	..
+	../tmsqlite
 	./_cosmosvendor/cosmos-sdk/simapp/v2
 )
