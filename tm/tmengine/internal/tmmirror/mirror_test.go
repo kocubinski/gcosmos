@@ -3,7 +3,6 @@ package tmmirror_test
 import (
 	"context"
 	"fmt"
-	"maps"
 	"testing"
 
 	"github.com/rollchains/gordian/gcrypto"
@@ -389,16 +388,12 @@ func TestMirror_HandleProposedHeader(t *testing.T) {
 		var vrv tmconsensus.VersionedRoundView
 		require.NoError(t, m.VotingView(ctx, &vrv))
 
-		// Slightly difficult to assert the nil-only vote proofs, so separately assert them
-		// and then remove them from the large require.Equal call.
-		require.Len(t, vrv.PrevoteProofs, 1)
-		_, ok := vrv.PrevoteProofs[""]
-		require.True(t, ok)
-		vrv.PrevoteProofs = nil
+		require.Empty(t, vrv.PrevoteProofs)
+		require.Empty(t, vrv.PrecommitProofs)
 
-		require.Len(t, vrv.PrecommitProofs, 1)
-		_, ok = vrv.PrecommitProofs[""]
-		require.True(t, ok)
+		// Coerce empty maps to nil for this test.
+		// Possibly not correct in the long run to do this.
+		vrv.PrevoteProofs = nil
 		vrv.PrecommitProofs = nil
 
 		vs := tmconsensus.NewVoteSummary()
@@ -721,11 +716,9 @@ func TestMirror_HandlePrevoteProofs(t *testing.T) {
 
 				ProposedHeaders: []tmconsensus.ProposedHeader{ph1},
 
-				PrevoteProofs: fullPrevoteProofMap,
-				PrecommitProofs: mfx.Fx.PrecommitProofMap(ctx, 1, 0, map[string][]int{
-					"": {},
-				}),
-				VoteSummary: vs,
+				PrevoteProofs:   fullPrevoteProofMap,
+				PrecommitProofs: mfx.Fx.PrecommitProofMap(ctx, 1, 0, map[string][]int{}),
+				VoteSummary:     vs,
 			},
 			Version: 3, // Started at 1, added a proposed header (2), then bulk added prevotes (3).
 			PrevoteBlockVersions: map[string]uint32{
@@ -752,7 +745,9 @@ func TestMirror_HandlePrevoteProofs(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		mfx := tmmirrortest.NewFixture(ctx, t, 10)
+		const size = 10
+
+		mfx := tmmirrortest.NewFixture(ctx, t, size)
 
 		m := mfx.NewMirror()
 		defer m.Wait()
@@ -768,8 +763,8 @@ func TestMirror_HandlePrevoteProofs(t *testing.T) {
 
 		// Start an independent goroutine for each prevote to submit.
 		start := make(chan struct{})
-		feedbackCh := make(chan tmconsensus.HandleVoteProofsResult, 10)
-		for i := 0; i < 10; i++ {
+		feedbackCh := make(chan tmconsensus.HandleVoteProofsResult, size)
+		for i := range size {
 			go func(i int) {
 				voteMap := map[string][]int{
 					string(ph1.Header.Hash): {i},
@@ -791,14 +786,13 @@ func TestMirror_HandlePrevoteProofs(t *testing.T) {
 
 		// Build the full prevote map for later assertion.
 		fullVoteMap := map[string][]int{
-			string(ph1.Header.Hash): {0, 1, 2, 3, 4, 5, 6, 7, 8, 9},
-			"":                      {}, // Empty proof always present.
+			string(ph1.Header.Hash): {0, 1, 2, 3, 4, 5, 6, 7, 8, 9}, // TODO: decouple from size constant.
 		}
 		fullPrevoteProofMap := mfx.Fx.PrevoteProofMap(ctx, 1, 0, fullVoteMap)
 
 		// Now assert all 10 goroutines have had their message accepted.
 		close(start)
-		for i := 0; i < 10; i++ {
+		for range size {
 			require.Equal(t, tmconsensus.HandleVoteProofsAccepted, gtest.ReceiveSoon(t, feedbackCh))
 		}
 
@@ -812,10 +806,8 @@ func TestMirror_HandlePrevoteProofs(t *testing.T) {
 
 			ProposedHeaders: []tmconsensus.ProposedHeader{ph1},
 
-			PrevoteProofs: fullPrevoteProofMap,
-			PrecommitProofs: mfx.Fx.PrecommitProofMap(ctx, 1, 0, map[string][]int{
-				"": {},
-			}),
+			PrevoteProofs:   fullPrevoteProofMap,
+			PrecommitProofs: mfx.Fx.PrecommitProofMap(ctx, 1, 0, map[string][]int{}),
 		}
 
 		vs := tmconsensus.NewVoteSummary()
@@ -841,11 +833,11 @@ func TestMirror_HandlePrevoteProofs(t *testing.T) {
 
 		gso := gtest.ReceiveSoon(t, mfx.GossipStrategyOut)
 
-		// The GossipStrategyOut values have empty nil votes stripped.
-		// Maybe we will do that for the VotingView method too, if we even keep that method.
-		// Delete the invalid expected value for now.
-		delete(expNV.PrevoteProofs, "")
-		delete(expNV.PrecommitProofs, "")
+		// The GossipStrategyOut values have empty maps set to nil.
+		// Even though an earlier assertion required an empty map for PrecommitProofs,
+		// in this case we clear out the field.
+		require.Empty(t, expNV.PrecommitProofs)
+		expNV.PrecommitProofs = nil
 		require.Equal(t, expNV, gso.Voting.RoundView)
 	})
 }
@@ -905,9 +897,7 @@ func TestMirror_HandlePrecommitProofs(t *testing.T) {
 
 				ProposedHeaders: []tmconsensus.ProposedHeader{ph1},
 
-				PrevoteProofs: mfx.Fx.PrevoteProofMap(ctx, 1, 0, map[string][]int{
-					"": {},
-				}),
+				PrevoteProofs:   mfx.Fx.PrevoteProofMap(ctx, 1, 0, map[string][]int{}),
 				PrecommitProofs: fullPrecommitProofMap,
 				VoteSummary:     vs,
 			},
@@ -1066,12 +1056,8 @@ func TestMirror_pastInitialHeight(t *testing.T) {
 		// and we should have empty proofs for nil votes.
 		require.True(t, tmconsensus.ValidatorSlicesEqual(mfx.Cfg.InitialValidators, vv.ValidatorSet.Validators))
 		require.Empty(t, vv.ProposedHeaders)
-		require.Len(t, vv.PrevoteProofs, 1)
-		np := vv.PrevoteProofs[""]
-		require.Zero(t, np.SignatureBitSet().Count())
-		require.Len(t, vv.PrecommitProofs, 1)
-		np = vv.PrecommitProofs[""]
-		require.Zero(t, np.SignatureBitSet().Count())
+		require.Empty(t, vv.PrevoteProofs)
+		require.Empty(t, vv.PrecommitProofs)
 
 		// Committing view has some information.
 		require.NoError(t, m.CommittingView(ctx, &vv))
@@ -1082,16 +1068,12 @@ func TestMirror_pastInitialHeight(t *testing.T) {
 		require.Len(t, vv.ProposedHeaders, 1)
 		ph := vv.ProposedHeaders[0]
 
-		// We didn't store any prevote proofs, but the nil proof should still be present.
-		require.Len(t, vv.PrevoteProofs, 1)
-		np = vv.PrevoteProofs[""]
-		require.Zero(t, np.SignatureBitSet().Count())
+		// We didn't store any prevote proofs.
+		require.Empty(t, vv.PrevoteProofs)
 
 		// And we should have all 4 signatures for the proposed header in precommit.
-		require.Len(t, vv.PrecommitProofs, 2)
-		np = vv.PrevoteProofs[""]
-		require.Zero(t, np.SignatureBitSet().Count())
-		np = vv.PrecommitProofs[string(ph.Header.Hash)]
+		require.Len(t, vv.PrecommitProofs, 1)
+		np := vv.PrecommitProofs[string(ph.Header.Hash)]
 		require.Equal(t, uint(4), np.SignatureBitSet().Count())
 	})
 
@@ -1895,8 +1877,8 @@ func TestMirror_stateMachineActions(t *testing.T) {
 
 		require.Equal(t, uint64(1), rer.VRV.Height)
 		require.Empty(t, rer.VRV.ProposedHeaders)
-		require.Len(t, rer.VRV.PrevoteProofs, 1)   // Empty nil proof.
-		require.Len(t, rer.VRV.PrecommitProofs, 1) // Empty nil proof.
+		require.Empty(t, rer.VRV.PrevoteProofs)
+		require.Empty(t, rer.VRV.PrecommitProofs)
 
 		t.Run("proposed header", func(t *testing.T) {
 			// Buffered channel so we can just send without select.
@@ -1997,8 +1979,8 @@ func TestMirror_stateMachineActions(t *testing.T) {
 		require.Equal(t, uint64(1), rer.VRV.Height)
 		require.Zero(t, rer.VRV.Round)
 		require.Equal(t, phs, rer.VRV.ProposedHeaders)
-		require.Len(t, rer.VRV.PrevoteProofs, 1)   // No prevotes were stored, that's fine.
-		require.Len(t, rer.VRV.PrecommitProofs, 2) // Empty nil proof and proof for the block.
+		require.Empty(t, rer.VRV.PrevoteProofs)    // No prevotes were stored, that's fine.
+		require.Len(t, rer.VRV.PrecommitProofs, 1) // Just proof for the block.
 	})
 
 	t.Run("historic header sent as CommittedHeader", func(t *testing.T) {
@@ -2056,13 +2038,11 @@ func TestMirror_stateMachineActions(t *testing.T) {
 		// And height 2 is committed since we went through normal flow.
 		ch2, err := mfx.Cfg.CommittedHeaderStore.LoadCommittedHeader(ctx, 2)
 		require.NoError(t, err)
-		proofClone := maps.Clone(gso.Voting.PrevCommitProof.Proofs)
-		delete(proofClone, "") // TODO: the empty nil proof probably shouldn't be sent to gso in the first place.
 		require.Equal(t, tmconsensus.CommittedHeader{
 			Header: ph2.Header,
 			Proof: tmconsensus.CommitProof{
 				PubKeyHash: gso.Voting.PrevCommitProof.PubKeyHash,
-				Proofs:     proofClone,
+				Proofs:     gso.Voting.PrevCommitProof.Proofs,
 			},
 		}, ch2)
 
@@ -2505,7 +2485,7 @@ func TestMirror_stateMachineJumpAhead(t *testing.T) {
 		require.NotNil(t, j)
 		require.Equal(t, uint64(1), j.Height)
 		require.Equal(t, uint32(1), j.Round)
-		require.True(t, j.PrevoteProofs[""].SignatureBitSet().None())
+		require.Empty(t, j.PrevoteProofs[""])
 		require.Equal(t, uint(2), j.PrecommitProofs[""].SignatureBitSet().Count())
 	})
 
@@ -2817,100 +2797,6 @@ func TestMirror_nilCommitSentToGossipStrategy(t *testing.T) {
 	require.Nil(t, gso.NilVotedRound)
 }
 
-func TestMirror_gossipStrategyOutStripsEmptyNilVotes(t *testing.T) {
-	t.Parallel()
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	mfx := tmmirrortest.NewFixture(ctx, t, 4)
-
-	m := mfx.NewMirror()
-	defer m.Wait()
-	defer cancel()
-
-	// Initial GSO is present but has no prevotes or precommits.
-	gso := gtest.ReceiveSoon(t, mfx.GossipStrategyOut)
-	require.NotNil(t, gso.Voting)
-	require.Equal(t, uint64(1), gso.Voting.Height)
-	require.Zero(t, gso.Voting.Round)
-	require.Nil(t, gso.Voting.PrevoteProofs[""])
-	require.Nil(t, gso.Voting.PrecommitProofs[""])
-
-	prevVotingVersion := gso.Voting.Version
-
-	// Proposed header first.
-	ph1 := mfx.Fx.NextProposedHeader([]byte("app_data_1_0"), 0)
-	mfx.Fx.SignProposal(ctx, &ph1, 0)
-	require.Equal(t, tmconsensus.HandleProposedHeaderAccepted, m.HandleProposedHeader(ctx, ph1))
-
-	gso = gtest.ReceiveSoon(t, mfx.GossipStrategyOut)
-	require.Greater(t, gso.Voting.Version, prevVotingVersion)
-	require.NotEmpty(t, gso.Voting.ProposedHeaders)
-	require.Nil(t, gso.Voting.PrevoteProofs[""])
-	require.Nil(t, gso.Voting.PrecommitProofs[""])
-
-	// Prevotes arrive from the network.
-	voteMap := map[string][]int{
-		string(ph1.Header.Hash): {0, 1, 2, 3},
-	}
-	keyHash, _ := mfx.Fx.ValidatorHashes()
-	prevoteProof := tmconsensus.PrevoteSparseProof{
-		Height:     1,
-		Round:      0,
-		PubKeyHash: keyHash,
-		Proofs:     mfx.Fx.SparsePrevoteProofMap(ctx, 1, 0, voteMap),
-	}
-	require.Equal(t, tmconsensus.HandleVoteProofsAccepted, m.HandlePrevoteProofs(ctx, prevoteProof))
-
-	// Version increments and we still don't have any nil votes.
-	prevVotingVersion = gso.Voting.Version
-	gso = gtest.ReceiveSoon(t, mfx.GossipStrategyOut)
-	require.Greater(t, gso.Voting.Version, prevVotingVersion)
-	require.NotEmpty(t, gso.Voting.ProposedHeaders)
-	require.Nil(t, gso.Voting.PrevoteProofs[""])
-	require.Nil(t, gso.Voting.PrecommitProofs[""])
-
-	// 3/4 precommits arrive, and the voting view still doesn't have nil votes present.
-	voteMap[string(ph1.Header.Hash)] = []int{0, 1, 2}
-	precommitProof := tmconsensus.PrecommitSparseProof{
-		Height:     1,
-		Round:      0,
-		PubKeyHash: keyHash,
-		Proofs:     mfx.Fx.SparsePrecommitProofMap(ctx, 1, 0, voteMap),
-	}
-	require.Equal(t, tmconsensus.HandleVoteProofsAccepted, m.HandlePrecommitProofs(ctx, precommitProof))
-
-	prevVotingVersion = gso.Voting.Version
-	gso = gtest.ReceiveSoon(t, mfx.GossipStrategyOut)
-	require.Empty(t, gso.Voting.ProposedHeaders)
-	require.Nil(t, gso.Voting.PrevoteProofs[""])
-	require.Nil(t, gso.Voting.PrecommitProofs[""])
-
-	// Also there is now a committing view, which also doesn't have empty nil proofs.
-	require.Greater(t, gso.Committing.Version, prevVotingVersion)
-	require.Nil(t, gso.Committing.PrevoteProofs[""])
-	require.Nil(t, gso.Committing.PrecommitProofs[""])
-	require.Equal(t, uint(3), gso.Committing.PrecommitProofs[string(ph1.Header.Hash)].SignatureBitSet().Count())
-
-	// And if the last precommit arrives, we still don't have any nil proofs on the committing view.
-	voteMap[string(ph1.Header.Hash)] = []int{3}
-	precommitProof = tmconsensus.PrecommitSparseProof{
-		Height:     1,
-		Round:      0,
-		PubKeyHash: keyHash,
-		Proofs:     mfx.Fx.SparsePrecommitProofMap(ctx, 1, 0, voteMap),
-	}
-	require.Equal(t, tmconsensus.HandleVoteProofsAccepted, m.HandlePrecommitProofs(ctx, precommitProof))
-
-	prevCommittingVersion := gso.Committing.Version
-	gso = gtest.ReceiveSoon(t, mfx.GossipStrategyOut)
-	require.Greater(t, gso.Committing.Version, prevCommittingVersion)
-	require.Nil(t, gso.Committing.PrevoteProofs[""])
-	require.Nil(t, gso.Committing.PrecommitProofs[""])
-	require.Equal(t, uint(4), gso.Committing.PrecommitProofs[string(ph1.Header.Hash)].SignatureBitSet().Count())
-}
-
 func TestMirror_replayedHeaders(t *testing.T) {
 	t.Run("at initialization, without any p2p messages", func(t *testing.T) {
 		t.Parallel()
@@ -2979,8 +2865,7 @@ func TestMirror_replayedHeaders(t *testing.T) {
 			mfx.Fx.SignatureScheme, mfx.Fx.CommonMessageSignatureProofScheme,
 		)
 		require.NoError(t, err)
-		require.Len(t, fullPrecommits, 2) // Block hash and nil.
-		require.Zero(t, fullPrecommits[""].SignatureBitSet().Count())
+		require.Len(t, fullPrecommits, 1)
 		require.Equal(t, uint(4), fullPrecommits[string(ph1.Header.Hash)].SignatureBitSet().Count())
 
 		// So, let's replay the next header too.

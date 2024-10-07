@@ -34,9 +34,6 @@ type SparseSignatureCollection struct {
 
 // ToFullPrevoteProofMap converts c
 // to a map of block hashes to full proofs.
-// Note that the returned map will always include an empty key,
-// because internal components of the engine expect a full nil proof
-// to always be present.
 func (c SparseSignatureCollection) ToFullPrevoteProofMap(
 	height uint64,
 	round uint32,
@@ -60,9 +57,6 @@ func (c SparseSignatureCollection) ToFullPrevoteProofMap(
 
 // ToFullPrecommitProofMap converts c
 // to a map of block hashes to full proofs.
-// Note that the returned map will always include an empty key,
-// because internal components of the engine expect a full nil proof
-// to always be present.
 func (c SparseSignatureCollection) ToFullPrecommitProofMap(
 	height uint64,
 	round uint32,
@@ -94,42 +88,10 @@ func (c SparseSignatureCollection) toFullProofMap(
 	valPubKeys := ValidatorsToPubKeys(valSet.Validators)
 	pubKeyHash := string(valSet.PubKeyHash)
 
-	// Components of the consensus engine expect the nil proof to be populated,
-	// even if there are not yet any votes for nil.
-	//
-	// I think my preference for populating this would be to concatenate
-	// the iterator over c.BlockSignatures with a map containing only an empty string key.
-	//
-	// Redoing the loop iteration once seems like the best compromise,
-	// while there is no standard library iter.Seq2 concatenator.
-	//
-	// The other alternatives would have been:
-	//   - hardcoding a separate iteration
-	//   - modifying the original, or a clone of, ssc.BlockSignatures
-	//   - extracting the inside of the loop to another function
-	_, hasNilProof := c.BlockSignatures[""]
-	blockSigMap := c.BlockSignatures
-	if len(blockSigMap) == 0 {
-		// If the length was zero, we wouldn't do any iterations,
-		// and we would return an empty map.
-		// So handle that special case by just explicitly
-		// iterating over a map with that one key,
-		// again so we do not have to mutate the input.
-		blockSigMap = map[string][]gcrypto.SparseSignature{
-			"": nil,
-		}
-		hasNilProof = true
-	}
-
-	sizeHint := len(c.BlockSignatures)
-	if !hasNilProof {
-		sizeHint++
-	}
-	out := make(map[string]gcrypto.CommonMessageSignatureProof, sizeHint)
+	out := make(map[string]gcrypto.CommonMessageSignatureProof, len(c.BlockSignatures))
 
 	vt := VoteTarget{Height: height, Round: round}
-	for hash, sparseSigs := range blockSigMap {
-	REDO_FOR_NIL_PROOF:
+	for hash, sparseSigs := range c.BlockSignatures {
 		vt.BlockHash = hash
 		content, err := signBytesFunc(vt)
 		if err != nil {
@@ -142,33 +104,20 @@ func (c SparseSignatureCollection) toFullProofMap(
 			return nil, fmt.Errorf("failed to get initial proof for %x: %w", hash, err)
 		}
 
-		if len(sparseSigs) > 0 {
-			sparseProof := gcrypto.SparseSignatureProof{
-				PubKeyHash: pubKeyHash,
-				Signatures: sparseSigs,
-			}
-			mergeRes := out[hash].MergeSparse(sparseProof)
-			if !mergeRes.AllValidSignatures || !mergeRes.IncreasedSignatures {
-				panic(fmt.Errorf(
-					"BUG: invalid result after merging signatures: all_valid=%t, increased=%t (nSigs=%d signBytes=%q)",
-					mergeRes.AllValidSignatures, mergeRes.IncreasedSignatures,
-					len(sparseSigs),
-					content,
-				))
-			}
-		} else {
-			if hash != "" {
-				panic(fmt.Errorf("BUG: saw len(sparseSigs) == 0 for hash=%x", hash))
-			}
+		if len(sparseSigs) == 0 {
+			panic(fmt.Errorf("BUG: saw len(sparseSigs) == 0 for hash=%x", hash))
 		}
 
-		if !hasNilProof {
-			// Redo one iteration of the loop to add in the required nil hash.
-			hash = ""
-			sparseSigs = nil
-			hasNilProof = true
-
-			goto REDO_FOR_NIL_PROOF
+		sparseProof := gcrypto.SparseSignatureProof{
+			PubKeyHash: pubKeyHash,
+			Signatures: sparseSigs,
+		}
+		mergeRes := out[hash].MergeSparse(sparseProof)
+		if !mergeRes.AllValidSignatures || !mergeRes.IncreasedSignatures {
+			panic(fmt.Errorf(
+				"BUG: invalid result after merging signatures: all_valid=%t, increased=%t",
+				mergeRes.AllValidSignatures, mergeRes.IncreasedSignatures,
+			))
 		}
 	}
 

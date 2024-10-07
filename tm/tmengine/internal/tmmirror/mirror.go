@@ -444,14 +444,6 @@ RETRY:
 	for blockHash, sigs := range sigsToAdd {
 		fullProof, ok := curProofs[blockHash]
 		if !ok {
-			if blockHash == "" {
-				// The system requires the nil proof to always be part of current proofs.
-				// If it is missing, then we have a bug somewhere.
-				panic(fmt.Errorf(
-					"BUG: did not have nil prevote proof when handling prevotes at height=%d/round=%d",
-					p.Height, p.Round,
-				))
-			}
 			emptyProof, ok := m.makeNewPrevoteProof(
 				p.Height, p.Round, blockHash, curPrevoteState.ValidatorSet,
 			)
@@ -609,14 +601,6 @@ RETRY:
 	for blockHash, sigs := range sigsToAdd {
 		fullProof, ok := curProofs[blockHash]
 		if !ok {
-			if blockHash == "" {
-				// The system requires the nil proof to always be part of current proofs.
-				// If it is missing, then we have a bug somewhere.
-				panic(fmt.Errorf(
-					"BUG: did not have nil precommit proof when handling precommits at height=%d/round=%d",
-					p.Height, p.Round,
-				))
-			}
 			emptyProof, ok := m.makeNewPrecommitProof(
 				p.Height, p.Round, blockHash, curPrecommitState.ValidatorSet,
 			)

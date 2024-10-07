@@ -73,11 +73,8 @@ func TestEngine_plumbing_ConsensusStrategy(t *testing.T) {
 
 		require.Empty(t, rv0.ProposedHeaders)
 
-		// The proofs always have an empty nil proof, for some reason internal to the mirror.
-		require.Len(t, rv0.PrevoteProofs, 1)
-		require.NotNil(t, rv0.PrevoteProofs[""])
-		require.Len(t, rv0.PrecommitProofs, 1)
-		require.NotNil(t, rv0.PrecommitProofs[""])
+		require.Empty(t, rv0.PrevoteProofs)
+		require.Empty(t, rv0.PrecommitProofs)
 
 		var expAvailPow uint64
 		for _, v := range efx.Fx.Vals() {
@@ -993,11 +990,8 @@ func TestEngine_wiring_validatorChanges(t *testing.T) {
 
 	require.Zero(t, ph2.Header.PrevCommitProof.Round)
 	require.Equal(t, string(origValSet.PubKeyHash), ph2.Header.PrevCommitProof.PubKeyHash)
-	// Two because we have the empty nil proof.
-	// Seems unnecessary. We should probably strip that out.
-	// I'm sure we are stripping them in at least one other place.
-	require.Len(t, ph2.Header.PrevCommitProof.Proofs, 2)
-	require.NotNil(t, ph2.Header.PrevCommitProof.Proofs[""])
+
+	require.Len(t, ph2.Header.PrevCommitProof.Proofs, 1)
 	require.NotNil(t, ph2.Header.PrevCommitProof.Proofs[string(ph1.Header.Hash)])
 	// TODO: verify individual signatures?
 

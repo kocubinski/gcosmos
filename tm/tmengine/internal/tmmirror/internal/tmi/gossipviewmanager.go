@@ -36,7 +36,6 @@ func (m *gossipViewManager) Output() gossipStrategyOutput {
 		o.Ch = m.out
 
 		val := m.Committing.VRV.Clone()
-		stripEmptyNilVotes(&val)
 		o.Val.Committing = &val
 	}
 
@@ -44,7 +43,6 @@ func (m *gossipViewManager) Output() gossipStrategyOutput {
 		o.Ch = m.out
 
 		val := m.Voting.VRV.Clone()
-		stripEmptyNilVotes(&val)
 		o.Val.Voting = &val
 	}
 
@@ -52,7 +50,6 @@ func (m *gossipViewManager) Output() gossipStrategyOutput {
 		o.Ch = m.out
 
 		val := m.NextRound.VRV.Clone()
-		stripEmptyNilVotes(&val)
 		o.Val.NextRound = &val
 	}
 
@@ -92,19 +89,4 @@ func (o gossipStrategyOutput) MarkSent() {
 
 	// Always clear the NilVotedRound; no version tracking involved there.
 	o.m.NilVotedRound = nil
-}
-
-// stripEmptyNilVotes removes a prevote or precommit proof for nil
-// if it contains no actual votes.
-//
-// The nil votes are always present for other bookkeeping reasons,
-// but we do not want to send that to the gossip strategy
-// and require the gossip strategy to filter it out.
-func stripEmptyNilVotes(vrv *tmconsensus.VersionedRoundView) {
-	if vrv.PrevoteProofs[""].SignatureBitSet().None() {
-		delete(vrv.PrevoteProofs, "")
-	}
-	if vrv.PrecommitProofs[""].SignatureBitSet().None() {
-		delete(vrv.PrecommitProofs, "")
-	}
 }
