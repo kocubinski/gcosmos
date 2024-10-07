@@ -13,6 +13,7 @@ import (
 // SimpleCommonMessageSignatureProofScheme is the scheme for a SimpleCommonMessageSignatureProof.
 var SimpleCommonMessageSignatureProofScheme CommonMessageSignatureProofScheme = LiteralCommonMessageSignatureProofScheme(
 	NewSimpleCommonMessageSignatureProof,
+	isValidSimpleCommonSignatureKeyID,
 )
 
 // SimpleCommonMessageSignatureProof is the simplest signature proof,
@@ -265,4 +266,21 @@ func (p SimpleCommonMessageSignatureProof) HasSparseKeyID(keyID []byte) (has, va
 	// Do we actually have a signature to go with it?
 	has = p.bitset.Test(uint(u))
 	return has, true
+}
+
+func isValidSimpleCommonSignatureKeyID(id []byte, keys []PubKey) bool {
+	if len(id) != 2 {
+		// Invalid because the key IDs must be a big endian uint16.
+		return false
+	}
+
+	u := binary.BigEndian.Uint16(id)
+	idx := int(u)
+	if idx < 0 || idx >= len(keys) {
+		// Key ID must be in range to be valid.
+		return false
+	}
+
+	// ID is in range so it is valid.
+	return true
 }

@@ -41,7 +41,7 @@ func (p PrevoteProof) AsSparse() (PrevoteSparseProof, error) {
 	return out, nil
 }
 
-// PrevoteSparseProof is the sparse proof representation for prevotes for v0.2.
+// PrevoteSparseProof is the representation of sparse proofs for prevotes arriving across the network.
 type PrevoteSparseProof struct {
 	Height uint64
 	Round  uint32

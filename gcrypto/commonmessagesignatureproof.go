@@ -118,11 +118,16 @@ type SparseSignature struct {
 	Sig []byte
 }
 
-// CommonMessageSignatureProofScheme indicates how to create and restore
+// CommonMessageSignatureProofScheme indicates how to create
 // CommonMessageSignatureProof instances.
+//
+// It also contains methods that have no relation to a particular proof instance.
 type CommonMessageSignatureProofScheme interface {
 	// New creates a new, empty proof.
 	New(msg []byte, candidateKeys []PubKey, pubKeyHash string) (CommonMessageSignatureProof, error)
+
+	// IsValidKeyID reports whether the given ID is valid given the set of public keys.
+	IsValidKeyID(id []byte, keys []PubKey) bool
 }
 
 // LiteralCommonMessageSignatureProofScheme returns a CommonMessageSignatureProofScheme
@@ -133,18 +138,26 @@ type CommonMessageSignatureProofScheme interface {
 // without writing extra boilerplate to produce a corresponding scheme.
 func LiteralCommonMessageSignatureProofScheme[P CommonMessageSignatureProof](
 	newFn func([]byte, []PubKey, string) (P, error),
+	isValidKeyIDFn func([]byte, []PubKey) bool,
 ) CommonMessageSignatureProofScheme {
 	return literalCommonMessageSignatureProofScheme{
 		newFn: func(msg []byte, candidateKeys []PubKey, pubKeyHash string) (CommonMessageSignatureProof, error) {
 			return newFn(msg, candidateKeys, pubKeyHash)
 		},
+		isValidKeyIDFn: isValidKeyIDFn,
 	}
 }
 
 type literalCommonMessageSignatureProofScheme struct {
 	newFn func([]byte, []PubKey, string) (CommonMessageSignatureProof, error)
+
+	isValidKeyIDFn func([]byte, []PubKey) bool
 }
 
 func (s literalCommonMessageSignatureProofScheme) New(msg []byte, candidateKeys []PubKey, pubKeyHash string) (CommonMessageSignatureProof, error) {
 	return s.newFn(msg, candidateKeys, pubKeyHash)
+}
+
+func (s literalCommonMessageSignatureProofScheme) IsValidKeyID(id []byte, keys []PubKey) bool {
+	return s.isValidKeyIDFn(id, keys)
 }

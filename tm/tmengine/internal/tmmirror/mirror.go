@@ -429,7 +429,7 @@ RETRY:
 	}
 
 	curProofs := curPrevoteState.PrevoteProofs
-	sigsToAdd := m.getSignaturesToAdd(curProofs, p.Proofs)
+	sigsToAdd := m.getSignaturesToAdd(curProofs, p.Proofs, vlReq.VRV.ValidatorSet)
 
 	if len(sigsToAdd) == 0 {
 		// Maybe the message had some valid signatures.
@@ -594,7 +594,7 @@ RETRY:
 	}
 
 	curProofs := curPrecommitState.PrecommitProofs
-	sigsToAdd := m.getSignaturesToAdd(curProofs, p.Proofs)
+	sigsToAdd := m.getSignaturesToAdd(curProofs, p.Proofs, vlReq.VRV.ValidatorSet)
 
 	if len(sigsToAdd) == 0 {
 		// Maybe the message had some valid signatures.
@@ -702,17 +702,26 @@ RETRY:
 func (m *Mirror) getSignaturesToAdd(
 	curProofs map[string]gcrypto.CommonMessageSignatureProof,
 	incomingSparseProofs map[string][]gcrypto.SparseSignature,
+	valSet tmconsensus.ValidatorSet,
 ) map[string][]gcrypto.SparseSignature {
-	// The Mirror always prepopulates the nil block signature proof.
-	// And we need it for a fallback if we see a signature for an unknown block,
-	// to confirm valid signature key IDs.
-	nilProof := curProofs[""]
-
 	var toAdd map[string][]gcrypto.SparseSignature
+
+	var pubKeys []gcrypto.PubKey
 
 	for blockHash, signatures := range incomingSparseProofs {
 		fullProof := curProofs[blockHash]
-		needToAdd := m.getNewSignatures(nilProof, fullProof, signatures)
+		if fullProof == nil && pubKeys == nil {
+			// We only consult pubKeys when fullProof is nil,
+			// and in a properly behaving honest network,
+			// fullProof will usually not be nil.
+			//
+			// This is going to allocate a bit every time we call it;
+			// possible optimization to actually only store these public keys once per validator set
+			// (even though we still limit it to at most one allocation
+			// per call to HandlePrevoteProofs or HandlePrecommitProofs).
+			pubKeys = tmconsensus.ValidatorsToPubKeys(valSet.Validators)
+		}
+		needToAdd := m.getNewSignatures(fullProof, signatures, pubKeys)
 		if len(needToAdd) == 0 {
 			// We already had those signatures.
 			continue
@@ -730,22 +739,19 @@ func (m *Mirror) getSignaturesToAdd(
 
 // getNewSignatures filters incomingProofs against the given fullProof,
 // returning only the signatures whose key ID is not present in fullProof.
-// The nilProof argument is assumed to always be available,
-// and is used as a fallback to check if the key IDs are valid,
-// in the event fullProof is nil.
-//
-// NOTE: this could potentially change to a standalone function instead of a method.
+// pubKeys is only used to determine if the incoming key IDs are valid,
+// only when fullProof is nil.
 func (m *Mirror) getNewSignatures(
-	nilProof gcrypto.CommonMessageSignatureProof,
 	fullProof gcrypto.CommonMessageSignatureProof,
 	incomingProofs []gcrypto.SparseSignature,
+	pubKeys []gcrypto.PubKey,
 ) []gcrypto.SparseSignature {
 	out := make([]gcrypto.SparseSignature, 0, len(incomingProofs))
 
 	if fullProof == nil {
-		// Falling back to only checking key ID validity via nilProof.
+		// Falling back to only checking key ID validity via the scheme.
 		for _, p := range incomingProofs {
-			if _, valid := nilProof.HasSparseKeyID(p.KeyID); !valid {
+			if valid := m.cmspScheme.IsValidKeyID(p.KeyID, pubKeys); !valid {
 				continue
 			}
 

@@ -41,7 +41,7 @@ func (p PrecommitProof) AsSparse() (PrecommitSparseProof, error) {
 	return out, nil
 }
 
-// PrecommitSparseProof is the sparse proof representation for precommits for v0.2.
+// PrecommitSparseProof is the representation of sparse proofs for precommits arriving across the network.
 // It is currently identical to PrevoteSparseProof, but that may change with vote extensions.
 type PrecommitSparseProof struct {
 	Height uint64
