@@ -199,12 +199,9 @@ func (s *kState) ShiftVotingToCommitting(nhd nextHeightDetails) {
 				Proofs:     commitProofs,
 			},
 
-			PrevoteProofs: map[string]gcrypto.CommonMessageSignatureProof{
-				"": nhd.Round0NilPrevote,
-			},
-			PrecommitProofs: map[string]gcrypto.CommonMessageSignatureProof{
-				"": nhd.Round0NilPrecommit,
-			},
+			// Empty but not nil maps.
+			PrevoteProofs:   map[string]gcrypto.CommonMessageSignatureProof{},
+			PrecommitProofs: map[string]gcrypto.CommonMessageSignatureProof{},
 
 			VoteSummary: tmconsensus.NewVoteSummary(),
 		},
@@ -226,10 +223,6 @@ func (s *kState) ShiftVotingToCommitting(nhd nextHeightDetails) {
 	s.NextRound.PrecommitVersion = 1
 	s.NextRound.VoteSummary.AvailablePower = s.Voting.VoteSummary.AvailablePower
 
-	// Because we reset, we have existing maps to use for proofs.
-	s.NextRound.PrevoteProofs[""] = nhd.Round1NilPrevote
-	s.NextRound.PrecommitProofs[""] = nhd.Round1NilPrecommit
-
 	s.MarkNextRoundViewUpdated()
 
 	s.CommittingHeader = nhd.VotedHeader
@@ -241,9 +234,7 @@ func (s *kState) ShiftVotingToCommitting(nhd nextHeightDetails) {
 	}
 }
 
-func (s *kState) AdvanceVotingRound(
-	nextRoundNilPrevote, nextRoundNilPrecommit gcrypto.CommonMessageSignatureProof,
-) {
+func (s *kState) AdvanceVotingRound() {
 	// Always set the NilVotedRound here,
 	// because we have to assume nobody else has sufficient information to advance.
 	//
@@ -252,18 +243,16 @@ func (s *kState) AdvanceVotingRound(
 	vClone := s.Voting.Clone()
 	s.GossipViewManager.NilVotedRound = &vClone
 
-	s.incrementVotingRound(nextRoundNilPrevote, nextRoundNilPrecommit)
+	s.incrementVotingRound()
 }
 
-func (s *kState) JumpVotingRound(
-	nextRoundNilPrevote, nextRoundNilPrecommit gcrypto.CommonMessageSignatureProof,
-) {
+func (s *kState) JumpVotingRound() {
 	// In AdvanceVotingRound we set GossipViewManager.NilVotedRound
 	// so we could share the terminal details with the network.
 	// But here since we are jumping forward,
 	// we have to share extra information with the state machine.
 
-	s.incrementVotingRound(nextRoundNilPrevote, nextRoundNilPrecommit)
+	s.incrementVotingRound()
 
 	// After incrementing the voting round, see if the state machine
 	// is still pointing at the prior voting round.
@@ -277,9 +266,7 @@ func (s *kState) JumpVotingRound(
 	}
 }
 
-func (s *kState) incrementVotingRound(
-	nextRoundNilPrevote, nextRoundNilPrecommit gcrypto.CommonMessageSignatureProof,
-) {
+func (s *kState) incrementVotingRound() {
 	// Swap NextRound and Voting.
 	// Keep the new Voting value but clear out all the new NextRound values.
 	s.Voting, s.NextRound = s.NextRound, s.Voting
@@ -287,9 +274,6 @@ func (s *kState) incrementVotingRound(
 
 	s.NextRound.ResetForSameHeight()
 	s.NextRound.Round = s.Voting.Round + 1
-
-	s.NextRound.PrevoteProofs[""] = nextRoundNilPrevote
-	s.NextRound.PrecommitProofs[""] = nextRoundNilPrecommit
 
 	s.MarkNextRoundViewUpdated()
 }

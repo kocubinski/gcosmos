@@ -821,23 +821,10 @@ func (k *Kernel) checkVotingPrecommitViewShift(ctx context.Context, s *kState) e
 
 	// TODO: gassert: verify incoming validator set's hashes.
 	nextValSet := votedHeader.NextValidatorSet
-	nhd := nextHeightDetails{ValidatorSet: nextValSet}
-	var err error
-
-	nhd.Round0NilPrevote, nhd.Round0NilPrecommit, err =
-		k.getInitialNilProofs(votedHeader.Height+1, 0, nextValSet)
-	if err != nil {
-		return fmt.Errorf("failed to load nil proofs on new voting round: %w", err)
-	}
-	nhd.Round1NilPrevote, nhd.Round1NilPrecommit, err =
-		k.getInitialNilProofs(votedHeader.Height+1, 1, nextValSet)
-	if err != nil {
-		return fmt.Errorf("failed to load nil proofs on new next round: %w", err)
-	}
-
-	nhd.VotedHeader = votedHeader
-
-	s.ShiftVotingToCommitting(nhd)
+	s.ShiftVotingToCommitting(nextHeightDetails{
+		ValidatorSet: nextValSet,
+		VotedHeader:  votedHeader,
+	})
 
 	// Since we have a new committing header,
 	// we store the subjective proof in the header store now.
@@ -864,18 +851,6 @@ func (k *Kernel) saveCurrentCommittingHeader(ctx context.Context, s *kState) err
 	proof := s.Voting.PrevCommitProof
 
 	// TODO: gassert: confirm the voting proof is sufficient.
-
-	// If there is an empty nil proof, we don't want to persist that.
-	// We don't expect any non-nil hashes to be empty.
-	// TODO: it would probably be better to identify where the empty proof is originating
-	// and just stop adding it, instead of retroactively cloning and deleting.
-	// If we really can't stop adding it for some reason,
-	// this could potentially switch to a pool of proof maps instead,
-	// to avoid some allocations.
-	if sigs, ok := proof.Proofs[""]; ok && len(sigs) == 0 {
-		proof.Proofs = maps.Clone(proof.Proofs)
-		delete(proof.Proofs, "")
-	}
 
 	ch := tmconsensus.CommittedHeader{
 		Header: s.CommittingHeader,
@@ -1084,19 +1059,12 @@ func (k *Kernel) checkMissingPHs(ctx context.Context, s *kState, proofs map[stri
 // advanceVotingRound is called when the kernel needs to increase the voting round by one,
 // and when we have sufficient information for the voting round to treat it as a nil commit.
 func (k *Kernel) advanceVotingRound(ctx context.Context, s *kState) error {
-	h := s.NextRound.Height
-	r := s.NextRound.Round + 1
-	nilPrevote, nilPrecommit, err := k.getInitialNilProofs(h, r, s.NextRound.ValidatorSet)
-	if err != nil {
-		return fmt.Errorf(
-			"failed to get initial nil proofs for h=%d/r=%d when advancing voting round",
-			h, r,
-		)
-	}
-
-	s.AdvanceVotingRound(nilPrevote, nilPrecommit)
+	s.AdvanceVotingRound()
 	if err := k.updateObservers(ctx, s); err != nil {
-		return err
+		return fmt.Errorf(
+			"failed to update observers after advancing voting round: %w",
+			err,
+		)
 	}
 	return nil
 }
@@ -1106,55 +1074,15 @@ func (k *Kernel) advanceVotingRound(ctx context.Context, s *kState) error {
 // Compared to [*Kernel.advanceVotingRound], this sends more information to the state machine
 // indicating the kernel's intent to skip the round.
 func (k *Kernel) jumpVotingRound(ctx context.Context, s *kState, newRound uint32) error {
-	h := s.NextRound.Height
-	nilPrevote, nilPrecommit, err := k.getInitialNilProofs(h, newRound, s.NextRound.ValidatorSet)
-	if err != nil {
+	s.JumpVotingRound()
+	if err := k.updateObservers(ctx, s); err != nil {
 		return fmt.Errorf(
-			"failed to get initial nil proofs for h=%d/r=%d when jumping voting round",
-			h, newRound,
+			"failed to update observers after jumping voting round: %w",
+			err,
 		)
 	}
 
-	s.JumpVotingRound(nilPrevote, nilPrecommit)
-	if err := k.updateObservers(ctx, s); err != nil {
-		return err
-	}
-
 	return nil
-}
-
-func (k *Kernel) getInitialNilProofs(h uint64, r uint32, vs tmconsensus.ValidatorSet) (
-	prevote, precommit gcrypto.CommonMessageSignatureProof,
-	err error,
-) {
-	nilVT := tmconsensus.VoteTarget{
-		Height: h,
-		Round:  r,
-	}
-	nilPrevoteContent, err := tmconsensus.PrevoteSignBytes(nilVT, k.sigScheme)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to get initial nil prevote sign bytes: %w", err)
-	}
-
-	pubKeys := tmconsensus.ValidatorsToPubKeys(vs.Validators)
-	pubKeyHash := string(vs.PubKeyHash)
-
-	prevoteNilProof, err := k.cmspScheme.New(nilPrevoteContent, pubKeys, pubKeyHash)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to get initial nil prevote proof: %w", err)
-	}
-
-	nilPrecommitContent, err := tmconsensus.PrecommitSignBytes(nilVT, k.sigScheme)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to get initial nil precommit sign bytes: %w", err)
-	}
-
-	precommitNilProof, err := k.cmspScheme.New(nilPrecommitContent, pubKeys, pubKeyHash)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to get initial nil precommit proof: %w", err)
-	}
-
-	return prevoteNilProof, precommitNilProof, nil
 }
 
 // sendSnapshotResponse sends a response to a snapshot request.
