@@ -35,7 +35,7 @@ type DataHost struct {
 
 	host libp2phost.Host
 
-	hs  tmstore.HeaderStore
+	chs tmstore.CommittedHeaderStore
 	bds gcstore.BlockDataStore
 
 	codec tmcodec.MarshalCodec
@@ -55,7 +55,7 @@ func NewDataHost(
 	ctx context.Context,
 	log *slog.Logger,
 	host libp2phost.Host,
-	hs tmstore.HeaderStore,
+	chs tmstore.CommittedHeaderStore,
 	bds gcstore.BlockDataStore,
 	codec tmcodec.MarshalCodec,
 ) *DataHost {
@@ -63,7 +63,7 @@ func NewDataHost(
 		ctx:   ctx,
 		log:   log,
 		host:  host,
-		hs:    hs,
+		chs:   chs,
 		bds:   bds,
 		codec: codec,
 
@@ -170,7 +170,7 @@ func (h *DataHost) handleCommittedHeaderStream(s libp2pnetwork.Stream) {
 		return
 	}
 
-	ch, err := h.hs.LoadHeader(ctx, height)
+	ch, err := h.chs.LoadCommittedHeader(ctx, height)
 	if err != nil {
 		// TODO: There are probably certain cases we do want to expose.
 		// For now, just mask it.
@@ -239,7 +239,7 @@ func (h *DataHost) handleFullBlockStream(s libp2pnetwork.Stream) {
 		return
 	}
 
-	ch, err := h.hs.LoadHeader(ctx, height)
+	ch, err := h.chs.LoadCommittedHeader(ctx, height)
 	if err != nil {
 		// TODO: There are probably certain cases we do want to expose.
 		// For now, just mask it.

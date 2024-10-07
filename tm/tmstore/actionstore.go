@@ -10,10 +10,10 @@ import (
 // ActionStore stores the active actions the current state machine and application take;
 // specifically, proposed blocks, prevotes, and precommits.
 type ActionStore interface {
-	SaveProposedHeader(context.Context, tmconsensus.ProposedHeader) error
+	SaveProposedHeaderAction(context.Context, tmconsensus.ProposedHeader) error
 
-	SavePrevote(ctx context.Context, pubKey gcrypto.PubKey, vt tmconsensus.VoteTarget, sig []byte) error
-	SavePrecommit(ctx context.Context, pubKey gcrypto.PubKey, vt tmconsensus.VoteTarget, sig []byte) error
+	SavePrevoteAction(ctx context.Context, pubKey gcrypto.PubKey, vt tmconsensus.VoteTarget, sig []byte) error
+	SavePrecommitAction(ctx context.Context, pubKey gcrypto.PubKey, vt tmconsensus.VoteTarget, sig []byte) error
 
 	// LoadActions returns all actions recorded for this round.
 	LoadActions(ctx context.Context, height uint64, round uint32) (RoundActions, error)

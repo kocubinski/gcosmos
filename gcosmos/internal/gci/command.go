@@ -166,8 +166,8 @@ func runStateMachine(
 		as = tmmemstore.NewActionStore()
 	}
 
+	chs := tmmemstore.NewCommittedHeaderStore()
 	fs := tmmemstore.NewFinalizationStore()
-	hs := tmmemstore.NewHeaderStore()
 	ms := tmmemstore.NewMirrorStore()
 	rs := tmmemstore.NewRoundStore()
 	vs := tmmemstore.NewValidatorStore(tmconsensustest.SimpleHashScheme{})
@@ -194,8 +194,8 @@ func runStateMachine(
 		ctx,
 		log.With("sys", "engine"),
 		tmengine.WithActionStore(as),
+		tmengine.WithCommittedHeaderStore(chs),
 		tmengine.WithFinalizationStore(fs),
-		tmengine.WithHeaderStore(hs),
 		tmengine.WithMirrorStore(ms),
 		tmengine.WithRoundStore(rs),
 		tmengine.WithValidatorStore(vs),

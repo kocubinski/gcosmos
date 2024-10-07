@@ -26,7 +26,7 @@ func NewActionStore() *ActionStore {
 	}
 }
 
-func (s *ActionStore) SaveProposedHeader(ctx context.Context, ph tmconsensus.ProposedHeader) error {
+func (s *ActionStore) SaveProposedHeaderAction(ctx context.Context, ph tmconsensus.ProposedHeader) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -44,7 +44,7 @@ func (s *ActionStore) SaveProposedHeader(ctx context.Context, ph tmconsensus.Pro
 	return nil
 }
 
-func (s *ActionStore) SavePrevote(ctx context.Context, pubKey gcrypto.PubKey, vt tmconsensus.VoteTarget, sig []byte) error {
+func (s *ActionStore) SavePrevoteAction(ctx context.Context, pubKey gcrypto.PubKey, vt tmconsensus.VoteTarget, sig []byte) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -75,7 +75,7 @@ func (s *ActionStore) SavePrevote(ctx context.Context, pubKey gcrypto.PubKey, vt
 	return nil
 }
 
-func (s *ActionStore) SavePrecommit(ctx context.Context, pubKey gcrypto.PubKey, vt tmconsensus.VoteTarget, sig []byte) error {
+func (s *ActionStore) SavePrecommitAction(ctx context.Context, pubKey gcrypto.PubKey, vt tmconsensus.VoteTarget, sig []byte) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 

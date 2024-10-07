@@ -61,8 +61,8 @@ func validateMirrorSettings(cfg tmmirror.MirrorConfig) error {
 		err = errors.Join(err, errors.New("no mirror store set (use tmengine.WithMirrorStore)"))
 	}
 
-	if cfg.HeaderStore == nil {
-		err = errors.Join(err, errors.New("no header store set (use tmengine.WithHeaderStore)"))
+	if cfg.CommittedHeaderStore == nil {
+		err = errors.Join(err, errors.New("no committed header store set (use tmengine.WithCommittedHeaderStore)"))
 	}
 
 	if cfg.RoundStore == nil {

@@ -10,9 +10,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-type HeaderStoreFactory func(cleanup func(func())) (tmstore.HeaderStore, error)
+type CommittedHeaderStoreFactory func(cleanup func(func())) (tmstore.CommittedHeaderStore, error)
 
-func TestHeaderStoreCompliance(t *testing.T, f HeaderStoreFactory) {
+func TestCommittedHeaderStoreCompliance(t *testing.T, f CommittedHeaderStoreFactory) {
 	t.Run("happy path", func(t *testing.T) {
 		t.Parallel()
 
@@ -50,9 +50,9 @@ func TestHeaderStoreCompliance(t *testing.T, f HeaderStoreFactory) {
 			Proof:  ph2.Header.PrevCommitProof,
 		}
 
-		require.NoError(t, s.SaveHeader(ctx, ch))
+		require.NoError(t, s.SaveCommittedHeader(ctx, ch))
 
-		got, err := s.LoadHeader(ctx, 1)
+		got, err := s.LoadCommittedHeader(ctx, 1)
 		require.NoError(t, err)
 
 		require.Equal(t, ch, got)
@@ -71,9 +71,9 @@ func TestHeaderStoreCompliance(t *testing.T, f HeaderStoreFactory) {
 			Proof:  ph3.Header.PrevCommitProof,
 		}
 
-		require.NoError(t, s.SaveHeader(ctx, ch))
+		require.NoError(t, s.SaveCommittedHeader(ctx, ch))
 
-		got, err = s.LoadHeader(ctx, 2)
+		got, err = s.LoadCommittedHeader(ctx, 2)
 		require.NoError(t, err)
 
 		require.Equal(t, ch, got)

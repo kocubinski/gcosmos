@@ -48,8 +48,8 @@ type Factory interface {
 	NewNetwork(context.Context, *slog.Logger) (tmp2ptest.Network, error)
 
 	NewActionStore(context.Context, int) (tmstore.ActionStore, error)
+	NewCommittedHeaderStore(context.Context, int) (tmstore.CommittedHeaderStore, error)
 	NewFinalizationStore(context.Context, int) (tmstore.FinalizationStore, error)
-	NewHeaderStore(context.Context, int) (tmstore.HeaderStore, error)
 	NewMirrorStore(context.Context, int) (tmstore.MirrorStore, error)
 	NewRoundStore(context.Context, int) (tmstore.RoundStore, error)
 	NewValidatorStore(context.Context, int, tmconsensus.HashScheme) (tmstore.ValidatorStore, error)

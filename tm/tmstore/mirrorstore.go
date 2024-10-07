@@ -5,8 +5,6 @@ import (
 )
 
 // Store is the storage engine for values that a [Mirror] needs to read and write.
-//
-//  This type may move to the [tmstore] package in the future.
 type MirrorStore interface {
 	// Set and get the "network height and round", which is what the Mirror
 	// believes to be the current round for voting and the current round

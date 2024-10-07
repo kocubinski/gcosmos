@@ -727,8 +727,8 @@ func (s *TMStore) selectOrInsertVotePowersByHash(
 	return hashID, nil
 }
 
-func (s *TMStore) SaveHeader(ctx context.Context, ch tmconsensus.CommittedHeader) error {
-	defer trace.StartRegion(ctx, "SaveHeader").End()
+func (s *TMStore) SaveCommittedHeader(ctx context.Context, ch tmconsensus.CommittedHeader) error {
+	defer trace.StartRegion(ctx, "SaveCommittedHeader").End()
 
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -1028,8 +1028,8 @@ commit_proof_voted_block_id, sparse_signature_id
 	return nil
 }
 
-func (s *TMStore) LoadHeader(ctx context.Context, height uint64) (tmconsensus.CommittedHeader, error) {
-	defer trace.StartRegion(ctx, "LoadHeader").End()
+func (s *TMStore) LoadCommittedHeader(ctx context.Context, height uint64) (tmconsensus.CommittedHeader, error) {
+	defer trace.StartRegion(ctx, "LoadCommittedHeader").End()
 
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
@@ -1365,8 +1365,8 @@ ORDER BY key_id`, // Order not strictly necessary, but convenient for tests.
 	return h, headerID, nil
 }
 
-func (s *TMStore) SaveProposedHeader(ctx context.Context, ph tmconsensus.ProposedHeader) error {
-	defer trace.StartRegion(ctx, "SaveProposedHeader").End()
+func (s *TMStore) SaveProposedHeaderAction(ctx context.Context, ph tmconsensus.ProposedHeader) error {
+	defer trace.StartRegion(ctx, "SaveProposedHeaderAction").End()
 
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -1437,13 +1437,13 @@ proposer_pub_key_id
 	return nil
 }
 
-func (s *TMStore) SavePrevote(
+func (s *TMStore) SavePrevoteAction(
 	ctx context.Context,
 	pubKey gcrypto.PubKey,
 	vt tmconsensus.VoteTarget,
 	sig []byte,
 ) error {
-	defer trace.StartRegion(ctx, "SavePrevote").End()
+	defer trace.StartRegion(ctx, "SavePrevoteAction").End()
 
 	return s.saveVote(ctx, pubKey, vt, sig, voteEntryConfig{
 		IntoTable:  "actions_prevotes",
@@ -1452,13 +1452,13 @@ func (s *TMStore) SavePrevote(
 	})
 }
 
-func (s *TMStore) SavePrecommit(
+func (s *TMStore) SavePrecommitAction(
 	ctx context.Context,
 	pubKey gcrypto.PubKey,
 	vt tmconsensus.VoteTarget,
 	sig []byte,
 ) error {
-	defer trace.StartRegion(ctx, "SavePrecommit").End()
+	defer trace.StartRegion(ctx, "SavePrecommitAction").End()
 
 	return s.saveVote(ctx, pubKey, vt, sig, voteEntryConfig{
 		IntoTable:  "actions_precommits",

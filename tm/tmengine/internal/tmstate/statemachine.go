@@ -1018,7 +1018,7 @@ func (m *StateMachine) recordPrevote(
 			return false
 		}
 
-		if err := m.aStore.SavePrevote(ctx, m.signer.PubKey(), vt, sig); err != nil {
+		if err := m.aStore.SavePrevoteAction(ctx, m.signer.PubKey(), vt, sig); err != nil {
 			glog.HRE(m.log, h, r, err).Error("Failed to save prevote to action store")
 			return false
 		}
@@ -1113,7 +1113,7 @@ func (m *StateMachine) recordPrecommit(
 		return false
 	}
 
-	if err := m.aStore.SavePrecommit(ctx, m.signer.PubKey(), vt, sig); err != nil {
+	if err := m.aStore.SavePrecommitAction(ctx, m.signer.PubKey(), vt, sig); err != nil {
 		glog.HRE(m.log, h, r, err).Error("Failed to save precommit to action store")
 		return false
 	}
@@ -1220,7 +1220,7 @@ func (m *StateMachine) recordProposedBlock(
 		return false
 	}
 
-	if err := m.aStore.SaveProposedHeader(ctx, ph); err != nil {
+	if err := m.aStore.SaveProposedHeaderAction(ctx, ph); err != nil {
 		glog.HRE(m.log, h, r, err).Error("Failed to save proposed block to action store")
 		return false
 	}

@@ -34,7 +34,7 @@ func TestActionStoreCompliance(t *testing.T, f ActionStoreFactory) {
 
 		attemptToSavePubKeys(t, ctx, s, ph1.Header.ValidatorSet.Validators)
 
-		require.NoError(t, s.SaveProposedHeader(ctx, ph1))
+		require.NoError(t, s.SaveProposedHeaderAction(ctx, ph1))
 
 		t.Run("round trip", func(t *testing.T) {
 			ra, err := s.LoadActions(ctx, 1, 2)
@@ -46,7 +46,7 @@ func TestActionStoreCompliance(t *testing.T, f ActionStoreFactory) {
 		})
 
 		t.Run("double save rejected with same input", func(t *testing.T) {
-			err := s.SaveProposedHeader(ctx, ph1)
+			err := s.SaveProposedHeaderAction(ctx, ph1)
 			require.ErrorIs(t, err, tmstore.DoubleActionError{Type: "proposed block"})
 		})
 
@@ -57,7 +57,7 @@ func TestActionStoreCompliance(t *testing.T, f ActionStoreFactory) {
 			fx.RecalculateHash(&otherPH.Header)
 			fx.SignProposal(ctx, &otherPH, 0)
 
-			err := s.SaveProposedHeader(ctx, otherPH)
+			err := s.SaveProposedHeaderAction(ctx, otherPH)
 			require.ErrorIs(t, err, tmstore.DoubleActionError{Type: "proposed block"})
 		})
 	})
@@ -91,7 +91,7 @@ func TestActionStoreCompliance(t *testing.T, f ActionStoreFactory) {
 		attemptToSavePubKeys(t, ctx, s, ph1.Header.ValidatorSet.Validators)
 
 		pubKey := fx.ValidatorPubKey(0)
-		require.NoError(t, s.SavePrevote(ctx, pubKey, vt, sig))
+		require.NoError(t, s.SavePrevoteAction(ctx, pubKey, vt, sig))
 
 		t.Run("round trip", func(t *testing.T) {
 			ra, err := s.LoadActions(ctx, 1, 2)
@@ -106,14 +106,14 @@ func TestActionStoreCompliance(t *testing.T, f ActionStoreFactory) {
 		})
 
 		t.Run("double save rejected with same signature", func(t *testing.T) {
-			err := s.SavePrevote(ctx, pubKey, vt, sig)
+			err := s.SavePrevoteAction(ctx, pubKey, vt, sig)
 			require.ErrorIs(t, err, tmstore.DoubleActionError{Type: "prevote"})
 		})
 
 		t.Run("double save rejected with different signature", func(t *testing.T) {
 			nilVT := tmconsensus.VoteTarget{Height: 1, Round: 2}
 			nilSig := fx.PrevoteSignature(ctx, nilVT, 0)
-			err := s.SavePrevote(ctx, pubKey, nilVT, nilSig)
+			err := s.SavePrevoteAction(ctx, pubKey, nilVT, nilSig)
 			require.ErrorIs(t, err, tmstore.DoubleActionError{Type: "prevote"})
 		})
 	})
@@ -144,7 +144,7 @@ func TestActionStoreCompliance(t *testing.T, f ActionStoreFactory) {
 		attemptToSavePubKeys(t, ctx, s, ph1.Header.ValidatorSet.Validators)
 
 		pubKey := fx.ValidatorPubKey(0)
-		require.NoError(t, s.SavePrecommit(ctx, pubKey, vt, sig))
+		require.NoError(t, s.SavePrecommitAction(ctx, pubKey, vt, sig))
 
 		t.Run("round trip", func(t *testing.T) {
 			ra, err := s.LoadActions(ctx, 1, 2)
@@ -159,14 +159,14 @@ func TestActionStoreCompliance(t *testing.T, f ActionStoreFactory) {
 		})
 
 		t.Run("double save rejected with same signature", func(t *testing.T) {
-			err := s.SavePrecommit(ctx, pubKey, vt, sig)
+			err := s.SavePrecommitAction(ctx, pubKey, vt, sig)
 			require.ErrorIs(t, err, tmstore.DoubleActionError{Type: "precommit"})
 		})
 
 		t.Run("double save rejected with different signature", func(t *testing.T) {
 			nilVT := tmconsensus.VoteTarget{Height: 1, Round: 2}
 			nilSig := fx.PrecommitSignature(ctx, nilVT, 0)
-			err := s.SavePrecommit(ctx, pubKey, nilVT, nilSig)
+			err := s.SavePrecommitAction(ctx, pubKey, nilVT, nilSig)
 			require.ErrorIs(t, err, tmstore.DoubleActionError{Type: "precommit"})
 		})
 	})
@@ -201,8 +201,8 @@ func TestActionStoreCompliance(t *testing.T, f ActionStoreFactory) {
 
 			attemptToSavePubKeys(t, ctx, s, ph1.Header.ValidatorSet.Validators)
 
-			require.NoError(t, s.SavePrevote(ctx, prevotePubKey, vt, prevoteSig))
-			err = s.SavePrecommit(ctx, precommitPubKey, vt, precommitSig)
+			require.NoError(t, s.SavePrevoteAction(ctx, prevotePubKey, vt, prevoteSig))
+			err = s.SavePrecommitAction(ctx, precommitPubKey, vt, precommitSig)
 			require.ErrorIs(t, err, tmstore.PubKeyChangedError{
 				ActionType: "precommit",
 				Want:       string(prevotePubKey.PubKeyBytes()),
@@ -219,8 +219,8 @@ func TestActionStoreCompliance(t *testing.T, f ActionStoreFactory) {
 
 			attemptToSavePubKeys(t, ctx, s, ph1.Header.ValidatorSet.Validators)
 
-			require.NoError(t, s.SavePrecommit(ctx, precommitPubKey, vt, precommitSig))
-			err = s.SavePrevote(ctx, prevotePubKey, vt, prevoteSig)
+			require.NoError(t, s.SavePrecommitAction(ctx, precommitPubKey, vt, precommitSig))
+			err = s.SavePrevoteAction(ctx, prevotePubKey, vt, prevoteSig)
 			require.ErrorIs(t, err, tmstore.PubKeyChangedError{
 				ActionType: "prevote",
 				Want:       string(precommitPubKey.PubKeyBytes()),
@@ -251,7 +251,7 @@ func TestActionStoreCompliance(t *testing.T, f ActionStoreFactory) {
 
 			attemptToSavePubKeys(t, ctx, s, ph1.Header.ValidatorSet.Validators)
 
-			require.NoError(t, s.SaveProposedHeader(ctx, ph1))
+			require.NoError(t, s.SaveProposedHeaderAction(ctx, ph1))
 
 			vt := tmconsensus.VoteTarget{
 				Height:    1,
@@ -263,8 +263,8 @@ func TestActionStoreCompliance(t *testing.T, f ActionStoreFactory) {
 			prevoteSig := fx.PrevoteSignature(ctx, vt, 0)
 			precommitSig := fx.PrecommitSignature(ctx, vt, 0)
 
-			require.NoError(t, s.SavePrevote(ctx, pubKey, vt, prevoteSig))
-			require.NoError(t, s.SavePrecommit(ctx, pubKey, vt, precommitSig))
+			require.NoError(t, s.SavePrevoteAction(ctx, pubKey, vt, prevoteSig))
+			require.NoError(t, s.SavePrecommitAction(ctx, pubKey, vt, precommitSig))
 
 			ra, err := s.LoadActions(ctx, 1, 2)
 			require.NoError(t, err)

@@ -28,7 +28,7 @@ type Kernel struct {
 	log *slog.Logger
 
 	store  tmstore.MirrorStore
-	hStore tmstore.HeaderStore
+	hStore tmstore.CommittedHeaderStore
 	rStore tmstore.RoundStore
 	vStore tmstore.ValidatorStore
 
@@ -63,10 +63,10 @@ type Kernel struct {
 }
 
 type KernelConfig struct {
-	Store          tmstore.MirrorStore
-	HeaderStore    tmstore.HeaderStore
-	RoundStore     tmstore.RoundStore
-	ValidatorStore tmstore.ValidatorStore
+	Store                tmstore.MirrorStore
+	CommittedHeaderStore tmstore.CommittedHeaderStore
+	RoundStore           tmstore.RoundStore
+	ValidatorStore       tmstore.ValidatorStore
 
 	HashScheme                        tmconsensus.HashScheme
 	SignatureScheme                   tmconsensus.SignatureScheme
@@ -165,7 +165,7 @@ func NewKernel(ctx context.Context, log *slog.Logger, cfg KernelConfig) (*Kernel
 		log: log,
 
 		store:  cfg.Store,
-		hStore: cfg.HeaderStore,
+		hStore: cfg.CommittedHeaderStore,
 		rStore: cfg.RoundStore,
 		vStore: cfg.ValidatorStore,
 
@@ -881,7 +881,7 @@ func (k *Kernel) saveCurrentCommittingHeader(ctx context.Context, s *kState) err
 		Header: s.CommittingHeader,
 		Proof:  proof,
 	}
-	if err := k.hStore.SaveHeader(ctx, ch); err != nil {
+	if err := k.hStore.SaveCommittedHeader(ctx, ch); err != nil {
 		return fmt.Errorf("failed to save newly committed header: %w", err)
 	}
 
@@ -1441,7 +1441,7 @@ func (k *Kernel) handleStateMachineRoundEntrance(ctx context.Context, s *kState,
 		// There is one acceptable condition here -- it was before the committing round.
 		if status == ViewBeforeCommitting {
 			// Then we have to load it from the header store.
-			ch, err := k.hStore.LoadHeader(ctx, re.H)
+			ch, err := k.hStore.LoadCommittedHeader(ctx, re.H)
 			if err != nil {
 				panic(fmt.Errorf(
 					"failed to load block at height %d from block store for state machine: %w",

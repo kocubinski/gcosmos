@@ -73,10 +73,10 @@ func NewFixture(ctx context.Context, t *testing.T, nVals int) *Fixture {
 		ReplayedHeadersIn:           rhrIn,
 
 		Cfg: tmmirror.MirrorConfig{
-			Store:          tmmemstore.NewMirrorStore(),
-			HeaderStore:    tmmemstore.NewHeaderStore(),
-			RoundStore:     tmmemstore.NewRoundStore(),
-			ValidatorStore: tmmemstore.NewValidatorStore(fx.HashScheme),
+			Store:                tmmemstore.NewMirrorStore(),
+			CommittedHeaderStore: tmmemstore.NewCommittedHeaderStore(),
+			RoundStore:           tmmemstore.NewRoundStore(),
+			ValidatorStore:       tmmemstore.NewValidatorStore(fx.HashScheme),
 
 			InitialHeight:     1,
 			InitialValidators: fx.Vals(),
@@ -176,7 +176,7 @@ func (f *Fixture) CommitInitialHeight(
 
 	// The kernel saves committing blocks to the header store,
 	// so do that here too.
-	if err := f.Cfg.HeaderStore.SaveHeader(ctx, tmconsensus.CommittedHeader{
+	if err := f.Cfg.CommittedHeaderStore.SaveCommittedHeader(ctx, tmconsensus.CommittedHeader{
 		Header: pb.Header,
 		Proof: tmconsensus.CommitProof{
 			Round:      0,

@@ -36,7 +36,7 @@ func TestCatchupClient_fullBlock_zeroData(t *testing.T) {
 	fx.CommitBlock(ph1.Header, []byte("app_state_1"), 0, precommitProofs)
 	nextPH := fx.NextProposedHeader([]byte("whatever"), 0)
 
-	require.NoError(t, dhfx.HeaderStore.SaveHeader(ctx, tmconsensus.CommittedHeader{
+	require.NoError(t, dhfx.CommittedHeaderStore.SaveCommittedHeader(ctx, tmconsensus.CommittedHeader{
 		Header: ph1.Header,
 		Proof:  nextPH.Header.PrevCommitProof,
 	}))
@@ -110,7 +110,7 @@ func TestCatchupClient_fullBlock_withData_correct(t *testing.T) {
 	fx.CommitBlock(ph1.Header, []byte("app_state_1"), 0, precommitProofs)
 	nextPH := fx.NextProposedHeader([]byte("whatever"), 0)
 
-	require.NoError(t, dhfx.HeaderStore.SaveHeader(ctx, tmconsensus.CommittedHeader{
+	require.NoError(t, dhfx.CommittedHeaderStore.SaveCommittedHeader(ctx, tmconsensus.CommittedHeader{
 		Header: ph1.Header,
 		Proof:  nextPH.Header.PrevCommitProof,
 	}))
@@ -189,7 +189,7 @@ func TestCatchupClient_fullBlock_withData_badHash(t *testing.T) {
 	fx.CommitBlock(ph1.Header, []byte("app_state_1"), 0, precommitProofs)
 	nextPH := fx.NextProposedHeader([]byte("whatever"), 0)
 
-	require.NoError(t, dhfx.HeaderStore.SaveHeader(ctx, tmconsensus.CommittedHeader{
+	require.NoError(t, dhfx.CommittedHeaderStore.SaveCommittedHeader(ctx, tmconsensus.CommittedHeader{
 		Header: ph1.Header,
 		Proof:  nextPH.Header.PrevCommitProof,
 	}))

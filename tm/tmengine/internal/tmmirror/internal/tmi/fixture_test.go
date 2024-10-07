@@ -106,10 +106,10 @@ func NewKernelFixture(ctx context.Context, t *testing.T, nVals int) *KernelFixtu
 		StateMachineRoundViewOut:    smViewOut,
 
 		Cfg: tmi.KernelConfig{
-			Store:          tmmemstore.NewMirrorStore(),
-			HeaderStore:    tmmemstore.NewHeaderStore(),
-			RoundStore:     tmmemstore.NewRoundStore(),
-			ValidatorStore: tmmemstore.NewValidatorStore(fx.HashScheme),
+			Store:                tmmemstore.NewMirrorStore(),
+			CommittedHeaderStore: tmmemstore.NewCommittedHeaderStore(),
+			RoundStore:           tmmemstore.NewRoundStore(),
+			ValidatorStore:       tmmemstore.NewValidatorStore(fx.HashScheme),
 
 			InitialHeight:     1,
 			InitialValidators: fx.Vals(),

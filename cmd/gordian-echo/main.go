@@ -320,7 +320,7 @@ func NewStandaloneMirrorCmd(log *slog.Logger) *cobra.Command {
 			defer conn.Disconnect()
 			defer cancel()
 
-			hs := tmmemstore.NewHeaderStore()
+			chs := tmmemstore.NewCommittedHeaderStore()
 			ms := tmmemstore.NewMirrorStore()
 			rs := tmmemstore.NewRoundStore()
 			vs := tmmemstore.NewValidatorStore(tmconsensustest.SimpleHashScheme{})
@@ -351,7 +351,7 @@ func NewStandaloneMirrorCmd(log *slog.Logger) *cobra.Command {
 			m, err := tmengine.NewMirror(
 				ctx,
 				log.With("sys", "mirror"),
-				tmengine.WithHeaderStore(hs),
+				tmengine.WithCommittedHeaderStore(chs),
 				tmengine.WithMirrorStore(ms),
 				tmengine.WithRoundStore(rs),
 				tmengine.WithValidatorStore(vs),
@@ -554,8 +554,8 @@ func runStateMachineV3(
 		as = tmmemstore.NewActionStore()
 	}
 
+	chs := tmmemstore.NewCommittedHeaderStore()
 	fs := tmmemstore.NewFinalizationStore()
-	hs := tmmemstore.NewHeaderStore()
 	ms := tmmemstore.NewMirrorStore()
 	rs := tmmemstore.NewRoundStore()
 	vs := tmmemstore.NewValidatorStore(tmconsensustest.SimpleHashScheme{})
@@ -604,8 +604,8 @@ func runStateMachineV3(
 		ctx,
 		log.With("sys", "engine"),
 		tmengine.WithActionStore(as),
+		tmengine.WithCommittedHeaderStore(chs),
 		tmengine.WithFinalizationStore(fs),
-		tmengine.WithHeaderStore(hs),
 		tmengine.WithMirrorStore(ms),
 		tmengine.WithRoundStore(rs),
 		tmengine.WithValidatorStore(vs),

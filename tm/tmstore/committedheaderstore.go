@@ -6,7 +6,7 @@ import (
 	"github.com/rollchains/gordian/tm/tmconsensus"
 )
 
-// HeaderStore is the store that the Engine's Mirror uses for committed block headers.
+// CommittedHeaderStore is the store that the Engine's Mirror uses for committed block headers.
 // The committed headers always lag the voting round by one height.
 // The subsequent header's PrevCommitProof field is the canonical proof.
 // But while the engine is still voting on that height,
@@ -16,8 +16,8 @@ import (
 // That is, while the proof is expected to represent >2/3 voting power for the header,
 // it is not necessarily the same set of signatures
 // as in the subsequent block's PrevCommitProof field.
-type HeaderStore interface {
-	SaveHeader(ctx context.Context, ch tmconsensus.CommittedHeader) error
+type CommittedHeaderStore interface {
+	SaveCommittedHeader(ctx context.Context, ch tmconsensus.CommittedHeader) error
 
-	LoadHeader(ctx context.Context, height uint64) (tmconsensus.CommittedHeader, error)
+	LoadCommittedHeader(ctx context.Context, height uint64) (tmconsensus.CommittedHeader, error)
 }

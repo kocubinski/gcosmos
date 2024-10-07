@@ -103,7 +103,7 @@ type Component struct {
 	// We have them as fields on the Component
 	// because they need to cross the Init-Start boundaries.
 	bds gcstore.BlockDataStore
-	hs  tmstore.HeaderStore
+	chs tmstore.CommittedHeaderStore
 	fs  tmstore.FinalizationStore
 	ms  tmstore.MirrorStore
 
@@ -243,8 +243,8 @@ func (c *Component) Init(app serverv2.AppI[transaction.Tx], cfg map[string]any, 
 		rs = tmmemstore.NewRoundStore()
 		vs = tmmemstore.NewValidatorStore(tmconsensustest.SimpleHashScheme{})
 
+		c.chs = tmmemstore.NewCommittedHeaderStore()
 		c.fs = tmmemstore.NewFinalizationStore()
-		c.hs = tmmemstore.NewHeaderStore()
 		c.ms = tmmemstore.NewMirrorStore()
 	} else {
 		if c.signer != nil {
@@ -254,8 +254,8 @@ func (c *Component) Init(app serverv2.AppI[transaction.Tx], cfg map[string]any, 
 		rs = c.tmsql
 		vs = c.tmsql
 
+		c.chs = c.tmsql
 		c.fs = c.tmsql
-		c.hs = c.tmsql
 		c.ms = c.tmsql
 	}
 
@@ -290,8 +290,8 @@ func (c *Component) Init(app serverv2.AppI[transaction.Tx], cfg map[string]any, 
 		tmengine.WithSigner(c.signer),
 
 		tmengine.WithActionStore(as),
+		tmengine.WithCommittedHeaderStore(c.chs),
 		tmengine.WithFinalizationStore(c.fs),
-		tmengine.WithHeaderStore(c.hs),
 		tmengine.WithMirrorStore(c.ms),
 		tmengine.WithRoundStore(rs),
 		tmengine.WithValidatorStore(vs),
@@ -362,7 +362,7 @@ func (c *Component) Start(ctx context.Context) error {
 		c.rootCtx,
 		c.log.With("sys", "datahost"),
 		h.Libp2pHost(),
-		c.hs,
+		c.chs,
 		c.bds,
 		codec,
 	)

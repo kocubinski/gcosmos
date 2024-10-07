@@ -22,8 +22,8 @@ func (f InmemStoreFactory) NewFinalizationStore(ctx context.Context, idx int) (t
 	return tmmemstore.NewFinalizationStore(), nil
 }
 
-func (f InmemStoreFactory) NewHeaderStore(ctx context.Context, idx int) (tmstore.HeaderStore, error) {
-	return tmmemstore.NewHeaderStore(), nil
+func (f InmemStoreFactory) NewCommittedHeaderStore(ctx context.Context, idx int) (tmstore.CommittedHeaderStore, error) {
+	return tmmemstore.NewCommittedHeaderStore(), nil
 }
 
 func (f InmemStoreFactory) NewMirrorStore(ctx context.Context, idx int) (tmstore.MirrorStore, error) {

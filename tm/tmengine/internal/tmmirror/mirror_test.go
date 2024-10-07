@@ -1239,7 +1239,7 @@ func TestMirror_CommitToBlockStore(t *testing.T) {
 
 	// Now on height 2, we have a committing view at height 1.
 	// So, the subjective commit for 1 should be in the header store.
-	h, err := mfx.Cfg.HeaderStore.LoadHeader(ctx, 1)
+	h, err := mfx.Cfg.CommittedHeaderStore.LoadCommittedHeader(ctx, 1)
 	require.NoError(t, err)
 	require.Equal(t, tmconsensus.CommittedHeader{
 		Header: ph1.Header,
@@ -1291,7 +1291,7 @@ func TestMirror_CommitToBlockStore(t *testing.T) {
 	require.Equal(t, wantNHR, nhr)
 
 	// This means height 1 must be in the header store.
-	cb1, err := mfx.Cfg.HeaderStore.LoadHeader(ctx, 1)
+	cb1, err := mfx.Cfg.CommittedHeaderStore.LoadCommittedHeader(ctx, 1)
 	require.NoError(t, err)
 	require.Equal(t, ph1.Header, cb1.Header)
 	require.Equal(t, ph2.Header.PrevCommitProof, cb1.Proof)
@@ -2050,11 +2050,11 @@ func TestMirror_stateMachineActions(t *testing.T) {
 		require.Len(t, cv.PrevCommitProof.Proofs, 1)
 
 		// Now height 1 is fully committed (from the fixture).
-		ch1, err := mfx.Cfg.HeaderStore.LoadHeader(ctx, 1)
+		ch1, err := mfx.Cfg.CommittedHeaderStore.LoadCommittedHeader(ctx, 1)
 		require.NoError(t, err)
 
 		// And height 2 is committed since we went through normal flow.
-		ch2, err := mfx.Cfg.HeaderStore.LoadHeader(ctx, 2)
+		ch2, err := mfx.Cfg.CommittedHeaderStore.LoadCommittedHeader(ctx, 2)
 		require.NoError(t, err)
 		proofClone := maps.Clone(gso.Voting.PrevCommitProof.Proofs)
 		delete(proofClone, "") // TODO: the empty nil proof probably shouldn't be sent to gso in the first place.
@@ -2940,7 +2940,7 @@ func TestMirror_replayedHeaders(t *testing.T) {
 		ph2 := mfx.Fx.NextProposedHeader([]byte("app_data_2"), 0)
 
 		// Before we replay the block, make sure the header store is empty.
-		_, err := mfx.Cfg.HeaderStore.LoadHeader(ctx, 1)
+		_, err := mfx.Cfg.CommittedHeaderStore.LoadCommittedHeader(ctx, 1)
 		require.ErrorIs(t, err, tmconsensus.HeightUnknownError{Want: 1})
 
 		respCh := make(chan tmelink.ReplayedHeaderResponse, 1)
@@ -2954,7 +2954,7 @@ func TestMirror_replayedHeaders(t *testing.T) {
 		_ = gtest.ReceiveSoon(t, respCh) // Response currently doesn't have anything meaningful.
 
 		// Now we have a committing header.
-		h, err := mfx.Cfg.HeaderStore.LoadHeader(ctx, 1)
+		h, err := mfx.Cfg.CommittedHeaderStore.LoadCommittedHeader(ctx, 1)
 		require.NoError(t, err)
 		require.Equal(t, tmconsensus.CommittedHeader{
 			Header: ph1.Header,
@@ -3004,7 +3004,7 @@ func TestMirror_replayedHeaders(t *testing.T) {
 
 		// Now 2 is in committing and 3 is in voting,
 		// so 2 must be in the header store.
-		h, err = mfx.Cfg.HeaderStore.LoadHeader(ctx, 2)
+		h, err = mfx.Cfg.CommittedHeaderStore.LoadCommittedHeader(ctx, 2)
 		require.NoError(t, err)
 		require.Equal(t, tmconsensus.CommittedHeader{
 			Header: req2.Header,
@@ -3043,7 +3043,7 @@ func TestMirror_replayedHeaders(t *testing.T) {
 		ph2 := mfx.Fx.NextProposedHeader([]byte("app_data_2"), 0)
 
 		// Before we replay the block, make sure the header store is empty.
-		_, err := mfx.Cfg.HeaderStore.LoadHeader(ctx, 1)
+		_, err := mfx.Cfg.CommittedHeaderStore.LoadCommittedHeader(ctx, 1)
 		require.ErrorIs(t, err, tmconsensus.HeightUnknownError{Want: 1})
 
 		respCh := make(chan tmelink.ReplayedHeaderResponse, 1)
@@ -3162,7 +3162,7 @@ func TestMirror_replayedHeaders(t *testing.T) {
 		ph2 := mfx.Fx.NextProposedHeader([]byte("app_data_2"), 0)
 
 		// Before we replay the block, make sure the header store is empty.
-		_, err := mfx.Cfg.HeaderStore.LoadHeader(ctx, 1)
+		_, err := mfx.Cfg.CommittedHeaderStore.LoadCommittedHeader(ctx, 1)
 		require.ErrorIs(t, err, tmconsensus.HeightUnknownError{Want: 1})
 
 		respCh := make(chan tmelink.ReplayedHeaderResponse, 1)
@@ -3205,7 +3205,7 @@ func TestMirror_replayedHeaders(t *testing.T) {
 		ph2 := mfx.Fx.NextProposedHeader([]byte("app_data_2"), 0)
 
 		// Before we replay the block, make sure the header store is empty.
-		_, err := mfx.Cfg.HeaderStore.LoadHeader(ctx, 1)
+		_, err := mfx.Cfg.CommittedHeaderStore.LoadCommittedHeader(ctx, 1)
 		require.ErrorIs(t, err, tmconsensus.HeightUnknownError{Want: 1})
 
 		// Corrupt the previous commit proof by just modifying one byte in one signature.

@@ -80,10 +80,10 @@ func TestFinalizationStoreCompliance(t *testing.T) {
 	})
 }
 
-func TestHeaderStoreCompliance(t *testing.T) {
+func TestCommittedHeaderStoreCompliance(t *testing.T) {
 	t.Parallel()
 
-	tmstoretest.TestHeaderStoreCompliance(t, func(cleanup func(func())) (tmstore.HeaderStore, error) {
+	tmstoretest.TestCommittedHeaderStoreCompliance(t, func(cleanup func(func())) (tmstore.CommittedHeaderStore, error) {
 		s, err := tmsqlite.NewTMStore(context.Background(), ":memory:", tmconsensustest.SimpleHashScheme{}, &reg)
 		if err != nil {
 			return nil, err

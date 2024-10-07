@@ -26,12 +26,12 @@ type Fixture struct {
 	ConsensusStrategy *tmconsensustest.MockConsensusStrategy
 	GossipStrategy    *tmgossiptest.PassThroughStrategy
 
-	ActionStore       *tmmemstore.ActionStore
-	FinalizationStore *tmmemstore.FinalizationStore
-	HeaderStore       *tmmemstore.HeaderStore
-	MirrorStore       *tmmemstore.MirrorStore
-	RoundStore        *tmmemstore.RoundStore
-	ValidatorStore    *tmmemstore.ValidatorStore
+	ActionStore          *tmmemstore.ActionStore
+	CommittedHeaderStore *tmmemstore.CommittedHeaderStore
+	FinalizationStore    *tmmemstore.FinalizationStore
+	MirrorStore          *tmmemstore.MirrorStore
+	RoundStore           *tmmemstore.RoundStore
+	ValidatorStore       *tmmemstore.ValidatorStore
 
 	InitChainCh chan tmdriver.InitChainRequest
 
@@ -62,12 +62,12 @@ func NewFixture(ctx context.Context, t *testing.T, nVals int) *Fixture {
 		ConsensusStrategy: tmconsensustest.NewMockConsensusStrategy(),
 		GossipStrategy:    tmgossiptest.NewPassThroughStrategy(),
 
-		ActionStore:       tmmemstore.NewActionStore(),
-		FinalizationStore: tmmemstore.NewFinalizationStore(),
-		HeaderStore:       tmmemstore.NewHeaderStore(),
-		MirrorStore:       tmmemstore.NewMirrorStore(),
-		RoundStore:        tmmemstore.NewRoundStore(),
-		ValidatorStore:    fx.NewMemValidatorStore(),
+		ActionStore:          tmmemstore.NewActionStore(),
+		CommittedHeaderStore: tmmemstore.NewCommittedHeaderStore(),
+		FinalizationStore:    tmmemstore.NewFinalizationStore(),
+		MirrorStore:          tmmemstore.NewMirrorStore(),
+		RoundStore:           tmmemstore.NewRoundStore(),
+		ValidatorStore:       fx.NewMemValidatorStore(),
 
 		InitChainCh: make(chan tmdriver.InitChainRequest, 1),
 
@@ -114,11 +114,11 @@ func (f *Fixture) BaseOptionMap() OptionMap {
 	return OptionMap{
 		"WithGenesis": tmengine.WithGenesis(eg),
 
-		"WithFinalizationStore": tmengine.WithFinalizationStore(f.FinalizationStore),
-		"WithHeaderStore":       tmengine.WithHeaderStore(f.HeaderStore),
-		"WithMirrorStore":       tmengine.WithMirrorStore(f.MirrorStore),
-		"WithRoundStore":        tmengine.WithRoundStore(f.RoundStore),
-		"WithValidatorStore":    tmengine.WithValidatorStore(f.ValidatorStore),
+		"WithCommittedHeaderStore": tmengine.WithCommittedHeaderStore(f.CommittedHeaderStore),
+		"WithFinalizationStore":    tmengine.WithFinalizationStore(f.FinalizationStore),
+		"WithMirrorStore":          tmengine.WithMirrorStore(f.MirrorStore),
+		"WithRoundStore":           tmengine.WithRoundStore(f.RoundStore),
+		"WithValidatorStore":       tmengine.WithValidatorStore(f.ValidatorStore),
 
 		"WithHashScheme":                        tmengine.WithHashScheme(f.Fx.HashScheme),
 		"WithSignatureScheme":                   tmengine.WithSignatureScheme(f.Fx.SignatureScheme),

@@ -47,10 +47,10 @@ type Mirror struct {
 
 // MirrorConfig holds the configuration required to start a [Mirror].
 type MirrorConfig struct {
-	Store          tmstore.MirrorStore
-	HeaderStore    tmstore.HeaderStore
-	RoundStore     tmstore.RoundStore
-	ValidatorStore tmstore.ValidatorStore
+	Store                tmstore.MirrorStore
+	CommittedHeaderStore tmstore.CommittedHeaderStore
+	RoundStore           tmstore.RoundStore
+	ValidatorStore       tmstore.ValidatorStore
 
 	InitialHeight     uint64
 	InitialValidators []tmconsensus.Validator
@@ -78,10 +78,10 @@ type MirrorConfig struct {
 // toKernelConfig copies the fields from c that are duplicated in the kernel config.
 func (c MirrorConfig) toKernelConfig() tmi.KernelConfig {
 	return tmi.KernelConfig{
-		Store:          c.Store,
-		HeaderStore:    c.HeaderStore,
-		RoundStore:     c.RoundStore,
-		ValidatorStore: c.ValidatorStore,
+		Store:                c.Store,
+		CommittedHeaderStore: c.CommittedHeaderStore,
+		RoundStore:           c.RoundStore,
+		ValidatorStore:       c.ValidatorStore,
 
 		HashScheme:                        c.HashScheme,
 		SignatureScheme:                   c.SignatureScheme,

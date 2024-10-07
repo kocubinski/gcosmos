@@ -7,19 +7,19 @@ import (
 	"github.com/rollchains/gordian/tm/tmconsensus"
 )
 
-type HeaderStore struct {
+type CommittedHeaderStore struct {
 	mu sync.RWMutex
 
 	chs map[uint64]tmconsensus.CommittedHeader
 }
 
-func NewHeaderStore() *HeaderStore {
-	return &HeaderStore{
+func NewCommittedHeaderStore() *CommittedHeaderStore {
+	return &CommittedHeaderStore{
 		chs: make(map[uint64]tmconsensus.CommittedHeader),
 	}
 }
 
-func (s *HeaderStore) SaveHeader(_ context.Context, ch tmconsensus.CommittedHeader) error {
+func (s *CommittedHeaderStore) SaveCommittedHeader(_ context.Context, ch tmconsensus.CommittedHeader) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -28,7 +28,7 @@ func (s *HeaderStore) SaveHeader(_ context.Context, ch tmconsensus.CommittedHead
 	return nil
 }
 
-func (s *HeaderStore) LoadHeader(_ context.Context, height uint64) (tmconsensus.CommittedHeader, error) {
+func (s *CommittedHeaderStore) LoadCommittedHeader(_ context.Context, height uint64) (tmconsensus.CommittedHeader, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 

@@ -17,8 +17,8 @@ import (
 )
 
 type Fixture struct {
-	HeaderStore    *tmmemstore.HeaderStore
-	BlockDataStore *gcmemstore.BlockDataStore
+	BlockDataStore       *gcmemstore.BlockDataStore
+	CommittedHeaderStore *tmmemstore.CommittedHeaderStore
 
 	Cache *gsbd.RequestCache
 
@@ -55,20 +55,20 @@ func NewFixture(t *testing.T, ctx context.Context) *Fixture {
 
 	require.NoError(t, net.Stabilize(ctx))
 
-	hs := tmmemstore.NewHeaderStore()
+	chs := tmmemstore.NewCommittedHeaderStore()
 	bds := gcmemstore.NewBlockDataStore()
 	dh := gp2papi.NewDataHost(
 		ctx, log,
 		host.Host().Libp2pHost(),
-		hs,
+		chs,
 		bds,
 		codec,
 	)
 	t.Cleanup(dh.Wait)
 
 	return &Fixture{
-		HeaderStore:    hs,
-		BlockDataStore: bds,
+		CommittedHeaderStore: chs,
+		BlockDataStore:       bds,
 
 		Cache: gsbd.NewRequestCache(),
 
