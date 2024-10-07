@@ -416,9 +416,19 @@ func (k *Kernel) addProposedHeader(ctx context.Context, s *kState, ph tmconsensu
 
 	// Persist the change before updating local state.
 	if err := k.rStore.SaveRoundProposedHeader(ctx, ph); err != nil {
-		glog.HRE(k.log, ph.Header.Height, ph.Round, err).Warn(
-			"Failed to save proposed header to round store; this may cause issues upon restart",
-		)
+		var owErr tmstore.OverwriteError
+		if errors.As(err, &owErr) && owErr.Field == "pubkey" &&
+			s.StateMachineViewManager.H() == ph.Header.Height &&
+			s.StateMachineViewManager.R() == ph.Round &&
+			ph.ProposerPubKey.Equal(s.StateMachineViewManager.PubKey()) {
+			// We already saved our state machine's action,
+			// and then we got a unique constraint error.
+			// No need to log this; certain store implementations behave this way.
+		} else {
+			glog.HRE(k.log, ph.Header.Height, ph.Round, err).Warn(
+				"Failed to save proposed header to round store; this may cause issues upon restart",
+			)
+		}
 		// Continue anyway despite failure.
 	}
 
