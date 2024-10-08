@@ -11,7 +11,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync/atomic"
 
 	"cosmossdk.io/core/transaction"
 	cosmoslog "cosmossdk.io/log"
@@ -231,19 +230,36 @@ func (c *Component) Init(app serverv2.AppI[transaction.Tx], cfg map[string]any, 
 		// an ephemeral, brand new in-memory database
 		// without any tables or data.
 		// TODO: we need to accept a command line flag to use an on-disk database.
-		uniqueName := fmt.Sprintf(
-			"file:inmem-%d?mode=memory&cache=shared",
-			atomic.AddUint32(&memDBNameCounter, 1),
-		)
+		const useInMem = true
+		if useInMem {
+			c.tmsql, err = tmsqlite.NewInMemTMStore(
+				c.rootCtx,
+				tmconsensustest.SimpleHashScheme{},
+				c.reg,
+			)
+			if err != nil {
+				return fmt.Errorf("failed to start tmsqlite store: %w", err)
+			}
+		} else {
+			f, err := os.CreateTemp("", "validator-*.sqlite")
+			if err != nil {
+				return fmt.Errorf("failed to create temp file: %w", err)
+			}
+			if err := f.Close(); err != nil {
+				return fmt.Errorf("failed to close temp file: %w", err)
+			}
 
-		c.tmsql, err = tmsqlite.NewTMStore(
-			c.rootCtx,
-			uniqueName,
-			tmconsensustest.SimpleHashScheme{},
-			c.reg,
-		)
-		if err != nil {
-			return fmt.Errorf("failed to start tmsqlite store: %w", err)
+			c.tmsql, err = tmsqlite.NewOnDiskTMStore(
+				c.rootCtx,
+				f.Name(),
+				tmconsensustest.SimpleHashScheme{},
+				c.reg,
+			)
+			if err != nil {
+				return fmt.Errorf("failed to start tmsqlite store: %w", err)
+			}
+
+			c.log.Info("Using SQLite on-disk file", "path", f.Name())
 		}
 	}
 

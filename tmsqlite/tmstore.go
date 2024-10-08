@@ -6,9 +6,12 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"runtime/trace"
 	"slices"
 	"strings"
+	"sync/atomic"
 
 	"github.com/rollchains/gordian/gcrypto"
 	"github.com/rollchains/gordian/tm/tmconsensus"
@@ -20,37 +23,127 @@ type TMStore struct {
 	// The string "purego" or "cgo" depending on build tags.
 	BuildType string
 
-	db *sql.DB
+	// Due to transaction locking behaviors of sqlite
+	// (see: https://www.sqlite.org/lang_transaction.html),
+	// and the way they interact with the Go SQL drivers,
+	// it is better to maintain two separate connection pools.
+	ro, rw *sql.DB
 
 	hs  tmconsensus.HashScheme
 	reg *gcrypto.Registry
 }
 
-func NewTMStore(
+func NewOnDiskTMStore(
 	ctx context.Context,
 	dbPath string,
 	hashScheme tmconsensus.HashScheme,
 	reg *gcrypto.Registry,
 ) (*TMStore, error) {
+	dbPath = filepath.Clean(dbPath)
+	if _, err := os.Stat(dbPath); err != nil {
+		// Create a file for the database;
+		// if no file exists, then our startup pragma commands fail.
+		if os.IsNotExist(err) {
+			// Create it.
+			f, err := os.Create(dbPath)
+			if err != nil {
+				return nil, fmt.Errorf("failed to create empty database file: %w", err)
+			}
+			if err := f.Close(); err != nil {
+				return nil, fmt.Errorf("failed to close new empty database file: %w", err)
+			}
+		} else {
+			return nil, fmt.Errorf("failed to stat path %q: %w", dbPath, err)
+		}
+	}
+
+	uri := "file:" + filepath.Clean(dbPath) + "?mode=rw"
+
 	// The driver type comes from the sqlitedriver_*.go file
 	// chosen based on build tags.
-	db, err := sql.Open(sqliteDriverType, dbPath)
+	rw, err := sql.Open(sqliteDriverType, uri)
 	if err != nil {
-		return nil, fmt.Errorf("error opening database: %w", err)
+		return nil, fmt.Errorf("error opening read-write database: %w", err)
 	}
 
-	if err := pragmas(ctx, db); err != nil {
+	rw.SetMaxOpenConns(1)
+
+	// Unlike other pragmas, this is persistent,
+	// and it is only relevant to on-disk databases.
+	if _, err := rw.ExecContext(ctx, `PRAGMA journal_mode = WAL`); err != nil {
+		return nil, fmt.Errorf("failed to set journal_mode=WAL: %w", err)
+	}
+
+	if err := pragmasRW(ctx, rw); err != nil {
 		return nil, err
 	}
 
-	if err := migrate(ctx, db); err != nil {
+	if err := migrate(ctx, rw); err != nil {
 		return nil, err
+	}
+
+	// Change mode=rw to mode=ro (since we know that was the final query parameter).
+	uri = uri[:len(uri)-1] + "o"
+	ro, err := sql.Open(sqliteDriverType, uri)
+	if err != nil {
+		return nil, fmt.Errorf("error opening read-only database: %w", err)
 	}
 
 	return &TMStore{
 		BuildType: sqliteBuildType,
 
-		db: db,
+		rw: rw,
+		ro: ro,
+
+		hs:  hashScheme,
+		reg: reg,
+	}, nil
+}
+
+var inMemNameCounter uint32
+
+func NewInMemTMStore(
+	ctx context.Context,
+	hashScheme tmconsensus.HashScheme,
+	reg *gcrypto.Registry,
+) (*TMStore, error) {
+	// The driver type comes from the sqlitedriver_*.go file
+	// chosen based on build tags.
+	dbName := fmt.Sprintf("db%0000d", atomic.AddUint32(&inMemNameCounter, 1))
+	uri := "file:" + dbName + "?mode=memory&cache=shared&_txlock=immediate&_busytimeout=2000"
+	rw, err := sql.Open(sqliteDriverType, uri)
+	if err != nil {
+		return nil, fmt.Errorf("error opening read-write database: %w", err)
+	}
+
+	// This needs to be first.
+	// And unlike other pragmas, this is persistent,
+	// and it is only relevant to on-disk databases.
+	if _, err := rw.ExecContext(ctx, `PRAGMA journal_mode = WAL`); err != nil {
+		return nil, fmt.Errorf("failed to set journal_mode=WAL: %w", err)
+	}
+
+	if err := pragmasRW(ctx, rw); err != nil {
+		return nil, err
+	}
+
+	if err := migrate(ctx, rw); err != nil {
+		return nil, err
+	}
+
+	// It would be nice if there was a way to mark this connection as read-only,
+	// but that does not appear possible with the drivers available.
+	uri = "file:" + dbName + "?mode=memory&cache=shared&_busytimeout=2000"
+	ro, err := sql.Open(sqliteDriverType, uri)
+	if err != nil {
+		return nil, fmt.Errorf("error opening read-only database: %w", err)
+	}
+
+	return &TMStore{
+		BuildType: sqliteBuildType,
+
+		rw: rw,
+		ro: ro,
 
 		hs:  hashScheme,
 		reg: reg,
@@ -58,7 +151,16 @@ func NewTMStore(
 }
 
 func (s *TMStore) Close() error {
-	return s.db.Close()
+	errRO := s.ro.Close()
+	if errRO != nil {
+		errRO = fmt.Errorf("error closing read-only database: %w", errRO)
+	}
+	errRW := s.rw.Close()
+	if errRW != nil {
+		errRW = fmt.Errorf("error closing read-write database: %w", errRW)
+	}
+
+	return errors.Join(errRO, errRW)
 }
 
 func (s *TMStore) SetNetworkHeightRound(
@@ -68,7 +170,7 @@ func (s *TMStore) SetNetworkHeightRound(
 ) error {
 	defer trace.StartRegion(ctx, "SetNetworkHeightRound").End()
 
-	_, err := s.db.ExecContext(
+	_, err := s.rw.ExecContext(
 		ctx,
 		`UPDATE mirror SET vh = ?, vr = ?, ch = ?, cr = ? WHERE id=0`,
 		votingHeight, votingRound, committingHeight, committingRound,
@@ -83,7 +185,7 @@ func (s *TMStore) NetworkHeightRound(ctx context.Context) (
 ) {
 	defer trace.StartRegion(ctx, "NetworkHeightRound").End()
 
-	err = s.db.QueryRowContext(
+	err = s.ro.QueryRowContext(
 		ctx,
 		`SELECT vh, vr, ch, cr FROM mirror WHERE id=0`,
 	).Scan(
@@ -110,8 +212,9 @@ func (s *TMStore) SavePubKeys(ctx context.Context, keys []gcrypto.PubKey) (strin
 	// (Assuming we aren't racing in core Gordian to add this;
 	// if we are racing, then this just needs to move inside the transaction.)
 	var count int
-	err = s.db.QueryRowContext(
+	err = s.ro.QueryRowContext(
 		ctx,
+		// Would this be better as an EXISTS query?
 		`SELECT COUNT(hash) FROM validator_pub_key_hashes WHERE hash = ?;`,
 		hash,
 	).Scan(&count)
@@ -126,7 +229,7 @@ func (s *TMStore) SavePubKeys(ctx context.Context, keys []gcrypto.PubKey) (strin
 	}
 
 	// Otherwise the count was zero, so we need to do all the work.
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.rw.BeginTx(ctx, nil)
 	if err != nil {
 		return "", fmt.Errorf("failed to open transaction: %w", err)
 	}
@@ -219,7 +322,7 @@ func (s *TMStore) createPubKeysInTx(
 func (s *TMStore) LoadPubKeys(ctx context.Context, hash string) ([]gcrypto.PubKey, error) {
 	defer trace.StartRegion(ctx, "LoadPubKeys").End()
 
-	rows, err := s.db.QueryContext(
+	rows, err := s.ro.QueryContext(
 		ctx,
 		`SELECT key FROM validator_pub_keys_for_hash WHERE hash = ? ORDER BY idx ASC`,
 		// This is annoying: if you leave the hash as a string,
@@ -264,7 +367,7 @@ func (s *TMStore) SaveVotePowers(ctx context.Context, powers []uint64) (string, 
 	// (Assuming we aren't racing in core Gordian to add this;
 	// if we are racing, then this just needs to move inside the transaction.)
 	var count int
-	err = s.db.QueryRowContext(
+	err = s.ro.QueryRowContext(
 		ctx,
 		`SELECT COUNT(hash) FROM validator_power_hashes WHERE hash = ?;`,
 		hash,
@@ -280,7 +383,7 @@ func (s *TMStore) SaveVotePowers(ctx context.Context, powers []uint64) (string, 
 	}
 
 	// Otherwise the count was zero, so we need to do all the work.
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.rw.BeginTx(ctx, nil)
 	if err != nil {
 		return "", fmt.Errorf("failed to open transaction: %w", err)
 	}
@@ -341,7 +444,7 @@ VALUES (?,?,?)` +
 func (s *TMStore) LoadVotePowers(ctx context.Context, hash string) ([]uint64, error) {
 	defer trace.StartRegion(ctx, "LoadVotePowers").End()
 
-	rows, err := s.db.QueryContext(
+	rows, err := s.ro.QueryContext(
 		ctx,
 		`
 SELECT validator_power_hash_entries.power FROM validator_power_hash_entries
@@ -376,7 +479,7 @@ SELECT validator_power_hash_entries.power FROM validator_power_hash_entries
 func (s *TMStore) LoadValidators(ctx context.Context, keyHash, powHash string) ([]tmconsensus.Validator, error) {
 	defer trace.StartRegion(ctx, "LoadValidators").End()
 
-	rows, err := s.db.QueryContext(
+	rows, err := s.ro.QueryContext(
 		ctx,
 		`SELECT keys.key, powers.power FROM
 (
@@ -417,7 +520,7 @@ JOIN
 	if len(vals) > 0 {
 		// One more check that the key count is correct.
 		// There is probably some way to push this into the prior query.
-		row := s.db.QueryRowContext(
+		row := s.ro.QueryRowContext(
 			ctx,
 			`SELECT keys.n_keys, powers.n_powers FROM
 (SELECT n_keys FROM validator_pub_key_hashes WHERE hash = ?) AS keys,
@@ -445,7 +548,7 @@ JOIN
 
 	// We are missing at least one hash.
 	// Run another query to determine which we are missing.
-	row := s.db.QueryRowContext(
+	row := s.ro.QueryRowContext(
 		ctx,
 		`SELECT * FROM
 (SELECT COUNT(hash) FROM validator_pub_key_hashes WHERE hash = ?),
@@ -485,7 +588,7 @@ func (s *TMStore) SaveFinalization(
 	defer trace.StartRegion(ctx, "SaveFinalization").End()
 
 	// We're going to need to touch a couple tables, so do this all within a transaction.
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.rw.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("failed to open transaction: %w", err)
 	}
@@ -565,7 +668,7 @@ func (s *TMStore) LoadFinalizationByHeight(ctx context.Context, height uint64) (
 	// (Which is apparently not even enforced: see
 	// https://github.com/mattn/go-sqlite3/issues/685 and
 	// https://gitlab.com/cznic/sqlite/-/issues/193 .)
-	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	tx, err := s.ro.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		err = fmt.Errorf("failed to begin read-only transaction: %w", err)
 		return
@@ -730,7 +833,7 @@ func (s *TMStore) selectOrInsertVotePowersByHash(
 func (s *TMStore) SaveCommittedHeader(ctx context.Context, ch tmconsensus.CommittedHeader) error {
 	defer trace.StartRegion(ctx, "SaveCommittedHeader").End()
 
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.rw.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
@@ -738,7 +841,7 @@ func (s *TMStore) SaveCommittedHeader(ctx context.Context, ch tmconsensus.Commit
 
 	h := ch.Header
 
-	headerID, err := s.createHeaderInTx(ctx, tx, h)
+	headerID, err := s.createHeaderInTx(ctx, tx, h, true)
 	if err != nil {
 		return fmt.Errorf("failed to create header record: %w", err)
 	}
@@ -784,6 +887,7 @@ func (s *TMStore) createHeaderInTx(
 	ctx context.Context,
 	tx *sql.Tx,
 	h tmconsensus.Header,
+	committed bool,
 ) (int64, error) {
 	defer trace.StartRegion(ctx, "createHeaderInTx").End()
 
@@ -873,7 +977,7 @@ $next_vote_power_hash_id,
 $prev_commit_proof_id,
 $data_id, $prev_app_state_hash,
 $user_annotations, $driver_annotations,
-1)`,
+$committed)`,
 		sql.Named("hash", h.Hash), sql.Named("prev_block_hash", h.PrevBlockHash), sql.Named("height", h.Height),
 		sql.Named("pub_key_hash_id", pubKeyHashID),
 		sql.Named("prev_commit_proof_id", prevCommitProofID),
@@ -883,6 +987,7 @@ $user_annotations, $driver_annotations,
 		sql.Named("vote_power_hash_id", votePowerHashID),
 		sql.Named("next_pub_key_hash_id", nextPubKeyHashID),
 		sql.Named("next_vote_power_hash_id", nextVotePowerHashID),
+		sql.Named("committed", committed),
 	)
 	if err != nil {
 		return -1, fmt.Errorf("failed to store header: %w", err)
@@ -1031,7 +1136,7 @@ commit_proof_voted_block_id, sparse_signature_id
 func (s *TMStore) LoadCommittedHeader(ctx context.Context, height uint64) (tmconsensus.CommittedHeader, error) {
 	defer trace.StartRegion(ctx, "LoadCommittedHeader").End()
 
-	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	tx, err := s.ro.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		return tmconsensus.CommittedHeader{}, fmt.Errorf(
 			"failed to begin read-only transaction: %w", err,
@@ -1374,13 +1479,13 @@ ORDER BY key_id`, // Order not strictly necessary, but convenient for tests.
 func (s *TMStore) SaveProposedHeaderAction(ctx context.Context, ph tmconsensus.ProposedHeader) error {
 	defer trace.StartRegion(ctx, "SaveProposedHeaderAction").End()
 
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.rw.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
 	defer tx.Rollback()
 
-	headerID, err := s.createHeaderInTx(ctx, tx, ph.Header)
+	headerID, err := s.createHeaderInTx(ctx, tx, ph.Header, false)
 	if err != nil {
 		return fmt.Errorf("failed to create header: %w", err)
 	}
@@ -1499,7 +1604,7 @@ func (s *TMStore) saveVote(
 	if vt.BlockHash != "" {
 		blockHash = []byte(vt.BlockHash)
 	}
-	if _, err := s.db.ExecContext(
+	if _, err := s.rw.ExecContext(
 		ctx,
 		// Yes, we are doing string interpolation in this query,
 		// but there are only two calls into this method,
@@ -1541,7 +1646,7 @@ END
 			// and this is such an exceptional case,
 			// we will do this also outside of a transaction.
 			var encHave []byte
-			if err := s.db.QueryRowContext(
+			if err := s.ro.QueryRowContext(
 				ctx,
 				`SELECT key FROM validator_pub_keys WHERE id = (
   SELECT signer_pub_key_id FROM `+vec.OtherTable+` WHERE height = ? AND round = ?
@@ -1573,7 +1678,7 @@ func (s *TMStore) LoadActions(ctx context.Context, height uint64, round uint32) 
 
 	// LoadActions should only be called once at application startup,
 	// so it's not a big deal if we take several queries to get all the action details.
-	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	tx, err := s.ro.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		return tmstore.RoundActions{}, fmt.Errorf(
 			"failed to begin transaction: %w", err,
@@ -1748,13 +1853,13 @@ FROM proposed_headers WHERE id = ?`,
 func (s *TMStore) SaveRoundProposedHeader(ctx context.Context, ph tmconsensus.ProposedHeader) error {
 	defer trace.StartRegion(ctx, "SaveRoundProposedHeader").End()
 
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.rw.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
 	defer tx.Rollback()
 
-	headerID, err := s.createHeaderInTx(ctx, tx, ph.Header)
+	headerID, err := s.createHeaderInTx(ctx, tx, ph.Header, false)
 	if err != nil {
 		return fmt.Errorf("failed to create header: %w", err)
 	}
@@ -1843,7 +1948,7 @@ func (s *TMStore) overwriteRoundProofs(
 		))
 	}
 
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.rw.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
@@ -1969,7 +2074,7 @@ func (s *TMStore) LoadRoundState(ctx context.Context, height uint64, round uint3
 
 	// LoadRoundState is only called twice at the start of the mirror kernel,
 	// so it doesn't have to be super efficient.
-	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	tx, err := s.ro.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		return nil, prevotes, precommits, fmt.Errorf(
 			"failed to begin read-only transaction: %w", err,
@@ -2395,8 +2500,8 @@ func (s *TMStore) loadRoundStateVotes(
 	return out, nil
 }
 
-func pragmas(ctx context.Context, db *sql.DB) error {
-	defer trace.StartRegion(ctx, "pragmas").End()
+func pragmasRW(ctx context.Context, db *sql.DB) error {
+	defer trace.StartRegion(ctx, "pragmasRW").End()
 
 	if _, err := db.ExecContext(ctx, `PRAGMA foreign_keys = ON;`); err != nil {
 		return fmt.Errorf("failed to set foreign keys on: %w", err)
@@ -2415,6 +2520,18 @@ func pragmas(ctx context.Context, db *sql.DB) error {
 	if _, err := db.ExecContext(ctx, `PRAGMA optimize(0x10002);`); err != nil {
 		return fmt.Errorf("failed to run startup PRAGMA optimize: %w", err)
 	}
+
+	return nil
+}
+
+func pragmasRO(ctx context.Context, db *sql.DB) error {
+	defer trace.StartRegion(ctx, "pragmasRO").End()
+
+	if _, err := db.ExecContext(ctx, `PRAGMA foreign_keys = ON;`); err != nil {
+		return fmt.Errorf("failed to set foreign keys on: %w", err)
+	}
+
+	// Skip PRAGMA optimize for the read-only pragmas.
 
 	return nil
 }
