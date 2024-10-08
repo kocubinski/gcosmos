@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 
 	"cosmossdk.io/core/transaction"
 	cosmoslog "cosmossdk.io/log"
@@ -137,6 +138,10 @@ func (c *Component) Name() string {
 	return "gordian"
 }
 
+// Every component using an in-memory database, needs a unique name.
+// Atomic counter for this.
+var memDBNameCounter uint32
+
 // Init is called early in the SDK server component lifecycle, before Start.
 func (c *Component) Init(app serverv2.AppI[transaction.Tx], cfg map[string]any, log cosmoslog.Logger) error {
 	if c.log == nil {
@@ -218,9 +223,22 @@ func (c *Component) Init(app serverv2.AppI[transaction.Tx], cfg map[string]any, 
 	}
 
 	if useSQLite {
+		// For now we are hardcoding this to use an in-memory database.
+		// The cache=shared parameter is required so that the Go SQL driver,
+		// which will occasionally create a new connection,
+		// uses the same in-memory database for each connection belonging to this name.
+		// Without cache=shared, new connections will be against
+		// an ephemeral, brand new in-memory database
+		// without any tables or data.
+		// TODO: we need to accept a command line flag to use an on-disk database.
+		uniqueName := fmt.Sprintf(
+			"file:inmem-%d?mode=memory&cache=shared",
+			atomic.AddUint32(&memDBNameCounter, 1),
+		)
+
 		c.tmsql, err = tmsqlite.NewTMStore(
 			c.rootCtx,
-			":memory:",
+			uniqueName,
 			tmconsensustest.SimpleHashScheme{},
 			c.reg,
 		)
