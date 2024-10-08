@@ -1130,7 +1130,13 @@ func (s *TMStore) loadCommittedHeaderByHeight(
 ) (tmconsensus.Header, int64, error) {
 	defer trace.StartRegion(ctx, "loadCommittedHeaderByHeight").End()
 
-	return s.loadHeaderDynamic(ctx, tx, `committed = 1 AND height = ?`, height)
+	h, id, err := s.loadHeaderDynamic(ctx, tx, `committed = 1 AND height = ?`, height)
+	if errors.Is(err, sql.ErrNoRows) {
+		// Special case for compliance.
+		return h, id, tmconsensus.HeightUnknownError{Want: height}
+	}
+
+	return h, id, err
 }
 
 func (s *TMStore) loadHeaderDynamic(

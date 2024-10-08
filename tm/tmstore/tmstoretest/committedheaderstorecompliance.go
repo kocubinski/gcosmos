@@ -78,4 +78,22 @@ func TestCommittedHeaderStoreCompliance(t *testing.T, f CommittedHeaderStoreFact
 
 		require.Equal(t, ch, got)
 	})
+
+	t.Run("HeightUnknownError when height not found", func(t *testing.T) {
+		t.Parallel()
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		s, err := f(t.Cleanup)
+		require.NoError(t, err)
+
+		_, err = s.LoadCommittedHeader(ctx, 1)
+		require.Error(t, err)
+		require.ErrorIs(t, err, tmconsensus.HeightUnknownError{Want: 1})
+
+		_, err = s.LoadCommittedHeader(ctx, 5)
+		require.Error(t, err)
+		require.ErrorIs(t, err, tmconsensus.HeightUnknownError{Want: 5})
+	})
 }
