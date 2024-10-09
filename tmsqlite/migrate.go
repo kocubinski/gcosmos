@@ -190,7 +190,7 @@ CREATE TABLE finalizations(
 			`
 CREATE TABLE headers(
   id INTEGER PRIMARY KEY NOT NULL,
-  hash BLOB NOT NULL,
+  hash BLOB NOT NULL UNIQUE,
   prev_block_hash BLOB,
   height INTEGER NOT NULL CHECK (height >= 0),
   prev_commit_proof_id INTEGER,

@@ -13,6 +13,14 @@ type RoundStore interface {
 	// as a candidate proposed header in the given height and round.
 	SaveRoundProposedHeader(ctx context.Context, ph tmconsensus.ProposedHeader) error
 
+	// SaveRoundReplayedHeader saves the header as one
+	// that is about to be committed in the given height,
+	// due to mirror catchup.
+	//
+	// In the normal mirror flow, the replayed header is saved,
+	// and then OverwriteRoundPrecommitProofs is called.
+	SaveRoundReplayedHeader(ctx context.Context, h tmconsensus.Header) error
+
 	// The overwrite proofs methods overwrite existing entries
 	// for the corresponding proof at the given height and round.
 	// TODO: these methods should both accept sparse proofs,
@@ -36,14 +44,12 @@ type RoundStore interface {
 	// and may differ from one call to another.
 	//
 	// Note that in the event of replayed blocks during a mirror catchup,
-	// there may be ProposedHeader values without a PubKey or Signature field.
+	// there may be ProposedHeader values without its PubKey, Signature, or Annotations fields set.
 	//
 	// If there are no proposed blocks or votes at the given height and round,
 	// [tmconsensus.RoundUnknownError] is returned.
 	// If at least one proposed block, prevote, or precommit exists at the height and round,
 	// a nil error is returned.
-	// TODO: this should return sparse proofs,
-	// so that the store can remain agnostic of signature proof schemes.
 	LoadRoundState(ctx context.Context, height uint64, round uint32) (
 		phs []tmconsensus.ProposedHeader,
 		prevotes, precommits tmconsensus.SparseSignatureCollection,

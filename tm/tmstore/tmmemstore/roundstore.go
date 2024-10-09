@@ -21,6 +21,10 @@ type RoundStore struct {
 
 	// Height -> Round -> collection.
 	prevotes, precommits map[uint64]map[uint32]tmconsensus.SparseSignatureCollection
+
+	// Height -> collection.
+	// There really should never be more than one replayed header in a height, though.
+	replayedHeaders map[uint64][]tmconsensus.Header
 }
 
 func NewRoundStore() *RoundStore {
@@ -29,6 +33,8 @@ func NewRoundStore() *RoundStore {
 
 		prevotes:   make(map[uint64]map[uint32]tmconsensus.SparseSignatureCollection),
 		precommits: make(map[uint64]map[uint32]tmconsensus.SparseSignatureCollection),
+
+		replayedHeaders: make(map[uint64][]tmconsensus.Header),
 	}
 }
 
@@ -63,6 +69,26 @@ func (s *RoundStore) SaveRoundProposedHeader(ctx context.Context, ph tmconsensus
 
 	byHash[string(ph.Header.Hash)] = append(byHash[string(ph.Header.Hash)], ph)
 
+	return nil
+}
+
+func (s *RoundStore) SaveRoundReplayedHeader(ctx context.Context, h tmconsensus.Header) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Check if an existing proposed header has the same hash.
+	if byRound, ok := s.phs[h.Height]; ok {
+		for _, byHash := range byRound {
+			if _, ok := byHash[string(h.Hash)]; ok {
+				return tmstore.OverwriteError{
+					Field: "hash",
+					Value: fmt.Sprintf("%x", h.Hash),
+				}
+			}
+		}
+	}
+
+	s.replayedHeaders[h.Height] = append(s.replayedHeaders[h.Height], h)
 	return nil
 }
 
@@ -125,8 +151,24 @@ func (s *RoundStore) LoadRoundState(ctx context.Context, height uint64, round ui
 		prevotes = prevoteHeightMap[round]
 	}
 
+	replayedHeaders := s.replayedHeaders[height]
 	if precommitHeightMap, ok := s.precommits[height]; ok {
 		precommits = precommitHeightMap[round]
+
+		for hash := range precommits.BlockSignatures {
+			if hash == "" {
+				continue
+			}
+
+			// For each non-nil precommit hash,
+			// check if it is for a replayed header;
+			// if so, add the replayed header to the proposed header list.
+			for _, rh := range replayedHeaders {
+				if hash == string(rh.Hash) {
+					phs = append(phs, tmconsensus.ProposedHeader{Header: rh})
+				}
+			}
+		}
 	}
 
 	if phs == nil && prevotes.BlockSignatures == nil && precommits.BlockSignatures == nil {

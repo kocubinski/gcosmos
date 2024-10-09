@@ -107,7 +107,7 @@ func TestRoundStoreCompliance(t *testing.T, f RoundStoreFactory) {
 			require.Equal(t, want, phs)
 		})
 
-		t.Run("overwriting an existing proposed block", func(t *testing.T) {
+		t.Run("overwriting an existing proposed block is disallowed", func(t *testing.T) {
 			t.Parallel()
 
 			ctx, cancel := context.WithCancel(context.Background())
@@ -133,6 +133,69 @@ func TestRoundStoreCompliance(t *testing.T, f RoundStoreFactory) {
 			require.ErrorIs(t, err, tmstore.OverwriteError{
 				Field: "pubkey",
 				Value: fmt.Sprintf("%x", ph0.ProposerPubKey.PubKeyBytes()),
+			})
+		})
+	})
+
+	t.Run("replayed headers", func(t *testing.T) {
+		t.Run("returned in LoadRoundState", func(t *testing.T) {
+			t.Parallel()
+
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			s, err := f(t.Cleanup)
+			require.NoError(t, err)
+
+			fx := tmconsensustest.NewStandardFixture(2)
+
+			ph1 := fx.NextProposedHeader([]byte("val0"), 0)
+			require.Empty(t, ph1.Header.PrevCommitProof.Proofs)
+			ph1.Header.PrevCommitProof.Proofs = nil
+
+			require.NoError(t, s.SaveRoundReplayedHeader(ctx, ph1.Header))
+
+			// In normal flow when the mirror is handling a replayed header,
+			// it saves the replayed header and then writes the precommit proof.
+			// If that gets interrupted after saving the header but before writing the precommit proof,
+			// there isn't really a way for us to know it's part of this particular round,
+			// so we don't assert about the header until the precommit proofs are saved.
+			voteMap := map[string][]int{
+				string(ph1.Header.Hash): {0, 1},
+			}
+
+			precommits := fx.SparsePrecommitSignatureCollection(ctx, 1, 0, voteMap)
+			require.NoError(t, s.OverwriteRoundPrecommitProofs(ctx, 1, 0, precommits))
+
+			phs, _, _, err := s.LoadRoundState(ctx, 1, 0)
+			require.NoError(t, err)
+			require.Equal(t, []tmconsensus.ProposedHeader{
+				{
+					Header: ph1.Header,
+				},
+			}, phs)
+		})
+
+		t.Run("returns tmstore.OverwriteError when proposed header already exists", func(t *testing.T) {
+			t.Parallel()
+
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			s, err := f(t.Cleanup)
+			require.NoError(t, err)
+
+			fx := tmconsensustest.NewStandardFixture(2)
+
+			ph1 := fx.NextProposedHeader([]byte("val0"), 0)
+			fx.SignProposal(ctx, &ph1, 0)
+			require.NoError(t, s.SaveRoundProposedHeader(ctx, ph1))
+
+			err = s.SaveRoundReplayedHeader(ctx, ph1.Header)
+			require.Error(t, err)
+			require.ErrorIs(t, err, tmstore.OverwriteError{
+				Field: "hash",
+				Value: fmt.Sprintf("%x", ph1.Header.Hash),
 			})
 		})
 	})

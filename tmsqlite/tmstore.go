@@ -990,6 +990,27 @@ $committed)`,
 		sql.Named("committed", committed),
 	)
 	if err != nil {
+		if isUniqueConstraintError(err) {
+			// Special case for compliance.
+			// There is only one unique constraint on the headers table.
+			overwriteErr := tmstore.OverwriteError{
+				Field: "hash",
+				Value: fmt.Sprintf("%x", h.Hash),
+			}
+
+			// But, we still need to get the underlying ID.
+			var id int64
+			if err := tx.QueryRowContext(
+				ctx,
+				`SELECT id FROM headers WHERE hash = ?`,
+				h.Hash,
+			).Scan(&id); err != nil {
+				return -1, fmt.Errorf("failed to fall back to ID retrieval for header: %w", err)
+			}
+
+			return id, overwriteErr
+		}
+
 		return -1, fmt.Errorf("failed to store header: %w", err)
 	}
 
@@ -1486,7 +1507,8 @@ func (s *TMStore) SaveProposedHeaderAction(ctx context.Context, ph tmconsensus.P
 	defer tx.Rollback()
 
 	headerID, err := s.createHeaderInTx(ctx, tx, ph.Header, false)
-	if err != nil {
+	if err != nil && !errors.As(err, new(tmstore.OverwriteError)) {
+		// We ignore the attempted overwrite and proceed with the proposed header insertion.
 		return fmt.Errorf("failed to create header: %w", err)
 	}
 
@@ -1860,7 +1882,8 @@ func (s *TMStore) SaveRoundProposedHeader(ctx context.Context, ph tmconsensus.Pr
 	defer tx.Rollback()
 
 	headerID, err := s.createHeaderInTx(ctx, tx, ph.Header, false)
-	if err != nil {
+	if err != nil && !errors.As(err, new(tmstore.OverwriteError)) {
+		// We ignore the attempted overwrite and proceed with the proposed header insertion.
 		return fmt.Errorf("failed to create header: %w", err)
 	}
 
@@ -1895,6 +1918,26 @@ proposer_pub_key_id
 			}
 		}
 		return fmt.Errorf("failed to save proposed header: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	return nil
+}
+
+func (s *TMStore) SaveRoundReplayedHeader(ctx context.Context, h tmconsensus.Header) error {
+	defer trace.StartRegion(ctx, "SaveRoundReplayedHeader").End()
+
+	tx, err := s.rw.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	if _, err := s.createHeaderInTx(ctx, tx, h, false); err != nil {
+		return fmt.Errorf("failed to save replayed header: %w", err)
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -2095,9 +2138,9 @@ vpks.hash_id, vpks.hash, vpks.idx, vpks.key, vpks.n_keys
 FROM validator_pub_keys_for_hash AS vpks
 JOIN headers ON
   (headers.validators_pub_key_hash_id = vpks.hash_id OR headers.next_validators_pub_key_hash_id = vpks.hash_id)
-JOIN proposed_headers ON
+LEFT JOIN proposed_headers ON
   proposed_headers.header_id = headers.id
-WHERE proposed_headers.height = ? AND proposed_headers.round = ?`,
+WHERE headers.height = ?1 OR (proposed_headers.height = ?1 AND proposed_headers.round = ?2)`,
 		height, round,
 	)
 	if err != nil {
@@ -2157,9 +2200,9 @@ WHERE proposed_headers.height = ? AND proposed_headers.round = ?`,
 FROM validator_powers_for_hash AS vps
 JOIN headers ON
   (headers.validators_power_hash_id = vps.hash_id OR headers.next_validators_power_hash_id = vps.hash_id)
-JOIN proposed_headers ON
+LEFT JOIN proposed_headers ON
   proposed_headers.header_id = headers.id
-WHERE proposed_headers.height = ? AND proposed_headers.round = ?`,
+WHERE headers.height = ?1 OR (proposed_headers.height = ?1 AND proposed_headers.round = ?2)`,
 		height, round,
 	)
 	if err != nil {
@@ -2207,7 +2250,7 @@ WHERE proposed_headers.height = ? AND proposed_headers.round = ?`,
 FROM proof_signatures AS ps
 JOIN headers AS hs ON hs.prev_commit_proof_id = ps.commit_proof_id
 JOIN proposed_headers AS phs ON phs.header_id = hs.id
-WHERE phs.height = ? AND phs.round = ?
+WHERE hs.height = ?1 OR (phs.height = ?1 AND phs.round = ?2)
 ORDER BY ps.key_id`,
 		height, round,
 	)
@@ -2278,7 +2321,28 @@ JOIN headers AS hs ON hs.id = phs.header_id
 JOIN validator_pub_keys AS keys ON keys.id = phs.proposer_pub_key_id
 LEFT JOIN commit_proofs AS pcp ON pcp.id = hs.prev_commit_proof_id
 LEFT JOIN validator_pub_key_hashes AS pcphash ON pcphash.id = pcp.validators_pub_key_hash_id
-WHERE phs.height = ? AND phs.round = ?`,
+WHERE phs.height = ?1 AND phs.round = ?2
+UNION ALL
+SELECT
+NULL,
+NULL, NULL,
+NULL,
+hs.height, hs.hash, hs.prev_block_hash,
+hs.prev_commit_proof_id,
+pcp.round,
+pcphash.hash,
+hs.validators_pub_key_hash_id, hs.next_validators_pub_key_hash_id,
+hs.validators_power_hash_id, hs.next_validators_power_hash_id,
+hs.data_id,
+hs.prev_app_state_hash,
+hs.user_annotations, hs.driver_annotations
+FROM headers AS hs
+LEFT JOIN commit_proofs AS pcp ON pcp.id = hs.prev_commit_proof_id
+LEFT JOIN validator_pub_key_hashes AS pcphash ON pcphash.id = pcp.validators_pub_key_hash_id
+WHERE hs.height = ?1 AND hs.id NOT IN (
+  SELECT header_id FROM proposed_headers WHERE height = ?1 AND round = ?2
+)
+`,
 		height, round,
 	)
 	if err != nil {
@@ -2316,13 +2380,15 @@ WHERE phs.height = ? AND phs.round = ?`,
 				"failed to scan proposed headers row: %w", err,
 			)
 		}
-		key, err := s.reg.Unmarshal(encKey)
-		if err != nil {
-			return nil, prevotes, precommits, fmt.Errorf(
-				"failed to unmarshal key from proposed headers: %w", err,
-			)
+		if len(encKey) > 0 {
+			key, err := s.reg.Unmarshal(encKey)
+			if err != nil {
+				return nil, prevotes, precommits, fmt.Errorf(
+					"failed to unmarshal key from proposed headers: %w", err,
+				)
+			}
+			ph.ProposerPubKey = key
 		}
-		ph.ProposerPubKey = key
 
 		keys := pubKeySets[vkID]
 		pows := powerSets[vpID]

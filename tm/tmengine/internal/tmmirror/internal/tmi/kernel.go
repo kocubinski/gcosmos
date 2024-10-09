@@ -1693,8 +1693,6 @@ func (k *Kernel) handleReplayedHeader(
 		tempProofs[hash] = haveProof
 
 		// Now merge the incoming proof with the local copy.
-		// TODO: this should not be hardcoded to pcp,
-		// but it's okay for now while we limit this to only the header's block hash.
 		mergeRes := haveProof.MergeSparse(gcrypto.SparseSignatureProof{
 			PubKeyHash: string(header.ValidatorSet.PubKeyHash),
 			Signatures: sparseSigs,
@@ -1736,10 +1734,10 @@ func (k *Kernel) handleReplayedHeader(
 			// That is fine, as noted in the documentation for the RoundStore.
 		}
 
-		if err := k.rStore.SaveRoundProposedHeader(ctx, fakePH); err != nil {
+		if err := k.rStore.SaveRoundReplayedHeader(ctx, header); err != nil {
 			return tmelink.ReplayedHeaderInternalError{
 				Err: fmt.Errorf(
-					"failed to replay saved header to round store: %w",
+					"failed to save replayed header to round store: %w",
 					err,
 				),
 			}

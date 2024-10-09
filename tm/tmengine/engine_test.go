@@ -834,7 +834,7 @@ func TestEngine_plumbing_ReplayedHeaders(t *testing.T) {
 		require.Equal(t, []tmconsensus.ProposedHeader{
 			{
 				Header: ph1.Header,
-				Round:  1,
+				Round:  0, // Replayed headers always appear as round zero.
 				// PubKey and Signature missing from round store during replay.
 			},
 		}, phs)
