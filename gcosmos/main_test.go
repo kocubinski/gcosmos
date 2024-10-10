@@ -18,6 +18,27 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// Configuration for gordian consensus storage.
+// If useMemstore=false and useSQLiteInMem=false,
+// then on-disk storage is used with temporary database files.
+// If only useSQLiteInMem is true,
+// then all instances use the in-memory tmsqlite database.
+// If only useMemstore is true, the tmmemstore stores are used.
+// If both are true, the tests panic (see the following init function).
+const (
+	useMemStore    = false
+	useSQLiteInMem = !false
+)
+
+func init() {
+	if useMemStore && useSQLiteInMem {
+		panic(fmt.Errorf(
+			"The useMemStore and useSQLiteInMem must both be false, or only one must be true (got useMemStore=%t and useSQLiteInMem=%t)",
+			useMemStore, useSQLiteInMem,
+		))
+	}
+}
+
 func TestRootCmd(t *testing.T) {
 	t.Parallel()
 

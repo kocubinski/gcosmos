@@ -308,6 +308,8 @@ func (c Chain) Start(t *testing.T, ctx context.Context, nVals int) ChainAddresse
 					// Only include the seed addresses when there are multiple validators.
 					startCmd = append(startCmd, "--g-seed-addrs", seedAddrs)
 				}
+
+				startCmd = append(startCmd, c.RootCmds[i].sqlitePathArgs()...)
 			}
 
 			_ = c.RootCmds[i].RunC(ctx, startCmd...)
@@ -411,6 +413,7 @@ func AddLateNode(
 
 				"--g-seed-addrs", string(bytes.TrimSuffix(seedAddrs, []byte("\n"))),
 			)
+			startCmd = append(startCmd, e.sqlitePathArgs()...)
 		}
 
 		_ = e.RunC(ctx, startCmd...)
@@ -488,6 +491,22 @@ func (e CmdEnv) RunWithInputC(ctx context.Context, in io.Reader, args ...string)
 	res.Err = cmd.ExecuteContext(ctx)
 
 	return res
+}
+
+func (e CmdEnv) sqlitePathArgs() []string {
+	// Set the sqlite path based on the constants at the top of main_test.go.
+	// (They are declared there for ease of discovery and editing.)
+	switch {
+	case useSQLiteInMem:
+		return []string{"--g-sqlite-path", ":memory:"}
+	case useMemStore:
+		// Force it empty even though that is the current default.
+		return []string{"--g-sqlite-path="}
+	default:
+		// They can't both be set (because we would have panicked),
+		// so use the homedir.
+		return []string{"--g-sqlite-path", filepath.Join(e.homeDir, "gordian.sqlite")}
+	}
 }
 
 type RunResult struct {

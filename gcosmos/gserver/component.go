@@ -55,11 +55,6 @@ var (
 	_ serverv2.HasStartFlags                   = (*Component)(nil)
 )
 
-// The tmsqlite integration is currently working,
-// but we don't yet have command line switches to go back to the tmmemstore implementation,
-// so just use this package-level constant for now.
-const useSQLite = true
-
 // Component is a server component to be injected into the Cosmos SDK server module.
 type Component struct {
 	rootCtx context.Context
@@ -220,42 +215,8 @@ func (c *Component) Init(app serverv2.AppI[transaction.Tx], cfg map[string]any, 
 		SignatureScheme: tmconsensustest.SimpleSignatureScheme{},
 	}
 
-	if useSQLite {
-		// TODO: we need to accept a command line flag to choose
-		// between an in-memory or an on-disk database.
-		const useInMem = false
-		if useInMem {
-			c.tmsql, err = tmsqlite.NewInMemStore(
-				c.rootCtx,
-				tmconsensustest.SimpleHashScheme{},
-				c.reg,
-			)
-			if err != nil {
-				return fmt.Errorf("failed to start tmsqlite store: %w", err)
-			}
-		} else {
-			// Hardcoding to use a temporary validator database for now,
-			// but this should be a command line flag.
-			f, err := os.CreateTemp("", "validator-*.sqlite")
-			if err != nil {
-				return fmt.Errorf("failed to create temp file: %w", err)
-			}
-			if err := f.Close(); err != nil {
-				return fmt.Errorf("failed to close temp file: %w", err)
-			}
-
-			c.tmsql, err = tmsqlite.NewOnDiskStore(
-				c.rootCtx,
-				f.Name(),
-				tmconsensustest.SimpleHashScheme{},
-				c.reg,
-			)
-			if err != nil {
-				return fmt.Errorf("failed to start tmsqlite store: %w", err)
-			}
-
-			c.log.Info("Using SQLite on-disk file", "path", f.Name())
-		}
+	if err := c.initializeSQLite(cfg[sqlitePathFlag].(string)); err != nil {
+		return fmt.Errorf("failed to initialize SQLite database: %w", err)
 	}
 
 	// No SQLite implementation for this yet.
@@ -339,6 +300,44 @@ func (c *Component) Init(app serverv2.AppI[transaction.Tx], cfg map[string]any, 
 		c.opts = append(c.opts, assertOpt)
 	}
 
+	return nil
+}
+
+func (c *Component) initializeSQLite(sqlitePath string) error {
+	// First special case: empty means don't set c.tmsql at all,
+	// and the rest of the Init method will use tmmemstore.
+	if sqlitePath == "" {
+		return nil
+	}
+
+	var err error
+
+	// Other special case: the exact string :memory:,
+	// which has existing special meaning to SQLite.
+	if sqlitePath == ":memory:" {
+		c.tmsql, err = tmsqlite.NewInMemStore(
+			c.rootCtx,
+			tmconsensustest.SimpleHashScheme{},
+			c.reg,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to start tmsqlite store: %w", err)
+		}
+		return nil
+	}
+
+	// Otherwise it looks like a normal path.
+	c.tmsql, err = tmsqlite.NewOnDiskStore(
+		c.rootCtx,
+		sqlitePath,
+		tmconsensustest.SimpleHashScheme{},
+		c.reg,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to start tmsqlite store: %w", err)
+	}
+
+	c.log.Info("Using SQLite on-disk file", "path", sqlitePath)
 	return nil
 }
 
@@ -670,6 +669,8 @@ const (
 	httpAddrFileFlag = "g-http-addr-file"
 
 	seedAddrsFlag = "g-seed-addrs"
+
+	sqlitePathFlag = "g-sqlite-path"
 )
 
 // StartCmdFlags satisfies the optional [serverv2.HasStartFlags] interface,
@@ -686,6 +687,8 @@ func (c *Component) StartCmdFlags() *pflag.FlagSet {
 	flags.String(httpAddrFileFlag, "", "Write the actual Gordian HTTP listen address to the given file (useful for tests when configured to listen on :0)")
 
 	flags.String(seedAddrsFlag, "", "Newline-separated multiaddrs to connect to; if omitted, relies on incoming connections to discover peers")
+
+	flags.String(sqlitePathFlag, "", "Path to Gordian's consensus database; if blank, uses primitive in-memory store; if the exact string :memory:, uses SQLite in-memory database; otherwise path to on-disk SQLite database")
 
 	// Adds --g-assert-rules in debug builds, no-op otherwise.
 	addAssertRuleFlag(flags)
