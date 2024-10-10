@@ -23,7 +23,7 @@ func TestNew(t *testing.T) {
 	t.Parallel()
 
 	// Just create the database and close it successfully.
-	s, err := tmsqlite.NewInMemTMStore(context.Background(), tmconsensustest.SimpleHashScheme{}, &reg)
+	s, err := tmsqlite.NewInMemStore(context.Background(), tmconsensustest.SimpleHashScheme{}, &reg)
 	require.NoError(t, err)
 	require.NotNil(t, s)
 
@@ -38,12 +38,12 @@ func TestMigrate(t *testing.T) {
 		t.Parallel()
 
 		path := filepath.Join(t.TempDir(), "db.sqlite")
-		s1, err := tmsqlite.NewOnDiskTMStore(context.Background(), path, tmconsensustest.SimpleHashScheme{}, &reg)
+		s1, err := tmsqlite.NewOnDiskStore(context.Background(), path, tmconsensustest.SimpleHashScheme{}, &reg)
 		require.NoError(t, err)
 		require.NotNil(t, s1)
 		require.NoError(t, s1.Close())
 
-		s2, err := tmsqlite.NewOnDiskTMStore(context.Background(), path, tmconsensustest.SimpleHashScheme{}, &reg)
+		s2, err := tmsqlite.NewOnDiskStore(context.Background(), path, tmconsensustest.SimpleHashScheme{}, &reg)
 		require.NoError(t, err)
 		require.NotNil(t, s2)
 		require.NoError(t, s2.Close())
@@ -54,7 +54,7 @@ func TestActionStoreCompliance(t *testing.T) {
 	t.Parallel()
 
 	tmstoretest.TestActionStoreCompliance(t, func(cleanup func(func())) (tmstore.ActionStore, error) {
-		s, err := tmsqlite.NewInMemTMStore(context.Background(), tmconsensustest.SimpleHashScheme{}, &reg)
+		s, err := tmsqlite.NewInMemStore(context.Background(), tmconsensustest.SimpleHashScheme{}, &reg)
 		if err != nil {
 			return nil, err
 		}
@@ -69,7 +69,7 @@ func TestFinalizationStoreCompliance(t *testing.T) {
 	t.Parallel()
 
 	tmstoretest.TestFinalizationStoreCompliance(t, func(cleanup func(func())) (tmstore.FinalizationStore, error) {
-		s, err := tmsqlite.NewInMemTMStore(context.Background(), tmconsensustest.SimpleHashScheme{}, &reg)
+		s, err := tmsqlite.NewInMemStore(context.Background(), tmconsensustest.SimpleHashScheme{}, &reg)
 		if err != nil {
 			return nil, err
 		}
@@ -84,7 +84,7 @@ func TestCommittedHeaderStoreCompliance(t *testing.T) {
 	t.Parallel()
 
 	tmstoretest.TestCommittedHeaderStoreCompliance(t, func(cleanup func(func())) (tmstore.CommittedHeaderStore, error) {
-		s, err := tmsqlite.NewInMemTMStore(context.Background(), tmconsensustest.SimpleHashScheme{}, &reg)
+		s, err := tmsqlite.NewInMemStore(context.Background(), tmconsensustest.SimpleHashScheme{}, &reg)
 		if err != nil {
 			return nil, err
 		}
@@ -99,7 +99,7 @@ func TestMirrorStoreCompliance(t *testing.T) {
 	t.Parallel()
 
 	tmstoretest.TestMirrorStoreCompliance(t, func(cleanup func(func())) (tmstore.MirrorStore, error) {
-		s, err := tmsqlite.NewInMemTMStore(context.Background(), tmconsensustest.SimpleHashScheme{}, &reg)
+		s, err := tmsqlite.NewInMemStore(context.Background(), tmconsensustest.SimpleHashScheme{}, &reg)
 		if err != nil {
 			return nil, err
 		}
@@ -114,7 +114,7 @@ func TestRoundStoreCompliance(t *testing.T) {
 	t.Parallel()
 
 	tmstoretest.TestRoundStoreCompliance(t, func(cleanup func(func())) (tmstore.RoundStore, error) {
-		s, err := tmsqlite.NewInMemTMStore(context.Background(), tmconsensustest.SimpleHashScheme{}, &reg)
+		s, err := tmsqlite.NewInMemStore(context.Background(), tmconsensustest.SimpleHashScheme{}, &reg)
 		if err != nil {
 			return nil, err
 		}
@@ -129,7 +129,7 @@ func TestValidatorStoreCompliance(t *testing.T) {
 	t.Parallel()
 
 	tmstoretest.TestValidatorStoreCompliance(t, func(cleanup func(func())) (tmstore.ValidatorStore, error) {
-		s, err := tmsqlite.NewInMemTMStore(context.Background(), tmconsensustest.SimpleHashScheme{}, &reg)
+		s, err := tmsqlite.NewInMemStore(context.Background(), tmconsensustest.SimpleHashScheme{}, &reg)
 		if err != nil {
 			return nil, err
 		}
@@ -141,8 +141,8 @@ func TestValidatorStoreCompliance(t *testing.T) {
 }
 
 func TestMultiCompliance(t *testing.T) {
-	tmstoretest.TestMultiStoreCompliance(t, func(cleanup func(func())) (*tmsqlite.TMStore, error) {
-		s, err := tmsqlite.NewInMemTMStore(context.Background(), tmconsensustest.SimpleHashScheme{}, &reg)
+	tmstoretest.TestMultiStoreCompliance(t, func(cleanup func(func())) (*tmsqlite.Store, error) {
+		s, err := tmsqlite.NewInMemStore(context.Background(), tmconsensustest.SimpleHashScheme{}, &reg)
 		if err != nil {
 			return nil, err
 		}

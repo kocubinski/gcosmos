@@ -18,8 +18,8 @@ import (
 	"github.com/rollchains/gordian/tm/tmstore"
 )
 
-// TMStore is a single type satisfying all the [tmstore] interfaces.
-type TMStore struct {
+// Store is a single type satisfying all the [tmstore] interfaces.
+type Store struct {
 	// The string "purego" or "cgo" depending on build tags.
 	BuildType string
 
@@ -33,12 +33,12 @@ type TMStore struct {
 	reg *gcrypto.Registry
 }
 
-func NewOnDiskTMStore(
+func NewOnDiskStore(
 	ctx context.Context,
 	dbPath string,
 	hashScheme tmconsensus.HashScheme,
 	reg *gcrypto.Registry,
-) (*TMStore, error) {
+) (*Store, error) {
 	dbPath = filepath.Clean(dbPath)
 	if _, err := os.Stat(dbPath); err != nil {
 		// Create a file for the database;
@@ -99,7 +99,7 @@ func NewOnDiskTMStore(
 		return nil, fmt.Errorf("error opening read-only database: %w", err)
 	}
 
-	return &TMStore{
+	return &Store{
 		BuildType: sqliteBuildType,
 
 		rw: rw,
@@ -112,11 +112,11 @@ func NewOnDiskTMStore(
 
 var inMemNameCounter uint32
 
-func NewInMemTMStore(
+func NewInMemStore(
 	ctx context.Context,
 	hashScheme tmconsensus.HashScheme,
 	reg *gcrypto.Registry,
-) (*TMStore, error) {
+) (*Store, error) {
 	dbName := fmt.Sprintf("db%0000d", atomic.AddUint32(&inMemNameCounter, 1))
 	uri := "file:" + dbName +
 		// Give the "file" a unique name so that multiple connections within one process
@@ -172,7 +172,7 @@ func NewInMemTMStore(
 		return nil, fmt.Errorf("error opening read-only database: %w", err)
 	}
 
-	return &TMStore{
+	return &Store{
 		BuildType: sqliteBuildType,
 
 		rw: rw,
@@ -183,7 +183,7 @@ func NewInMemTMStore(
 	}, nil
 }
 
-func (s *TMStore) Close() error {
+func (s *Store) Close() error {
 	errRO := s.ro.Close()
 	if errRO != nil {
 		errRO = fmt.Errorf("error closing read-only database: %w", errRO)
@@ -196,7 +196,7 @@ func (s *TMStore) Close() error {
 	return errors.Join(errRO, errRW)
 }
 
-func (s *TMStore) SetNetworkHeightRound(
+func (s *Store) SetNetworkHeightRound(
 	ctx context.Context,
 	votingHeight uint64, votingRound uint32,
 	committingHeight uint64, committingRound uint32,
@@ -211,7 +211,7 @@ func (s *TMStore) SetNetworkHeightRound(
 	return err
 }
 
-func (s *TMStore) NetworkHeightRound(ctx context.Context) (
+func (s *Store) NetworkHeightRound(ctx context.Context) (
 	votingHeight uint64, votingRound uint32,
 	committingHeight uint64, committingRound uint32,
 	err error,
@@ -233,7 +233,7 @@ func (s *TMStore) NetworkHeightRound(ctx context.Context) (
 	return
 }
 
-func (s *TMStore) SavePubKeys(ctx context.Context, keys []gcrypto.PubKey) (string, error) {
+func (s *Store) SavePubKeys(ctx context.Context, keys []gcrypto.PubKey) (string, error) {
 	defer trace.StartRegion(ctx, "SavePubKeys").End()
 
 	hash, err := s.hs.PubKeys(keys)
@@ -281,7 +281,7 @@ func (s *TMStore) SavePubKeys(ctx context.Context, keys []gcrypto.PubKey) (strin
 
 // createPubKeysInTx saves the set of public keys belonging to the given hash.
 // This method assumes that the hash does not exist in the validator_pub_key_hashes table yet.
-func (s *TMStore) createPubKeysInTx(
+func (s *Store) createPubKeysInTx(
 	ctx context.Context,
 	tx *sql.Tx,
 	pubKeyHash []byte,
@@ -352,7 +352,7 @@ func (s *TMStore) createPubKeysInTx(
 	return hashID, nil
 }
 
-func (s *TMStore) LoadPubKeys(ctx context.Context, hash string) ([]gcrypto.PubKey, error) {
+func (s *Store) LoadPubKeys(ctx context.Context, hash string) ([]gcrypto.PubKey, error) {
 	defer trace.StartRegion(ctx, "LoadPubKeys").End()
 
 	rows, err := s.ro.QueryContext(
@@ -388,7 +388,7 @@ func (s *TMStore) LoadPubKeys(ctx context.Context, hash string) ([]gcrypto.PubKe
 	return keys, nil
 }
 
-func (s *TMStore) SaveVotePowers(ctx context.Context, powers []uint64) (string, error) {
+func (s *Store) SaveVotePowers(ctx context.Context, powers []uint64) (string, error) {
 	defer trace.StartRegion(ctx, "SaveVotePowers").End()
 
 	hash, err := s.hs.VotePowers(powers)
@@ -435,7 +435,7 @@ func (s *TMStore) SaveVotePowers(ctx context.Context, powers []uint64) (string, 
 
 // createVotePowersInTx saves the set of vote powers belonging to the given hash.
 // This method assumes that the hash does not exist in the validator_vote_power_hashes table yet.
-func (s *TMStore) createVotePowersInTx(
+func (s *Store) createVotePowersInTx(
 	ctx context.Context,
 	tx *sql.Tx,
 	votePowerHash []byte,
@@ -474,7 +474,7 @@ VALUES (?,?,?)` +
 	return hashID, nil
 }
 
-func (s *TMStore) LoadVotePowers(ctx context.Context, hash string) ([]uint64, error) {
+func (s *Store) LoadVotePowers(ctx context.Context, hash string) ([]uint64, error) {
 	defer trace.StartRegion(ctx, "LoadVotePowers").End()
 
 	rows, err := s.ro.QueryContext(
@@ -509,7 +509,7 @@ SELECT validator_power_hash_entries.power FROM validator_power_hash_entries
 	return powers, nil
 }
 
-func (s *TMStore) LoadValidators(ctx context.Context, keyHash, powHash string) ([]tmconsensus.Validator, error) {
+func (s *Store) LoadValidators(ctx context.Context, keyHash, powHash string) ([]tmconsensus.Validator, error) {
 	defer trace.StartRegion(ctx, "LoadValidators").End()
 
 	rows, err := s.ro.QueryContext(
@@ -611,7 +611,7 @@ JOIN
 	return nil, hashErr
 }
 
-func (s *TMStore) SaveFinalization(
+func (s *Store) SaveFinalization(
 	ctx context.Context,
 	height uint64, round uint32,
 	blockHash string,
@@ -686,7 +686,7 @@ SELECT ?, ?, ?, keys.id, powers.id, ? FROM
 	return nil
 }
 
-func (s *TMStore) LoadFinalizationByHeight(ctx context.Context, height uint64) (
+func (s *Store) LoadFinalizationByHeight(ctx context.Context, height uint64) (
 	round uint32,
 	blockHash string,
 	valSet tmconsensus.ValidatorSet,
@@ -807,7 +807,7 @@ JOIN
 // If the record exists, the ID is returned.
 // If the record does not exist, a new record is created
 // for the given hash and the given public keys in the provided order.
-func (s *TMStore) selectOrInsertPubKeysByHash(
+func (s *Store) selectOrInsertPubKeysByHash(
 	ctx context.Context,
 	tx *sql.Tx,
 	pubKeyHash []byte,
@@ -837,7 +837,7 @@ func (s *TMStore) selectOrInsertPubKeysByHash(
 // If the record exists, the ID is returned.
 // If the record does not exist, a new record is created
 // for the given hash and the given powers in the provided order.
-func (s *TMStore) selectOrInsertVotePowersByHash(
+func (s *Store) selectOrInsertVotePowersByHash(
 	ctx context.Context,
 	tx *sql.Tx,
 	votePowerHash []byte,
@@ -863,7 +863,7 @@ func (s *TMStore) selectOrInsertVotePowersByHash(
 	return hashID, nil
 }
 
-func (s *TMStore) SaveCommittedHeader(ctx context.Context, ch tmconsensus.CommittedHeader) error {
+func (s *Store) SaveCommittedHeader(ctx context.Context, ch tmconsensus.CommittedHeader) error {
 	defer trace.StartRegion(ctx, "SaveCommittedHeader").End()
 
 	tx, err := s.rw.BeginTx(ctx, nil)
@@ -919,7 +919,7 @@ func (s *TMStore) SaveCommittedHeader(ctx context.Context, ch tmconsensus.Commit
 //
 // If there is already a header with the same height and hash,
 // createHeaderInTx returns the ID and a [tmstore.OverwriteError] (with Field="hash").
-func (s *TMStore) createHeaderInTx(
+func (s *Store) createHeaderInTx(
 	ctx context.Context,
 	tx *sql.Tx,
 	h tmconsensus.Header,
@@ -1079,7 +1079,7 @@ $committed)`,
 // and creates all the child entries for the commit proof.
 // This is applicable to both a header's previous commit proof
 // or to a subjective commit proof for a header.
-func (s *TMStore) saveCommitProofs(
+func (s *Store) saveCommitProofs(
 	ctx context.Context,
 	tx *sql.Tx,
 	commitProofID int64,
@@ -1206,7 +1206,7 @@ commit_proof_voted_block_id, sparse_signature_id
 	return nil
 }
 
-func (s *TMStore) LoadCommittedHeader(ctx context.Context, height uint64) (tmconsensus.CommittedHeader, error) {
+func (s *Store) LoadCommittedHeader(ctx context.Context, height uint64) (tmconsensus.CommittedHeader, error) {
 	defer trace.StartRegion(ctx, "LoadCommittedHeader").End()
 
 	tx, err := s.ro.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
@@ -1292,7 +1292,7 @@ ORDER BY key_id`, // Order not strictly necessary, but convenient for tests.
 	}, nil
 }
 
-func (s *TMStore) loadHeaderByID(ctx context.Context, tx *sql.Tx, id int64) (
+func (s *Store) loadHeaderByID(ctx context.Context, tx *sql.Tx, id int64) (
 	tmconsensus.Header, error,
 ) {
 	defer trace.StartRegion(ctx, "loadHeaderByID").End()
@@ -1301,7 +1301,7 @@ func (s *TMStore) loadHeaderByID(ctx context.Context, tx *sql.Tx, id int64) (
 	return h, err
 }
 
-func (s *TMStore) loadCommittedHeaderByHeight(
+func (s *Store) loadCommittedHeaderByHeight(
 	ctx context.Context,
 	tx *sql.Tx,
 	height uint64,
@@ -1317,7 +1317,7 @@ func (s *TMStore) loadCommittedHeaderByHeight(
 	return h, id, err
 }
 
-func (s *TMStore) loadHeaderDynamic(
+func (s *Store) loadHeaderDynamic(
 	ctx context.Context,
 	tx *sql.Tx,
 	where string,
@@ -1549,7 +1549,7 @@ ORDER BY key_id`, // Order not strictly necessary, but convenient for tests.
 	return h, headerID, nil
 }
 
-func (s *TMStore) SaveProposedHeaderAction(ctx context.Context, ph tmconsensus.ProposedHeader) error {
+func (s *Store) SaveProposedHeaderAction(ctx context.Context, ph tmconsensus.ProposedHeader) error {
 	defer trace.StartRegion(ctx, "SaveProposedHeaderAction").End()
 
 	tx, err := s.rw.BeginTx(ctx, nil)
@@ -1622,7 +1622,7 @@ proposer_pub_key_id
 	return nil
 }
 
-func (s *TMStore) SavePrevoteAction(
+func (s *Store) SavePrevoteAction(
 	ctx context.Context,
 	pubKey gcrypto.PubKey,
 	vt tmconsensus.VoteTarget,
@@ -1637,7 +1637,7 @@ func (s *TMStore) SavePrevoteAction(
 	})
 }
 
-func (s *TMStore) SavePrecommitAction(
+func (s *Store) SavePrecommitAction(
 	ctx context.Context,
 	pubKey gcrypto.PubKey,
 	vt tmconsensus.VoteTarget,
@@ -1658,7 +1658,7 @@ type voteEntryConfig struct {
 	OtherTable string
 }
 
-func (s *TMStore) saveVote(
+func (s *Store) saveVote(
 	ctx context.Context,
 	pubKey gcrypto.PubKey,
 	vt tmconsensus.VoteTarget,
@@ -1747,7 +1747,7 @@ END
 	return nil
 }
 
-func (s *TMStore) LoadActions(ctx context.Context, height uint64, round uint32) (tmstore.RoundActions, error) {
+func (s *Store) LoadActions(ctx context.Context, height uint64, round uint32) (tmstore.RoundActions, error) {
 	defer trace.StartRegion(ctx, "LoadActions").End()
 
 	// LoadActions should only be called once at application startup,
@@ -1924,7 +1924,7 @@ FROM proposed_headers WHERE id = ?`,
 	return ra, nil
 }
 
-func (s *TMStore) SaveRoundProposedHeader(ctx context.Context, ph tmconsensus.ProposedHeader) error {
+func (s *Store) SaveRoundProposedHeader(ctx context.Context, ph tmconsensus.ProposedHeader) error {
 	defer trace.StartRegion(ctx, "SaveRoundProposedHeader").End()
 
 	tx, err := s.rw.BeginTx(ctx, nil)
@@ -1978,7 +1978,7 @@ proposer_pub_key_id
 	return nil
 }
 
-func (s *TMStore) SaveRoundReplayedHeader(ctx context.Context, h tmconsensus.Header) error {
+func (s *Store) SaveRoundReplayedHeader(ctx context.Context, h tmconsensus.Header) error {
 	defer trace.StartRegion(ctx, "SaveRoundReplayedHeader").End()
 
 	tx, err := s.rw.BeginTx(ctx, nil)
@@ -1998,7 +1998,7 @@ func (s *TMStore) SaveRoundReplayedHeader(ctx context.Context, h tmconsensus.Hea
 	return nil
 }
 
-func (s *TMStore) OverwriteRoundPrevoteProofs(
+func (s *Store) OverwriteRoundPrevoteProofs(
 	ctx context.Context,
 	height uint64,
 	round uint32,
@@ -2011,7 +2011,7 @@ func (s *TMStore) OverwriteRoundPrevoteProofs(
 	)
 }
 
-func (s *TMStore) OverwriteRoundPrecommitProofs(
+func (s *Store) OverwriteRoundPrecommitProofs(
 	ctx context.Context,
 	height uint64,
 	round uint32,
@@ -2024,7 +2024,7 @@ func (s *TMStore) OverwriteRoundPrecommitProofs(
 	)
 }
 
-func (s *TMStore) overwriteRoundProofs(
+func (s *Store) overwriteRoundProofs(
 	ctx context.Context,
 	height uint64,
 	round uint32,
@@ -2159,7 +2159,7 @@ VALUES (?, ?, ?)`+
 	return nil
 }
 
-func (s *TMStore) LoadRoundState(ctx context.Context, height uint64, round uint32) (
+func (s *Store) LoadRoundState(ctx context.Context, height uint64, round uint32) (
 	phs []tmconsensus.ProposedHeader,
 	prevotes, precommits tmconsensus.SparseSignatureCollection,
 	err error,
@@ -2549,7 +2549,7 @@ WHERE hs.height = ?1 AND hs.id NOT IN (
 	return phs, prevotes, precommits, nil
 }
 
-func (s *TMStore) loadRoundStateVotes(
+func (s *Store) loadRoundStateVotes(
 	ctx context.Context,
 	tx *sql.Tx,
 	height uint64,

@@ -94,7 +94,7 @@ type Component struct {
 
 	reg *gcrypto.Registry
 
-	tmsql *tmsqlite.TMStore // Conditionally set.
+	tmsql *tmsqlite.Store // Conditionally set.
 
 	// These stores are unconditionally set,
 	// and they may be either explicit in-memory stores,
@@ -225,7 +225,7 @@ func (c *Component) Init(app serverv2.AppI[transaction.Tx], cfg map[string]any, 
 		// between an in-memory or an on-disk database.
 		const useInMem = false
 		if useInMem {
-			c.tmsql, err = tmsqlite.NewInMemTMStore(
+			c.tmsql, err = tmsqlite.NewInMemStore(
 				c.rootCtx,
 				tmconsensustest.SimpleHashScheme{},
 				c.reg,
@@ -244,7 +244,7 @@ func (c *Component) Init(app serverv2.AppI[transaction.Tx], cfg map[string]any, 
 				return fmt.Errorf("failed to close temp file: %w", err)
 			}
 
-			c.tmsql, err = tmsqlite.NewOnDiskTMStore(
+			c.tmsql, err = tmsqlite.NewOnDiskStore(
 				c.rootCtx,
 				f.Name(),
 				tmconsensustest.SimpleHashScheme{},
