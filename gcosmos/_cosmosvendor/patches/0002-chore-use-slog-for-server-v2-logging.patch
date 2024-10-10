@@ -1,4 +1,4 @@
-From a8cb06b6e339a889e89c0d76f2c8ca95ad9aa16c Mon Sep 17 00:00:00 2001
+From 5bd5d6194984be22c41b72d4e3f70172667661ee Mon Sep 17 00:00:00 2001
 From: Mark Rushakoff <mark@strange.love>
 Date: Tue, 9 Jul 2024 14:12:55 -0400
 Subject: [PATCH 2/6] chore: use slog for server v2 logging
@@ -11,7 +11,7 @@ This just plugs in easier with gcosmos tests, for now at least.
  create mode 100644 server/v2/slog.go
 
 diff --git a/server/v2/commands.go b/server/v2/commands.go
-index da8e0ec6e5..43aa6bc8c8 100644
+index 0357fe180d..c92bc3e13f 100644
 --- a/server/v2/commands.go
 +++ b/server/v2/commands.go
 @@ -3,6 +3,7 @@ package serverv2

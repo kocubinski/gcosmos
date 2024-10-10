@@ -1,4 +1,4 @@
-From b33391c6bbf9e7399ec3353696e784a16a18c812 Mon Sep 17 00:00:00 2001
+From d4ff282a28dc3745911968df0c06689945b6624e Mon Sep 17 00:00:00 2001
 From: Mark Rushakoff <mark@strange.love>
 Date: Fri, 16 Aug 2024 15:39:48 -0400
 Subject: [PATCH 6/6] fix: default client context's output to cmd.OutOrStdout

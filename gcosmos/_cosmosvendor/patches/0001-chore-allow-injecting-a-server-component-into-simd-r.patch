@@ -1,4 +1,4 @@
-From 61ad671e0b49b702308889a3c717173bbb85b311 Mon Sep 17 00:00:00 2001
+From 071894cec813c49bba6421ca8ab97f8413bc32a7 Mon Sep 17 00:00:00 2001
 From: Mark Rushakoff <mark@strange.love>
 Date: Wed, 17 Jul 2024 10:03:22 -0400
 Subject: [PATCH 1/6] chore: allow injecting a server component into simd root
@@ -10,7 +10,7 @@ Subject: [PATCH 1/6] chore: allow injecting a server component into simd root
  2 files changed, 24 insertions(+), 9 deletions(-)
 
 diff --git a/simapp/v2/simdv2/cmd/commands.go b/simapp/v2/simdv2/cmd/commands.go
-index addc7eeb76..55d3d5ace0 100644
+index 3fcbed114d..e72f08affb 100644
 --- a/simapp/v2/simdv2/cmd/commands.go
 +++ b/simapp/v2/simdv2/cmd/commands.go
 @@ -16,7 +16,6 @@ import (
@@ -18,7 +18,7 @@ index addc7eeb76..55d3d5ace0 100644
  	"cosmossdk.io/server/v2/api/grpc"
  	"cosmossdk.io/server/v2/api/telemetry"
 -	"cosmossdk.io/server/v2/cometbft"
- 	"cosmossdk.io/server/v2/store"
+ 	serverstore "cosmossdk.io/server/v2/store"
  	"cosmossdk.io/simapp/v2"
  	confixcmd "cosmossdk.io/tools/confix/cmd"
 @@ -42,8 +41,9 @@ func newApp[T transaction.Tx](logger log.Logger, viper *viper.Viper) serverv2.Ap
@@ -43,10 +43,10 @@ index addc7eeb76..55d3d5ace0 100644
 -		),
 +		makeComponent(clientCtx),
  		grpc.New[T](),
- 		store.New[T](newApp),
+ 		serverstore.New[T](),
  		telemetry.New[T](),
 diff --git a/simapp/v2/simdv2/cmd/root_di.go b/simapp/v2/simdv2/cmd/root_di.go
-index 1ad834b53a..f9464d9cd0 100644
+index 6b13b72013..43f81ca158 100644
 --- a/simapp/v2/simdv2/cmd/root_di.go
 +++ b/simapp/v2/simdv2/cmd/root_di.go
 @@ -13,6 +13,8 @@ import (
@@ -58,7 +58,7 @@ index 1ad834b53a..f9464d9cd0 100644
  	"cosmossdk.io/simapp/v2"
  
  	"github.com/cosmos/cosmos-sdk/client"
-@@ -26,8 +28,26 @@ import (
+@@ -25,8 +27,26 @@ import (
  	"github.com/cosmos/cosmos-sdk/x/auth/types"
  )
  
@@ -85,7 +85,7 @@ index 1ad834b53a..f9464d9cd0 100644
  	var (
  		autoCliOpts   autocli.AppOptions
  		moduleManager *runtime.MM[T]
-@@ -83,12 +103,11 @@ func NewRootCmd[T transaction.Tx]() *cobra.Command {
+@@ -71,12 +91,11 @@ func NewRootCmd[T transaction.Tx]() *cobra.Command {
  		},
  	}
  

@@ -1,4 +1,4 @@
-From c85c9c82283b091e16c96177d78da0c1abcb49e8 Mon Sep 17 00:00:00 2001
+From d021a8b10a95066c6c49969e2c4a79508eab1727 Mon Sep 17 00:00:00 2001
 From: Mark Rushakoff <mark.rushakoff@gmail.com>
 Date: Fri, 16 Aug 2024 10:01:38 -0400
 Subject: [PATCH 5/6] fix: don't directly set viper home
@@ -11,7 +11,7 @@ running in the same process.
  1 file changed, 2 deletions(-)
 
 diff --git a/simapp/v2/simdv2/cmd/commands.go b/simapp/v2/simdv2/cmd/commands.go
-index 55d3d5ace0..b089ee5cb0 100644
+index e72f08affb..7d67773fc3 100644
 --- a/simapp/v2/simdv2/cmd/commands.go
 +++ b/simapp/v2/simdv2/cmd/commands.go
 @@ -35,7 +35,6 @@ import (
