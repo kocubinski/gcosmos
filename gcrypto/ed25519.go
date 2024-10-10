@@ -6,11 +6,13 @@ import (
 	"crypto/ed25519"
 )
 
+const ed25519TypeName = "ed25519"
+
 // RegisterEd25519 registers ed25519 with the given Registry.
-// There is no global registery; it is the caller's responsibility
+// There is no global registry; it is the caller's responsibility
 // to register as needed.
 func RegisterEd25519(reg *Registry) {
-	reg.Register("ed25519", Ed25519PubKey{}, NewEd25519PubKey)
+	reg.Register(ed25519TypeName, Ed25519PubKey{}, NewEd25519PubKey)
 }
 
 type Ed25519PubKey ed25519.PublicKey
@@ -34,6 +36,10 @@ func (e Ed25519PubKey) Equal(other PubKey) bool {
 	}
 
 	return ed25519.PublicKey(e).Equal(ed25519.PublicKey(o))
+}
+
+func (e Ed25519PubKey) TypeName() string {
+	return ed25519TypeName
 }
 
 type Ed25519Signer struct {

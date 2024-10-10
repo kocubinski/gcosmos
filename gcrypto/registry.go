@@ -41,7 +41,10 @@ func (r *Registry) Marshal(pubKey PubKey) []byte {
 	typ := reflect.TypeOf(pubKey)
 	prefix, ok := r.byType[typ]
 	if !ok {
-		panic(fmt.Errorf("cannot marshal public key of type %s", typ))
+		panic(fmt.Errorf(
+			"BUG: attempted to Marshal a public key that was never registered (reflect type: %s, type name: %s)",
+			typ, pubKey.TypeName(),
+		))
 	}
 
 	copy(nameHeader[:], prefix)
@@ -49,6 +52,12 @@ func (r *Registry) Marshal(pubKey PubKey) []byte {
 	return append(nameHeader[:], pubKey.PubKeyBytes()...)
 }
 
+// Unmarshal returns a new public key based on b,
+// which should be the result of a previous call to [*Registry.Marshal].
+//
+// Callers should assume that the newly returned PubKey
+// will retain a reference to b;
+// therefore the slice must not be modified after calling Unmarshal.
 func (r *Registry) Unmarshal(b []byte) (PubKey, error) {
 	// TODO: more validation against b
 	prefix := bytes.TrimRight(b[:prefixSize], "\x00")
@@ -59,4 +68,19 @@ func (r *Registry) Unmarshal(b []byte) (PubKey, error) {
 	}
 
 	return fn(b[prefixSize:])
+}
+
+// Decode returns a new PubKey from the given type and public key bytes.
+// It returns an error if the typeName was not previously registered,
+// or if the registered [NewPubKeyFunc] itself returns an error.
+//
+// Callers must assume that the returned public key retains a reference to b,
+// and therefore b must not be modified after calling Decode.
+func (r *Registry) Decode(typeName string, b []byte) (PubKey, error) {
+	fn := r.byPrefix[typeName]
+	if fn == nil {
+		return nil, fmt.Errorf("no registered public key type for name %q", typeName)
+	}
+
+	return fn(b)
 }
