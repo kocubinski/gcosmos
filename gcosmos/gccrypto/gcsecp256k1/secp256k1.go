@@ -46,3 +46,7 @@ func (k *PubKey) Equal(other gcrypto.PubKey) bool {
 func (k *PubKey) Verify(msg, sig []byte) bool {
 	return (*secp256k1.PubKey)(k).VerifySignature(msg, sig)
 }
+
+func (k *PubKey) TypeName() string {
+	return "s256k1"
+}
