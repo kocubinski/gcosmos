@@ -527,9 +527,7 @@ func mapToSparseSignatureCollection(
 		}
 
 		sp := proof.AsSparse()
-		for _, sig := range sp.Signatures {
-			out.BlockSignatures[hash] = append(out.BlockSignatures[hash], sig)
-		}
+		out.BlockSignatures[hash] = append(out.BlockSignatures[hash], sp.Signatures...)
 	}
 
 	return out

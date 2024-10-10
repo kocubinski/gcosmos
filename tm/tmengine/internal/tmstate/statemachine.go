@@ -1489,16 +1489,11 @@ GATHER_ARRIVALS:
 	req.Reason.UpdatedBlockDataIDs = slices.Clip(req.Reason.UpdatedBlockDataIDs)
 
 	// Now we can finally make the request.
-	if !gchan.SendC(
+	return gchan.SendC(
 		ctx, m.log,
 		m.cm.ConsiderProposedBlocksRequests, req,
 		"making consider proposed blocks request following block data arrival",
-	) {
-		// Context cancelled and logged. Quit.
-		return false
-	}
-
-	return true
+	)
 }
 
 func (m *StateMachine) advanceHeight(ctx context.Context, rlc *tsi.RoundLifecycle) (ok bool) {

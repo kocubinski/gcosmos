@@ -98,6 +98,9 @@ func NewOnDiskStore(
 	if err != nil {
 		return nil, fmt.Errorf("error opening read-only database: %w", err)
 	}
+	if err := pragmasRO(ctx, ro); err != nil {
+		return nil, err
+	}
 
 	return &Store{
 		BuildType: sqliteBuildType,
@@ -170,6 +173,9 @@ func NewInMemStore(
 	ro, err := sql.Open(sqliteDriverType, uri)
 	if err != nil {
 		return nil, fmt.Errorf("error opening read-only database: %w", err)
+	}
+	if err := pragmasRO(ctx, ro); err != nil {
+		return nil, err
 	}
 
 	return &Store{
@@ -1598,7 +1604,7 @@ proposer_pub_key_id
 		return fmt.Errorf("failed to get insert ID from creating proposed header: %w", err)
 	}
 
-	res, err = tx.ExecContext(
+	_, err = tx.ExecContext(
 		ctx,
 		`INSERT INTO actions_proposed_headers(height, round, proposed_header_id) VALUES(?, ?, ?)`,
 		ph.Header.Height, ph.Round, phID,
