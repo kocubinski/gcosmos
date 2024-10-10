@@ -55,11 +55,10 @@ var (
 	_ serverv2.HasStartFlags                   = (*Component)(nil)
 )
 
-// We intend to migrate to using SQLite,
-// but there are outstanding bugs preventing the tmsqlite storage from working correctly.
-// This is a cheap compile-time setting to quickly test using tmsqlite
-// or switch back to tmmemstore where the tests are still passing.
-const useSQLite = false
+// The tmsqlite integration is currently working,
+// but we don't yet have command line switches to go back to the tmmemstore implementation,
+// so just use this package-level constant for now.
+const useSQLite = true
 
 // Component is a server component to be injected into the Cosmos SDK server module.
 type Component struct {
@@ -222,15 +221,9 @@ func (c *Component) Init(app serverv2.AppI[transaction.Tx], cfg map[string]any, 
 	}
 
 	if useSQLite {
-		// For now we are hardcoding this to use an in-memory database.
-		// The cache=shared parameter is required so that the Go SQL driver,
-		// which will occasionally create a new connection,
-		// uses the same in-memory database for each connection belonging to this name.
-		// Without cache=shared, new connections will be against
-		// an ephemeral, brand new in-memory database
-		// without any tables or data.
-		// TODO: we need to accept a command line flag to use an on-disk database.
-		const useInMem = true
+		// TODO: we need to accept a command line flag to choose
+		// between an in-memory or an on-disk database.
+		const useInMem = false
 		if useInMem {
 			c.tmsql, err = tmsqlite.NewInMemTMStore(
 				c.rootCtx,
@@ -241,6 +234,8 @@ func (c *Component) Init(app serverv2.AppI[transaction.Tx], cfg map[string]any, 
 				return fmt.Errorf("failed to start tmsqlite store: %w", err)
 			}
 		} else {
+			// Hardcoding to use a temporary validator database for now,
+			// but this should be a command line flag.
 			f, err := os.CreateTemp("", "validator-*.sqlite")
 			if err != nil {
 				return fmt.Errorf("failed to create temp file: %w", err)
