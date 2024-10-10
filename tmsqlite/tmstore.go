@@ -842,7 +842,7 @@ func (s *TMStore) SaveCommittedHeader(ctx context.Context, ch tmconsensus.Commit
 	h := ch.Header
 
 	headerID, err := s.createHeaderInTx(ctx, tx, h, true)
-	if err != nil {
+	if err != nil && !errors.As(err, new(tmstore.OverwriteError)) {
 		return fmt.Errorf("failed to create header record: %w", err)
 	}
 
@@ -883,6 +883,9 @@ func (s *TMStore) SaveCommittedHeader(ctx context.Context, ch tmconsensus.Commit
 
 // createHeaderInTx saves a new header record
 // and returns the header ID.
+//
+// If there is already a header with the same height and hash,
+// createHeaderInTx returns the ID and a [tmstore.OverwriteError] (with Field="hash").
 func (s *TMStore) createHeaderInTx(
 	ctx context.Context,
 	tx *sql.Tx,
@@ -999,13 +1002,29 @@ $committed)`,
 			}
 
 			// But, we still need to get the underlying ID.
+			// There are two possible situations here.
+			// If we are not setting the committed flag,
+			// we can simply retrieve the existing ID.
+			// But if we are setting the committed flag,
+			// which can never be unset,
+			// then we just do an update returning statement.
 			var id int64
-			if err := tx.QueryRowContext(
-				ctx,
-				`SELECT id FROM headers WHERE hash = ?`,
-				h.Hash,
-			).Scan(&id); err != nil {
-				return -1, fmt.Errorf("failed to fall back to ID retrieval for header: %w", err)
+			if committed {
+				if err := tx.QueryRowContext(
+					ctx,
+					`UPDATE headers SET committed=1 WHERE hash = ? RETURNING id`,
+					h.Hash,
+				).Scan(&id); err != nil {
+					return -1, fmt.Errorf("failed to set committed flag and get ID for header: %w", err)
+				}
+			} else {
+				if err := tx.QueryRowContext(
+					ctx,
+					`SELECT id FROM headers WHERE hash = ?`,
+					h.Hash,
+				).Scan(&id); err != nil {
+					return -1, fmt.Errorf("failed to fall back to ID retrieval for header: %w", err)
+				}
 			}
 
 			return id, overwriteErr
@@ -1168,7 +1187,7 @@ func (s *TMStore) LoadCommittedHeader(ctx context.Context, height uint64) (tmcon
 	h, headerID, err := s.loadCommittedHeaderByHeight(ctx, tx, height)
 	if err != nil {
 		return tmconsensus.CommittedHeader{}, fmt.Errorf(
-			"failed to load header: %w", err,
+			"failed to load header with height %d: %w", height, err,
 		)
 	}
 
@@ -1797,7 +1816,7 @@ FROM proposed_headers WHERE id = ?`,
 		h, err := s.loadHeaderByID(ctx, tx, headerID)
 		if err != nil {
 			return tmstore.RoundActions{}, fmt.Errorf(
-				"failed to load header: %w", err,
+				"failed to load header by ID (%d): %w", headerID, err,
 			)
 		}
 
@@ -1883,7 +1902,6 @@ func (s *TMStore) SaveRoundProposedHeader(ctx context.Context, ph tmconsensus.Pr
 
 	headerID, err := s.createHeaderInTx(ctx, tx, ph.Header, false)
 	if err != nil && !errors.As(err, new(tmstore.OverwriteError)) {
-		// We ignore the attempted overwrite and proceed with the proposed header insertion.
 		return fmt.Errorf("failed to create header: %w", err)
 	}
 

@@ -60,6 +60,9 @@ func NewStandardFixture(numVals int) *StandardFixture {
 
 		prevCommitProof: tmconsensus.CommitProof{
 			// This map is expected to be empty, not nil, for the initial height.
+			// TODO: why though? the stores return nil proofs when looking up the initial height,
+			// and things appear to work fine that way.
+			// And the nil-empty mismatch clutters up a lot of tests.
 			Proofs: map[string][]gcrypto.SparseSignature{},
 		},
 
