@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/rollchains/gordian/gcrypto"
-	"github.com/rollchains/gordian/tm/tmconsensus"
 	"github.com/rollchains/gordian/tm/tmconsensus/tmconsensustest"
 	"github.com/rollchains/gordian/tm/tmstore"
 	"github.com/rollchains/gordian/tm/tmstore/tmstoretest"
@@ -141,50 +140,15 @@ func TestValidatorStoreCompliance(t *testing.T) {
 	})
 }
 
-// TODO: all of these tests should move into tmstoretest,
-// but first we will need a pattern for testing one value that satisfies multiple interfaces.
-func TestMulti(t *testing.T) {
-	t.Run("proposed header action does not conflict with committed header", func(t *testing.T) {
-		t.Parallel()
-
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-
-		s, err := tmsqlite.NewInMemTMStore(ctx, tmconsensustest.SimpleHashScheme{}, &reg)
-		require.NoError(t, err)
-		defer s.Close()
-
-		fx := tmconsensustest.NewStandardFixture(2)
-
-		ph1 := fx.NextProposedHeader([]byte("app_data_1"), 0)
-		fx.SignProposal(ctx, &ph1, 0)
-
-		require.NoError(t, s.SaveProposedHeaderAction(ctx, ph1))
-
-		_, err = s.LoadCommittedHeader(ctx, 1)
-		require.Error(t, err)
-		require.ErrorIs(t, err, tmconsensus.HeightUnknownError{Want: 1})
-	})
-
-	t.Run("round proposed header does not conflict with committed header", func(t *testing.T) {
-		t.Parallel()
-
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-
-		s, err := tmsqlite.NewInMemTMStore(ctx, tmconsensustest.SimpleHashScheme{}, &reg)
-		require.NoError(t, err)
-		defer s.Close()
-
-		fx := tmconsensustest.NewStandardFixture(2)
-
-		ph1 := fx.NextProposedHeader([]byte("app_data_1"), 0)
-		fx.SignProposal(ctx, &ph1, 0)
-
-		require.NoError(t, s.SaveRoundProposedHeader(ctx, ph1))
-
-		_, err = s.LoadCommittedHeader(ctx, 1)
-		require.Error(t, err)
-		require.ErrorIs(t, err, tmconsensus.HeightUnknownError{Want: 1})
+func TestMultiCompliance(t *testing.T) {
+	tmstoretest.TestMultiStoreCompliance(t, func(cleanup func(func())) (*tmsqlite.TMStore, error) {
+		s, err := tmsqlite.NewInMemTMStore(context.Background(), tmconsensustest.SimpleHashScheme{}, &reg)
+		if err != nil {
+			return nil, err
+		}
+		cleanup(func() {
+			require.NoError(t, s.Close())
+		})
+		return s, nil
 	})
 }
