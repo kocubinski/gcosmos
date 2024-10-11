@@ -1,7 +1,7 @@
 From d4ff282a28dc3745911968df0c06689945b6624e Mon Sep 17 00:00:00 2001
 From: Mark Rushakoff <mark@strange.love>
 Date: Fri, 16 Aug 2024 15:39:48 -0400
-Subject: [PATCH 6/6] fix: default client context's output to cmd.OutOrStdout
+Subject: [PATCH 6/7] fix: default client context's output to cmd.OutOrStdout
 
 If unset, it uses os.Stdout, and we cannot capture that output from
 tests involving commands. While this probably doesn't fix every use, it
@@ -24,7 +24,7 @@ index 7ea1f49e09..a4a1b94e2e 100644
 +
  	return readTxCommandFlags(ctx, cmd.Flags())
  }
- 
--- 
+
+--
 2.44.0
 

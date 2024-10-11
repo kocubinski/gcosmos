@@ -15,7 +15,6 @@ import (
 	"cosmossdk.io/core/transaction"
 	cosmoslog "cosmossdk.io/log"
 	serverv2 "cosmossdk.io/server/v2"
-	"cosmossdk.io/store/v2/root"
 	cometconfig "github.com/cometbft/cometbft/config"
 	"github.com/cometbft/cometbft/privval"
 	"github.com/cosmos/cosmos-sdk/codec"
@@ -467,7 +466,7 @@ func (c *Component) Start(ctx context.Context) error {
 
 			AppManager: c.app.GetAppManager(),
 
-			Store: c.app.GetStore().(*root.Store),
+			Store: c.app.GetStore(),
 
 			InitChainRequests:     initChainCh,
 			FinalizeBlockRequests: blockFinCh,
@@ -659,6 +658,10 @@ func (c *Component) Stop(_ context.Context) error {
 		if err := c.tmsql.Close(); err != nil {
 			c.log.Warn("Error closing tmsqlite store", "err", err)
 		}
+	}
+
+	if err := c.app.GetStore().Close(); err != nil {
+		c.log.Warn("Failed to close root store", "err", err)
 	}
 	return nil
 }

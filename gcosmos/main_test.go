@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -224,6 +226,108 @@ func TestRootCmd_startWithGordian_multipleValidators(t *testing.T) {
 
 		require.GreaterOrEqual(t, maxHeight, uint(4), "late-started server did not reach minimum height")
 	})
+}
+
+func Test_single_restart(t *testing.T) {
+	if gci.RunCometInsteadOfGordian {
+		// I mean, we could run it with Comet, but that doesn't seem worth the effort at this point.
+		t.Skip("can only run restart test with Gordian")
+	}
+
+	if useMemStore || useSQLiteInMem {
+		t.Skipf(
+			"can only test restart with on-disk storage (have useMemStore=%t, useSQLiteInMem=%t)",
+			useMemStore, useSQLiteInMem,
+		)
+	}
+
+	t.Skip("not ready yet")
+
+	t.Parallel()
+
+	ctx1, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	c := ConfigureChain(t, ctx1, ChainConfig{
+		ID:            t.Name(),
+		NVals:         1,
+		StakeStrategy: ConstantStakeStrategy(1_000_000_000),
+
+		// TODO: once this is passing with height watermarks,
+		// set NFixedAccounts and confirm application state too.
+	})
+
+	httpAddr := c.Start(t, ctx1, 1).HTTP[0]
+
+	if !gci.RunCometInsteadOfGordian {
+		baseURL := "http://" + httpAddr
+
+		// Make sure we are beyond the initial height.
+		deadline := time.Now().Add(10 * time.Second)
+		var maxHeight uint
+		for time.Now().Before(deadline) {
+			resp, err := http.Get(baseURL + "/blocks/watermark")
+			require.NoError(t, err)
+			require.Equal(t, http.StatusOK, resp.StatusCode)
+
+			var m map[string]uint
+			require.NoError(t, json.NewDecoder(resp.Body).Decode(&m))
+			resp.Body.Close()
+
+			maxHeight = m["VotingHeight"]
+			if maxHeight < 3 {
+				time.Sleep(100 * time.Millisecond)
+				continue
+			}
+
+			// We are past initial height, so break out of the loop.
+			break
+		}
+
+		require.GreaterOrEqual(t, maxHeight, uint(3))
+
+		expHeight := maxHeight
+
+		// Now cancel the context.
+		// We expect the HTTP server to quit within a moment.
+		cancel()
+		deadline = time.Now().Add(3 * time.Second)
+		gotError := false
+		for time.Now().Before(deadline) {
+			_, err := http.Get(baseURL + "/blocks/watermark")
+			netErr := new(net.OpError)
+			if errors.As(err, &netErr) {
+				gotError = true
+				break
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+		require.True(t, gotError, "did not get network error in time")
+		t.Log("HTTP server was shut down, sleeping a moment before restarting")
+
+		time.Sleep(2 * time.Second)
+
+		_ = expHeight
+
+		// New context and new started instance.
+		ctx2, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		httpAddr = c.Start(t, ctx2, 1).HTTP[0]
+
+		// c.Start blocks until the HTTP server is available,
+		// so we should be able to access it immediately.
+		maxHeight = 0
+		resp, err := http.Get(baseURL + "/blocks/watermark")
+		require.NoError(t, err)
+		require.Equal(t, http.StatusOK, resp.StatusCode)
+
+		var m map[string]uint
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&m))
+		resp.Body.Close()
+
+		maxHeight = m["VotingHeight"]
+		require.GreaterOrEqual(t, maxHeight, expHeight)
+	}
 }
 
 func TestTx_single_basicSend(t *testing.T) {

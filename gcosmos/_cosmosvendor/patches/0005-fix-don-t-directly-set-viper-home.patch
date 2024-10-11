@@ -1,7 +1,7 @@
 From d021a8b10a95066c6c49969e2c4a79508eab1727 Mon Sep 17 00:00:00 2001
-From: Mark Rushakoff <mark.rushakoff@gmail.com>
+From: Mark Rushakoff <mark@strange.love>
 Date: Fri, 16 Aug 2024 10:01:38 -0400
-Subject: [PATCH 5/6] fix: don't directly set viper home
+Subject: [PATCH 5/7] fix: don't directly set viper home
 
 Setting these prevents the --home flag from being respected. The
 inability to set --home in test prevents multiple simapp instances from
@@ -16,20 +16,20 @@ index e72f08affb..7d67773fc3 100644
 +++ b/simapp/v2/simdv2/cmd/commands.go
 @@ -35,7 +35,6 @@ import (
  )
- 
+
  func newApp[T transaction.Tx](logger log.Logger, viper *viper.Viper) serverv2.AppI[T] {
 -	viper.Set(serverv2.FlagHome, simapp.DefaultNodeHome)
  	return serverv2.AppI[T](simapp.NewSimApp[T](logger, viper))
  }
- 
+
 @@ -165,7 +164,6 @@ func appExport[T transaction.Tx](
- 
+
  	// overwrite the FlagInvCheckPeriod
  	viper.Set(server.FlagInvCheckPeriod, 1)
 -	viper.Set(serverv2.FlagHome, simapp.DefaultNodeHome)
- 
+
  	var simApp *simapp.SimApp[T]
  	if height != -1 {
--- 
+--
 2.44.0
 

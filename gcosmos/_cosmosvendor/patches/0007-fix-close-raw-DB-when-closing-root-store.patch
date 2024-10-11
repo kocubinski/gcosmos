@@ -1,0 +1,130 @@
+From b498e7137bb2ad2e54f54dfb14b83fc4e45194c4 Mon Sep 17 00:00:00 2001
+From: Mark Rushakoff <mark@strange.love>
+Date: Fri, 11 Oct 2024 17:36:21 -0400
+Subject: [PATCH 7/7] fix: close raw DB when closing root store
+
+In theory this allows an instance of simapp to stop and start again
+within the same process. But that does not happen consistently yet, so
+we have added some logging around module start and stop.
+---
+ server/v2/server.go      | 26 ++++++++++++++++++++++++--
+ store/v2/root/builder.go | 21 ++++++++++++++++++++-
+ store/v2/root/store.go   | 12 ++++++++++--
+ 3 files changed, 54 insertions(+), 5 deletions(-)
+
+diff --git a/server/v2/server.go b/server/v2/server.go
+index a628fbdf10..064d56684b 100644
+--- a/server/v2/server.go
++++ b/server/v2/server.go
+@@ -91,7 +91,18 @@ func (s *Server[T]) Start(ctx context.Context) error {
+ 	g, ctx := errgroup.WithContext(ctx)
+ 	for _, mod := range s.components {
+ 		g.Go(func() error {
+-			return mod.Start(ctx)
++			s.logger.Info("Starting component", "name", mod.Name())
++			if err := mod.Start(ctx); err != nil {
++				s.logger.Info(
++					"Error when starting component",
++					"name", mod.Name(),
++					"err", err,
++				)
++				return err
++			}
++
++			s.logger.Info("Started component successfully", "name", mod.Name())
++			return nil
+ 		})
+ 	}
+
+@@ -111,7 +122,18 @@ func (s *Server[T]) Stop(ctx context.Context) error {
+ 	g, ctx := errgroup.WithContext(ctx)
+ 	for _, mod := range s.components {
+ 		g.Go(func() error {
+-			return mod.Stop(ctx)
++			s.logger.Info("Stopping component", "name", mod.Name())
++			if err := mod.Stop(ctx); err != nil {
++				s.logger.Info(
++					"Error when stopping component",
++					"name", mod.Name(),
++					"err", err,
++				)
++				return err
++			}
++
++			s.logger.Info("Stopped component successfully", "name", mod.Name())
++			return nil
+ 		})
+ 	}
+
+diff --git a/store/v2/root/builder.go b/store/v2/root/builder.go
+index 885c41d244..2e7befe10c 100644
+--- a/store/v2/root/builder.go
++++ b/store/v2/root/builder.go
+@@ -1,9 +1,11 @@
+ package root
+
+ import (
++	"errors"
+ 	"fmt"
+ 	"path/filepath"
+
++	corestore "cosmossdk.io/core/store"
+ 	"cosmossdk.io/log"
+ 	"cosmossdk.io/store/v2"
+ 	"cosmossdk.io/store/v2/db"
+@@ -82,7 +84,10 @@ func (sb *builder) Build(
+ 	if err != nil {
+ 		return nil, fmt.Errorf("failed to create root store: %w", err)
+ 	}
+-	sb.store = rs
++	sb.store = &dbClosingRootStore{
++		scRawDB:   scRawDb,
++		RootStore: rs,
++	}
+ 	return sb.store, nil
+ }
+
+@@ -93,3 +98,17 @@ func (sb *builder) Get() store.RootStore {
+ func (sb *builder) RegisterKey(key string) {
+ 	sb.storeKeys[key] = struct{}{}
+ }
++
++// dbClosingRootStore wraps a store.RootStore
++// such that closing the root store also closes the underlying database.
++type dbClosingRootStore struct {
++	scRawDB corestore.KVStoreWithBatch
++	store.RootStore
++}
++
++func (s *dbClosingRootStore) Close() error {
++	return errors.Join(
++		s.RootStore.Close(),
++		s.scRawDB.Close(),
++	)
++}
+diff --git a/store/v2/root/store.go b/store/v2/root/store.go
+index c39119a9aa..9045b1705e 100644
+--- a/store/v2/root/store.go
++++ b/store/v2/root/store.go
+@@ -90,8 +90,16 @@ func New(
+ // Close closes the store and resets all internal fields. Note, Close() is NOT
+ // idempotent and should only be called once.
+ func (s *Store) Close() (err error) {
+-	err = errors.Join(err, s.stateStorage.Close())
+-	err = errors.Join(err, s.stateCommitment.Close())
++	if s.stateStorage != nil {
++		if e := s.stateStorage.Close(); e != nil {
++			err = e
++		}
++	}
++	if s.stateCommitment != nil {
++		if e := s.stateCommitment.Close(); err != nil {
++			err = errors.Join(err, e)
++		}
++	}
+
+ 	s.stateStorage = nil
+ 	s.stateCommitment = nil
+--
+2.44.0
+

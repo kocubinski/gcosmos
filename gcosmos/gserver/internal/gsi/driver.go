@@ -17,7 +17,7 @@ import (
 	"cosmossdk.io/core/store"
 	"cosmossdk.io/core/transaction"
 	"cosmossdk.io/server/v2/appmanager"
-	"cosmossdk.io/store/v2/root"
+	storev2 "cosmossdk.io/store/v2"
 	consensustypes "cosmossdk.io/x/consensus/types"
 	cometapitypes "github.com/cometbft/cometbft/api/cometbft/types/v1"
 	"github.com/cosmos/cosmos-sdk/client"
@@ -40,7 +40,7 @@ type DriverConfig struct {
 
 	AppManager *appmanager.AppManager[transaction.Tx]
 
-	Store *root.Store
+	Store storev2.RootStore
 
 	InitChainRequests     <-chan tmdriver.InitChainRequest
 	FinalizeBlockRequests <-chan tmdriver.FinalizeBlockRequest
@@ -69,7 +69,7 @@ type Driver struct {
 	cuClient *gp2papi.CatchupClient
 
 	am       *appmanager.AppManager[transaction.Tx]
-	sdkStore *root.Store
+	sdkStore storev2.RootStore
 
 	finalizeBlockRequests <-chan tmdriver.FinalizeBlockRequest
 
@@ -152,7 +152,7 @@ func (d *Driver) run(
 func (d *Driver) handleInitialization(
 	ctx context.Context,
 	ag *genutiltypes.AppGenesis,
-	s *root.Store,
+	s storev2.RootStore,
 	txConfig client.TxConfig,
 	initChainCh <-chan tmdriver.InitChainRequest,
 ) bool {
