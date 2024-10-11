@@ -312,11 +312,10 @@ func (s *Store) createPubKeysInTx(
 
 	args := make([]any, 0, 3*len(keys))
 	for i, k := range keys {
-		b := s.reg.Marshal(k)
 		res, err := tx.ExecContext(
 			ctx,
-			`INSERT OR IGNORE INTO validator_pub_keys(key) VALUES(?);`,
-			b,
+			`INSERT OR IGNORE INTO validator_pub_keys(type, key) VALUES(?,?);`,
+			k.TypeName(), k.PubKeyBytes(),
 		)
 		if err != nil {
 			return -1, fmt.Errorf("failed to insert validator public key: %w", err)
@@ -337,8 +336,8 @@ func (s *Store) createPubKeysInTx(
 			// No rows affected, so we need to query the ID.
 			if err := tx.QueryRowContext(
 				ctx,
-				`SELECT id FROM validator_pub_keys WHERE key = ?;`,
-				b,
+				`SELECT id FROM validator_pub_keys WHERE type = ? AND key = ?;`,
+				k.TypeName(), k.PubKeyBytes(),
 			).Scan(&keyID); err != nil {
 				return -1, fmt.Errorf("failed to get key ID when querying: %w", err)
 			}
@@ -363,7 +362,7 @@ func (s *Store) LoadPubKeys(ctx context.Context, hash string) ([]gcrypto.PubKey,
 
 	rows, err := s.ro.QueryContext(
 		ctx,
-		`SELECT key FROM validator_pub_keys_for_hash WHERE hash = ? ORDER BY idx ASC`,
+		`SELECT type, key FROM validator_pub_keys_for_hash WHERE hash = ? ORDER BY idx ASC`,
 		// This is annoying: if you leave the hash as a string,
 		// the string type apparently won't match the blob type,
 		// and so you get a misleading empty result.
@@ -375,15 +374,17 @@ func (s *Store) LoadPubKeys(ctx context.Context, hash string) ([]gcrypto.PubKey,
 	defer rows.Close()
 
 	var keys []gcrypto.PubKey
-	var encKey []byte
+	var keyBytes []byte
+	var typeName string
 	for rows.Next() {
-		encKey = encKey[:0]
-		if err := rows.Scan(&encKey); err != nil {
+		keyBytes = keyBytes[:0]
+		if err := rows.Scan(&typeName, &keyBytes); err != nil {
 			return nil, fmt.Errorf("failed to scan validator hash row: %w", err)
 		}
-		key, err := s.reg.Unmarshal(encKey)
+
+		key, err := s.reg.Decode(typeName, bytes.Clone(keyBytes))
 		if err != nil {
-			return nil, fmt.Errorf("failed to unmarshal validator key %x: %w", encKey, err)
+			return nil, fmt.Errorf("failed to decode validator key %x: %w", keyBytes, err)
 		}
 		keys = append(keys, key)
 	}
@@ -520,9 +521,9 @@ func (s *Store) LoadValidators(ctx context.Context, keyHash, powHash string) ([]
 
 	rows, err := s.ro.QueryContext(
 		ctx,
-		`SELECT keys.key, powers.power FROM
+		`SELECT keys.type, keys.key, powers.power FROM
 (
-  SELECT key, idx FROM validator_pub_keys_for_hash WHERE hash = ? ORDER BY idx ASC
+  SELECT type, key, idx FROM validator_pub_keys_for_hash WHERE hash = ? ORDER BY idx ASC
 ) as keys
 JOIN
 (
@@ -537,16 +538,18 @@ JOIN
 	defer rows.Close()
 
 	var vals []tmconsensus.Validator
-	var encKey []byte
+	var typeName string
+	var keyBytes []byte
 	for rows.Next() {
-		encKey = encKey[:0]
+		keyBytes = keyBytes[:0]
 		var pow uint64
-		if err := rows.Scan(&encKey, &pow); err != nil {
+		if err := rows.Scan(&typeName, &keyBytes, &pow); err != nil {
 			return nil, fmt.Errorf("failed to scan validator row: %w", err)
 		}
-		key, err := s.reg.Unmarshal(encKey)
+
+		key, err := s.reg.Decode(typeName, bytes.Clone(keyBytes))
 		if err != nil {
-			return nil, fmt.Errorf("failed to unmarshal validator key %x: %w", encKey, err)
+			return nil, fmt.Errorf("failed to decode validator key %x: %w", keyBytes, err)
 		}
 
 		vals = append(vals, tmconsensus.Validator{
@@ -763,9 +766,9 @@ WHERE f.height = ?`,
 		ctx,
 		// It seems like there should be a view for this,
 		// but maybe not because we are joining on the finalizations table?
-		`SELECT keys.key, powers.power FROM
+		`SELECT keys.type, keys.key, powers.power FROM
 (
-  SELECT key, idx FROM validator_pub_keys_for_hash
+  SELECT type, key, idx FROM validator_pub_keys_for_hash
     JOIN finalizations ON finalizations.validator_pub_key_hash_id = validator_pub_keys_for_hash.hash_id
     WHERE finalizations.height = ?1 ORDER BY idx ASC
 ) as keys
@@ -784,19 +787,20 @@ JOIN
 	}
 	defer rows.Close()
 
-	var encKey []byte
+	var typeName string
+	var keyBytes []byte
 	for rows.Next() {
-		encKey = encKey[:0]
+		keyBytes = keyBytes[:0]
 		var pow uint64
-		if err = rows.Scan(&encKey, &pow); err != nil {
+		if err = rows.Scan(&typeName, &keyBytes, &pow); err != nil {
 			err = fmt.Errorf("failed to scan validator row: %w", err)
 			return
 		}
 
 		var key gcrypto.PubKey
-		key, err = s.reg.Unmarshal(encKey)
+		key, err = s.reg.Decode(typeName, bytes.Clone(keyBytes))
 		if err != nil {
-			err = fmt.Errorf("failed to unmarshal validator key %x: %w", encKey, err)
+			err = fmt.Errorf("failed to decode validator key %x: %w", keyBytes, err)
 			return
 		}
 
@@ -1410,7 +1414,7 @@ WHERE
 	// Now we can get the validator public keys.
 	rows, err := tx.QueryContext(
 		ctx,
-		`SELECT idx, key FROM validator_pub_keys_for_hash WHERE hash_id = ?`,
+		`SELECT idx, type, key FROM validator_pub_keys_for_hash WHERE hash_id = ?`,
 		pkhID,
 	)
 	if err != nil {
@@ -1419,19 +1423,21 @@ WHERE
 		)
 	}
 	defer rows.Close()
-	var encKey []byte
+
+	var typeName string
+	var keyBytes []byte
 	for rows.Next() {
-		encKey = encKey[:0]
+		keyBytes = keyBytes[:0]
 		var idx int
-		if err := rows.Scan(&idx, &encKey); err != nil {
+		if err := rows.Scan(&idx, &typeName, &keyBytes); err != nil {
 			return tmconsensus.Header{}, headerID, fmt.Errorf(
 				"failed to scan validator public key: %w", err,
 			)
 		}
-		key, err := s.reg.Unmarshal(encKey)
+		key, err := s.reg.Decode(typeName, bytes.Clone(keyBytes))
 		if err != nil {
 			return tmconsensus.Header{}, headerID, fmt.Errorf(
-				"failed to unmarshal validator key %x: %w", encKey, err,
+				"failed to decode validator key %x: %w", keyBytes, err,
 			)
 		}
 
@@ -1583,12 +1589,12 @@ proposer_pub_key_id
 ?, ?, ?,
 ?, ?,
 ?,
-(SELECT id FROM validator_pub_keys WHERE key = ?)
+(SELECT id FROM validator_pub_keys WHERE type = ? AND key = ?)
 )`,
 		headerID, ph.Header.Height, ph.Round,
 		ph.Annotations.User, ph.Annotations.Driver,
 		ph.Signature,
-		s.reg.Marshal(ph.ProposerPubKey),
+		ph.ProposerPubKey.TypeName(), ph.ProposerPubKey.PubKeyBytes(),
 	)
 	if err != nil {
 		if isUniqueConstraintError(err) {
@@ -1701,11 +1707,11 @@ $block_hash, $signature,
 CASE WHEN EXISTS (
   SELECT 1 FROM `+vec.OtherTable+` WHERE
   height = $height AND round = $round AND signer_pub_key_id != (
-    SELECT id FROM validator_pub_keys WHERE key = $key
+    SELECT id FROM validator_pub_keys WHERE type = $type AND key = $key
   )
 ) THEN NULL
 ELSE
-  (SELECT id FROM validator_pub_keys WHERE key = $key)
+  (SELECT id FROM validator_pub_keys WHERE type = $type AND key = $key)
 END
 )
 )`,
@@ -1713,7 +1719,7 @@ END
 		sql.Named("round", vt.Round),
 		sql.Named("block_hash", blockHash),
 		sql.Named("signature", sig),
-		sql.Named("key", s.reg.Marshal(pubKey)),
+		sql.Named("type", pubKey.TypeName()), sql.Named("key", pubKey.PubKeyBytes()),
 	); err != nil {
 		if isUniqueConstraintError(err) {
 			// Special case for action store compliance.
@@ -1725,20 +1731,23 @@ END
 			// We were able to do all the prior work outside of a transaction,
 			// and this is such an exceptional case,
 			// we will do this also outside of a transaction.
-			var encHave []byte
+			var typeName string
+			var haveKeyBytes []byte
 			if err := s.ro.QueryRowContext(
 				ctx,
-				`SELECT key FROM validator_pub_keys WHERE id = (
+				`SELECT type, key FROM validator_pub_keys WHERE id = (
   SELECT signer_pub_key_id FROM `+vec.OtherTable+` WHERE height = ? AND round = ?
 )`,
 				vt.Height, vt.Round,
-			).Scan(&encHave); err != nil {
+			).Scan(&typeName, &haveKeyBytes); err != nil {
 				return fmt.Errorf("failed to query key conflict: %w", err)
 			}
 
-			haveKey, err := s.reg.Unmarshal(encHave)
+			// This Decode call doesn't need a bytes.Clone,
+			// since we are not reusing haveKeyBytes like in other calls in this file.
+			haveKey, err := s.reg.Decode(typeName, haveKeyBytes)
 			if err != nil {
-				return fmt.Errorf("failed to unmarshal existing conflicting key: %w", err)
+				return fmt.Errorf("failed to decode existing conflicting key: %w", err)
 			}
 
 			return tmstore.PubKeyChangedError{
@@ -1891,21 +1900,24 @@ FROM proposed_headers WHERE id = ?`,
 		))
 	}
 
-	var encKey []byte
+	var typeName string
+	var keyBytes []byte
 	if err := tx.QueryRowContext(
 		ctx,
-		`SELECT key FROM validator_pub_keys WHERE id = ?`,
+		`SELECT type, key FROM validator_pub_keys WHERE id = ?`,
 		keyID,
-	).Scan(&encKey); err != nil {
+	).Scan(&typeName, &keyBytes); err != nil {
 		return tmstore.RoundActions{}, fmt.Errorf(
 			"failed to scan public key: %w", err,
 		)
 	}
 
-	key, err := s.reg.Unmarshal(encKey)
+	// This Decode call doesn't need a bytes.Clone,
+	// since we are not reusing haveKeyBytes like in other calls in this file.
+	key, err := s.reg.Decode(typeName, keyBytes)
 	if err != nil {
 		return tmstore.RoundActions{}, fmt.Errorf(
-			"failed to unmarshal validator key %x: %w", encKey, err,
+			"failed to decode validator key %x: %w", keyBytes, err,
 		)
 	}
 
@@ -1957,12 +1969,12 @@ proposer_pub_key_id
 ?, ?, ?,
 ?, ?,
 ?,
-(SELECT id FROM validator_pub_keys WHERE key = ?)
+(SELECT id FROM validator_pub_keys WHERE type = ? AND key = ?)
 )`,
 		headerID, ph.Header.Height, ph.Round,
 		ph.Annotations.User, ph.Annotations.Driver,
 		ph.Signature,
-		s.reg.Marshal(ph.ProposerPubKey),
+		ph.ProposerPubKey.TypeName(), ph.ProposerPubKey.PubKeyBytes(),
 	); err != nil {
 		if isUniqueConstraintError(err) {
 			// This is a special case for compliance tests.
@@ -2191,7 +2203,7 @@ func (s *Store) LoadRoundState(ctx context.Context, height uint64, round uint32)
 	rows, err := tx.QueryContext(
 		ctx,
 		`SELECT
-vpks.hash_id, vpks.hash, vpks.idx, vpks.key, vpks.n_keys
+vpks.hash_id, vpks.hash, vpks.idx, vpks.type, vpks.key, vpks.n_keys
 FROM validator_pub_keys_for_hash AS vpks
 JOIN headers ON
   (headers.validators_pub_key_hash_id = vpks.hash_id OR headers.next_validators_pub_key_hash_id = vpks.hash_id)
@@ -2207,13 +2219,14 @@ WHERE headers.height = ?1 OR (proposed_headers.height = ?1 AND proposed_headers.
 	}
 	defer rows.Close()
 
-	var encKey, hash []byte
+	var typeName string
+	var keyBytes, hash []byte
 	for rows.Next() {
 		var hashID int64
 		var idx, nKeys int
-		encKey = encKey[:0]
+		keyBytes = keyBytes[:0]
 		hash = hash[:0]
-		if err := rows.Scan(&hashID, &hash, &idx, &encKey, &nKeys); err != nil {
+		if err := rows.Scan(&hashID, &hash, &idx, &typeName, &keyBytes, &nKeys); err != nil {
 			return nil, prevotes, precommits, fmt.Errorf(
 				"failed to scan validator set public key entry: %w", err,
 			)
@@ -2227,10 +2240,10 @@ WHERE headers.height = ?1 OR (proposed_headers.height = ?1 AND proposed_headers.
 			}
 			pubKeySets[hashID] = e
 		}
-		e.Keys[idx], err = s.reg.Unmarshal(encKey)
+		e.Keys[idx], err = s.reg.Decode(typeName, bytes.Clone(keyBytes))
 		if err != nil {
 			return nil, prevotes, precommits, fmt.Errorf(
-				"failed to unmarshal key: %w", err,
+				"failed to decode validator key: %w", err,
 			)
 		}
 	}
@@ -2361,7 +2374,7 @@ ORDER BY ps.key_id`,
 	rows, err = tx.QueryContext(
 		ctx,
 		`SELECT
-keys.key,
+keys.type, keys.key,
 phs.user_annotations, phs.driver_annotations,
 phs.signature,
 hs.height, hs.hash, hs.prev_block_hash,
@@ -2381,7 +2394,7 @@ LEFT JOIN validator_pub_key_hashes AS pcphash ON pcphash.id = pcp.validators_pub
 WHERE phs.height = ?1 AND phs.round = ?2
 UNION ALL
 SELECT
-NULL,
+NULL, NULL,
 NULL, NULL,
 NULL,
 hs.height, hs.hash, hs.prev_block_hash,
@@ -2416,11 +2429,12 @@ WHERE hs.height = ?1 AND hs.id NOT IN (
 		var vkID, nvkID, vpID, nvpID int64
 		var pcpID sql.NullInt64
 		var pcpRound sql.Null[uint32]
-		encKey = encKey[:0]
+		var maybeTypeName sql.NullString
+		keyBytes = keyBytes[:0]
 		pcpValHash = pcpValHash[:0]
 		ph := tmconsensus.ProposedHeader{Round: round}
 		if err := rows.Scan(
-			&encKey,
+			&maybeTypeName, &keyBytes,
 			&ph.Annotations.User, &ph.Annotations.Driver,
 			&ph.Signature,
 			&ph.Header.Height, &ph.Header.Hash, &ph.Header.PrevBlockHash,
@@ -2437,11 +2451,11 @@ WHERE hs.height = ?1 AND hs.id NOT IN (
 				"failed to scan proposed headers row: %w", err,
 			)
 		}
-		if len(encKey) > 0 {
-			key, err := s.reg.Unmarshal(encKey)
+		if len(keyBytes) > 0 {
+			key, err := s.reg.Decode(maybeTypeName.String, bytes.Clone(keyBytes))
 			if err != nil {
 				return nil, prevotes, precommits, fmt.Errorf(
-					"failed to unmarshal key from proposed headers: %w", err,
+					"failed to decode proposer public key from proposed headers: %w", err,
 				)
 			}
 			ph.ProposerPubKey = key

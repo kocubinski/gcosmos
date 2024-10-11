@@ -81,13 +81,13 @@ func migrateFrom(ctx context.Context, tx *sql.Tx, version int) error {
 }
 
 func migrateInitial(ctx context.Context, tx *sql.Tx) error {
-	// Pattern for limiting table to a single row:
-	// https://stackoverflow.com/a/33104119
 	_, err := tx.ExecContext(
 		ctx,
 		// The mirror table tracks the mirror's perceived voting and committing heights and rounds.
-		// We use the trick of forcing the primary key to zero,
-		// to ensure all updates are manual and affect the single row.
+		//
+		// CHECK id=0 is a pattern for limiting table to a single row:
+		// https://stackoverflow.com/a/33104119
+		// We use that to ensure all updates are manual and affect the single row.
 		`
 CREATE TABLE mirror(
   id INTEGER PRIMARY KEY CHECK (id = 0),
@@ -97,12 +97,15 @@ CREATE TABLE mirror(
 INSERT INTO mirror VALUES(0, 0, 0, 0, 0);`+
 
 			// Unique validator public keys.
-			// The key field is encoded through a [gcrypto.Registry].
-			// TODO: update gcrypto.PubKey interface to split out TypeName separate,
-			// so we can do a plain compare on the type name and raw bytes.
+			// The type column is the result of the [gcrypto.PubKey.TypeName] method.
+			// The key column is the result of the [gcrypto.PubKey.PubKeyBytes] method.
+			// The type and key together can be passed to [gcrypto.Registry.Decode]
+			// to reconstitute a [gcrypto.PubKey].
+			// The length check of 8 matches the internals of gcrypto.
 			`
 CREATE TABLE validator_pub_keys(
   id INTEGER PRIMARY KEY NOT NULL,
+  type TEXT NOT NULL CHECK(octet_length(type) > 0 AND octet_length(type) <= 8),
   key BLOB NOT NULL UNIQUE
 );`+
 
@@ -132,10 +135,10 @@ CREATE TABLE validator_pub_key_hash_entries(
 			`
 CREATE VIEW validator_pub_keys_for_hash(
   hash_id, hash, n_keys,
-  idx, key
+  idx, type, key
 ) AS SELECT
   validator_pub_key_hashes.id, validator_pub_key_hashes.hash, validator_pub_key_hashes.n_keys,
-  idx, key FROM validator_pub_keys
+  idx, type, key FROM validator_pub_keys
 JOIN validator_pub_key_hash_entries
   ON validator_pub_keys.id = validator_pub_key_hash_entries.key_id
 JOIN validator_pub_key_hashes
