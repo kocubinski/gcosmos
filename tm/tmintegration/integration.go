@@ -81,6 +81,9 @@ func RunIntegrationTest(t *testing.T, nf NewFactoryFunc) {
 			rs, err := f.NewRoundStore(ctx, i)
 			require.NoError(t, err)
 
+			sms, err := f.NewStateMachineStore(ctx, i)
+			require.NoError(t, err)
+
 			vs, err := f.NewValidatorStore(ctx, i, hashScheme)
 			require.NoError(t, err)
 
@@ -116,6 +119,7 @@ func RunIntegrationTest(t *testing.T, nf NewFactoryFunc) {
 				tmengine.WithFinalizationStore(fs),
 				tmengine.WithMirrorStore(ms),
 				tmengine.WithRoundStore(rs),
+				tmengine.WithStateMachineStore(sms),
 				tmengine.WithValidatorStore(vs),
 
 				tmengine.WithHashScheme(hashScheme),
@@ -240,6 +244,9 @@ func RunIntegrationTest(t *testing.T, nf NewFactoryFunc) {
 			rs, err := f.NewRoundStore(ctx, i)
 			require.NoError(t, err)
 
+			sms, err := f.NewStateMachineStore(ctx, i)
+			require.NoError(t, err)
+
 			vs, err := f.NewValidatorStore(ctx, i, hashScheme)
 			require.NoError(t, err)
 
@@ -276,6 +283,7 @@ func RunIntegrationTest(t *testing.T, nf NewFactoryFunc) {
 				tmengine.WithFinalizationStore(fs),
 				tmengine.WithMirrorStore(ms),
 				tmengine.WithRoundStore(rs),
+				tmengine.WithStateMachineStore(sms),
 				tmengine.WithValidatorStore(vs),
 
 				tmengine.WithHashScheme(hashScheme),

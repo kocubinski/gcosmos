@@ -52,6 +52,7 @@ type Factory interface {
 	NewFinalizationStore(context.Context, int) (tmstore.FinalizationStore, error)
 	NewMirrorStore(context.Context, int) (tmstore.MirrorStore, error)
 	NewRoundStore(context.Context, int) (tmstore.RoundStore, error)
+	NewStateMachineStore(context.Context, int) (tmstore.StateMachineStore, error)
 	NewValidatorStore(context.Context, int, tmconsensus.HashScheme) (tmstore.ValidatorStore, error)
 
 	HashScheme(context.Context, int) (tmconsensus.HashScheme, error)

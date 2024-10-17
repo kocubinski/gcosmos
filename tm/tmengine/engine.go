@@ -195,6 +195,10 @@ func (e *Engine) validateSettings(smc tmstate.StateMachineConfig) error {
 		err = errors.Join(err, errors.New("no round store set (use tmengine.WithRoundStore)"))
 	}
 
+	if smc.StateMachineStore == nil && smc.Signer != nil {
+		err = errors.Join(err, errors.New("no state machine store set (use tmengine.WithStateMachineStore)"))
+	}
+
 	if e.mCfg.ValidatorStore == nil {
 		err = errors.Join(err, errors.New("no validator store set (use tmengine.WithValidatorStore)"))
 	}

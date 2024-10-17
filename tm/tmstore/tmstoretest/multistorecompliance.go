@@ -21,7 +21,7 @@ func TestMultiStoreCompliance[S any](
 	t *testing.T,
 	f MultiStoreFactory[S],
 ) {
-	confirmStoreInterfaces[S](t)
+	confirmStoreInterfaces[S]()
 
 	// Pairs of stores: organized alphabetically.
 
@@ -173,7 +173,7 @@ func TestMultiStoreCompliance[S any](
 }
 
 // confirmStoreInterfaces panics if S satifies less than two store interfaces.
-func confirmStoreInterfaces[S any](t *testing.T) {
+func confirmStoreInterfaces[S any]() {
 	var s S
 	var n int
 
@@ -190,6 +190,9 @@ func confirmStoreInterfaces[S any](t *testing.T) {
 		n++
 	}
 	if _, ok := any(s).(tmstore.RoundStore); ok {
+		n++
+	}
+	if _, ok := any(s).(tmstore.StateMachineStore); ok {
 		n++
 	}
 	if _, ok := any(s).(tmstore.ValidatorStore); ok {

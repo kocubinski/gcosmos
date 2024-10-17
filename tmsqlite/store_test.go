@@ -125,6 +125,21 @@ func TestRoundStoreCompliance(t *testing.T) {
 	})
 }
 
+func TestStateMachineStoreCompliance(t *testing.T) {
+	t.Parallel()
+
+	tmstoretest.TestStateMachineStoreCompliance(t, func(ctx context.Context, cleanup func(func())) (tmstore.StateMachineStore, error) {
+		s, err := tmsqlite.NewInMemStore(ctx, tmconsensustest.SimpleHashScheme{}, &reg)
+		if err != nil {
+			return nil, err
+		}
+		cleanup(func() {
+			require.NoError(t, s.Close())
+		})
+		return s, nil
+	})
+}
+
 func TestValidatorStoreCompliance(t *testing.T) {
 	t.Parallel()
 

@@ -31,8 +31,9 @@ type StateMachine struct {
 
 	genesis tmconsensus.Genesis
 
-	aStore tmstore.ActionStore
-	fStore tmstore.FinalizationStore
+	aStore  tmstore.ActionStore
+	fStore  tmstore.FinalizationStore
+	smStore tmstore.StateMachineStore
 
 	rt RoundTimer
 
@@ -61,6 +62,7 @@ type StateMachineConfig struct {
 
 	ActionStore       tmstore.ActionStore
 	FinalizationStore tmstore.FinalizationStore
+	StateMachineStore tmstore.StateMachineStore
 
 	RoundTimer RoundTimer
 
@@ -90,8 +92,9 @@ func NewStateMachine(ctx context.Context, log *slog.Logger, cfg StateMachineConf
 
 		genesis: cfg.Genesis,
 
-		aStore: cfg.ActionStore,
-		fStore: cfg.FinalizationStore,
+		aStore:  cfg.ActionStore,
+		fStore:  cfg.FinalizationStore,
+		smStore: cfg.StateMachineStore,
 
 		rt: cfg.RoundTimer,
 

@@ -96,6 +96,14 @@ CREATE TABLE mirror(
 );
 INSERT INTO mirror VALUES(0, 0, 0, 0, 0);`+
 
+			// Much like the mirror table, the state machine also has to track its height and round.
+			`
+CREATE TABLE state_machine(
+  id INTEGER PRIMARY KEY CHECK (id = 0),
+  h INTEGER NOT NULL, r INTEGER NOT NULL
+);
+INSERT INTO state_machine VALUES(0, 0, 0);`+
+
 			// Unique validator public keys.
 			// The type column is the result of the [gcrypto.PubKey.TypeName] method.
 			// The key column is the result of the [gcrypto.PubKey.PubKeyBytes] method.

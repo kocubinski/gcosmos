@@ -86,6 +86,13 @@ func WithRoundStore(s tmstore.RoundStore) Opt {
 	}
 }
 
+func WithStateMachineStore(s tmstore.StateMachineStore) Opt {
+	return func(_ *Engine, smc *tmstate.StateMachineConfig) error {
+		smc.StateMachineStore= s
+		return nil
+	}
+}
+
 // WithValidatorStore sets the engine's validator store.
 // This option is required.
 func WithValidatorStore(s tmstore.ValidatorStore) Opt {

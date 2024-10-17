@@ -1325,6 +1325,7 @@ func TestEngine_configuration(t *testing.T) {
 	fs := tmmemstore.NewFinalizationStore()
 	ms := tmmemstore.NewMirrorStore()
 	rs := tmmemstore.NewRoundStore()
+	sms := tmmemstore.NewStateMachineStore()
 	vs := fx.NewMemValidatorStore()
 
 	// Set a network height-round and a finalization to trick the engine into thinking
@@ -1378,6 +1379,7 @@ func TestEngine_configuration(t *testing.T) {
 
 	requiredWithSignerOptions := map[string]tmengine.Opt{
 		"WithActionStore": tmengine.WithActionStore(as),
+		"WithStateMachineStore": tmengine.WithStateMachineStore(sms),
 	}
 
 	t.Run("fully configured", func(t *testing.T) {

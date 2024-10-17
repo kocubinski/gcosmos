@@ -239,6 +239,39 @@ func (s *Store) NetworkHeightRound(ctx context.Context) (
 	return
 }
 
+func (s *Store) SetStateMachineHeightRound(
+	ctx context.Context,
+	height uint64, round uint32,
+) error {
+	defer trace.StartRegion(ctx, "SetStateMachineHeightRound").End()
+
+	_, err := s.rw.ExecContext(
+		ctx,
+		`UPDATE state_machine SET h = ?, r = ? WHERE id=0`,
+		height, round,
+	)
+	return err
+}
+
+func (s *Store) StateMachineHeightRound(ctx context.Context) (
+	height uint64, round uint32,
+	err error,
+) {
+	defer trace.StartRegion(ctx, "StateMachineHeightRound").End()
+
+	err = s.ro.QueryRowContext(
+		ctx,
+		`SELECT h, r FROM state_machine WHERE id=0`,
+	).Scan(
+		&height, &round,
+	)
+	if err == nil &&
+		height == 0 && round == 0 {
+		return 0, 0, tmstore.ErrStoreUninitialized
+	}
+	return
+}
+
 func (s *Store) SavePubKeys(ctx context.Context, keys []gcrypto.PubKey) (string, error) {
 	defer trace.StartRegion(ctx, "SavePubKeys").End()
 

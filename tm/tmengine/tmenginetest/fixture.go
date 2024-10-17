@@ -31,6 +31,7 @@ type Fixture struct {
 	FinalizationStore    *tmmemstore.FinalizationStore
 	MirrorStore          *tmmemstore.MirrorStore
 	RoundStore           *tmmemstore.RoundStore
+	StateMachineStore    *tmmemstore.StateMachineStore
 	ValidatorStore       *tmmemstore.ValidatorStore
 
 	InitChainCh chan tmdriver.InitChainRequest
@@ -67,6 +68,7 @@ func NewFixture(ctx context.Context, t *testing.T, nVals int) *Fixture {
 		FinalizationStore:    tmmemstore.NewFinalizationStore(),
 		MirrorStore:          tmmemstore.NewMirrorStore(),
 		RoundStore:           tmmemstore.NewRoundStore(),
+		StateMachineStore:    tmmemstore.NewStateMachineStore(),
 		ValidatorStore:       fx.NewMemValidatorStore(),
 
 		InitChainCh: make(chan tmdriver.InitChainRequest, 1),
@@ -142,6 +144,7 @@ func (f *Fixture) SigningOptionMap() OptionMap {
 	m := f.BaseOptionMap()
 
 	m["WithActionStore"] = tmengine.WithActionStore(f.ActionStore)
+	m["WithStateMachineStore"] = tmengine.WithStateMachineStore(f.StateMachineStore)
 	m["WithSigner"] = tmengine.WithSigner(tmconsensus.PassthroughSigner{
 		Signer:          f.Fx.PrivVals[0].Signer,
 		SignatureScheme: f.Fx.SignatureScheme,

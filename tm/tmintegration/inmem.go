@@ -34,6 +34,10 @@ func (f InmemStoreFactory) NewRoundStore(ctx context.Context, idx int) (tmstore.
 	return tmmemstore.NewRoundStore(), nil
 }
 
+func (f InmemStoreFactory) NewStateMachineStore(ctx context.Context, idx int) (tmstore.StateMachineStore, error) {
+	return tmmemstore.NewStateMachineStore(), nil
+}
+
 func (f InmemStoreFactory) NewValidatorStore(ctx context.Context, idx int, hs tmconsensus.HashScheme) (tmstore.ValidatorStore, error) {
 	return tmmemstore.NewValidatorStore(hs), nil
 }
