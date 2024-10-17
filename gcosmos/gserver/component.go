@@ -223,6 +223,7 @@ func (c *Component) Init(app serverv2.AppI[transaction.Tx], cfg map[string]any, 
 
 	var as tmstore.ActionStore
 	var rs tmstore.RoundStore = c.tmsql
+	var sms tmstore.StateMachineStore = c.tmsql
 	var vs tmstore.ValidatorStore = c.tmsql
 
 	if c.tmsql == nil {
@@ -230,6 +231,7 @@ func (c *Component) Init(app serverv2.AppI[transaction.Tx], cfg map[string]any, 
 			as = tmmemstore.NewActionStore()
 		}
 		rs = tmmemstore.NewRoundStore()
+		sms = tmmemstore.NewStateMachineStore()
 		vs = tmmemstore.NewValidatorStore(tmconsensustest.SimpleHashScheme{})
 
 		c.chs = tmmemstore.NewCommittedHeaderStore()
@@ -239,9 +241,6 @@ func (c *Component) Init(app serverv2.AppI[transaction.Tx], cfg map[string]any, 
 		if c.signer != nil {
 			as = c.tmsql
 		}
-
-		rs = c.tmsql
-		vs = c.tmsql
 
 		c.chs = c.tmsql
 		c.fs = c.tmsql
@@ -283,6 +282,7 @@ func (c *Component) Init(app serverv2.AppI[transaction.Tx], cfg map[string]any, 
 		tmengine.WithFinalizationStore(c.fs),
 		tmengine.WithMirrorStore(c.ms),
 		tmengine.WithRoundStore(rs),
+		tmengine.WithStateMachineStore(sms),
 		tmengine.WithValidatorStore(vs),
 
 		tmengine.WithHashScheme(tmconsensustest.SimpleHashScheme{}),

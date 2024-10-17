@@ -48,6 +48,25 @@ func TestStateMachine_initialization(t *testing.T) {
 		require.Equal(t, 1, cap(re.Response))
 	})
 
+	t.Run("respects store for round entrance beyond genesis", func(t *testing.T) {
+		t.Parallel()
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		sfx := tmstatetest.NewFixture(ctx, t, 2)
+
+		require.NoError(t, sfx.Cfg.StateMachineStore.SetStateMachineHeightRound(ctx, 3, 4))
+
+		sm := sfx.NewStateMachine()
+		defer sm.Wait()
+		defer cancel()
+
+		re := gtest.ReceiveSoon(t, sfx.RoundEntranceOutCh)
+		require.Equal(t, uint64(3), re.H)
+		require.Equal(t, uint32(4), re.R)
+	})
+
 	t.Run("empty round view response from mirror", func(t *testing.T) {
 		t.Parallel()
 
@@ -2265,6 +2284,13 @@ func TestStateMachine_finalization(t *testing.T) {
 		require.Zero(t, re2.R)
 		require.True(t, sfx.Cfg.Signer.PubKey().Equal(re2.PubKey))
 
+		// By the time we have a round entrance signal,
+		// the state machine store already has the updated value.
+		h, r, err := sfx.Cfg.StateMachineStore.StateMachineHeightRound(ctx)
+		require.NoError(t, err)
+		require.Equal(t, uint64(2), h)
+		require.Zero(t, r)
+
 		// Actions channel is buffered so state machine doesn't block sending to mirror.
 		require.Equal(t, 3, cap(re2.Actions))
 
@@ -3352,6 +3378,13 @@ func TestStateMachine_timers(t *testing.T) {
 			erc := gtest.ReceiveSoon(t, ercCh)
 			require.Equal(t, uint64(1), erc.RV.Height)
 			require.Equal(t, uint32(1), erc.RV.Round)
+
+			// By the time that the round entrance out signal is sent,
+			// the state machine store already has the updated value.
+			h, r, err := sfx.Cfg.StateMachineStore.StateMachineHeightRound(ctx)
+			require.NoError(t, err)
+			require.Equal(t, uint64(1), h)
+			require.Equal(t, uint32(1), r)
 		})
 	})
 }

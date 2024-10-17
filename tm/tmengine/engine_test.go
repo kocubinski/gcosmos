@@ -1354,6 +1354,7 @@ func TestEngine_configuration(t *testing.T) {
 		"WithFinalizationStore": tmengine.WithFinalizationStore(fs),
 		"WithMirrorStore":       tmengine.WithMirrorStore(ms),
 		"WithRoundStore":        tmengine.WithRoundStore(rs),
+		"WithStateMachineStore": tmengine.WithStateMachineStore(sms),
 		"WithValidatorStore":    tmengine.WithValidatorStore(vs),
 
 		"WithHashScheme":                        tmengine.WithHashScheme(fx.HashScheme),
@@ -1379,7 +1380,6 @@ func TestEngine_configuration(t *testing.T) {
 
 	requiredWithSignerOptions := map[string]tmengine.Opt{
 		"WithActionStore": tmengine.WithActionStore(as),
-		"WithStateMachineStore": tmengine.WithStateMachineStore(sms),
 	}
 
 	t.Run("fully configured", func(t *testing.T) {

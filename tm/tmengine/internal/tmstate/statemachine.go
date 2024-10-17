@@ -487,11 +487,24 @@ func (m *StateMachine) sendInitialActionSet(ctx context.Context) (
 	// (In all other cases, we rely on rlc.Reset to create the channel.)
 	hc := make(chan struct{})
 
-	// Assume for now that we start up with no history.
-	// We have to send our height and round to the mirror.
-	// TODO: this should respect initial state loaded from a store.
+	h, r, err := m.smStore.StateMachineHeightRound(ctx)
+	if err != nil {
+		if err == tmstore.ErrStoreUninitialized {
+			// This is fine -- it's the first run ever.
+			// Set the height and round here, but there is no point in saving them
+			// until we actually switch rounds.
+			// If we were to crash before the next round,
+			// we would still be at the genesis height anyway.
+			h = m.genesis.InitialHeight
+			r = 0
+		} else {
+			m.log.Error("Failed to get state machine height and round from store", "err", err)
+			return rlc, rer, false
+		}
+	}
+
 	initRE := tmeil.StateMachineRoundEntrance{
-		H: m.genesis.InitialHeight, R: 0,
+		H: h, R: r,
 
 		HeightCommitted: hc,
 
@@ -1503,6 +1516,15 @@ func (m *StateMachine) advanceHeight(ctx context.Context, rlc *tsi.RoundLifecycl
 	rlc.CycleFinalization()
 	rlc.Reset(ctx, rlc.H+1, 0)
 
+	if err := m.smStore.SetStateMachineHeightRound(ctx, rlc.H, 0); err != nil {
+		m.log.Error(
+			"Failed to set state machine height/round when advancing height",
+			"h", rlc.H,
+			"err", err,
+		)
+		return false
+	}
+
 	re := tmeil.StateMachineRoundEntrance{
 		H: rlc.H,
 		R: 0,
@@ -1517,6 +1539,16 @@ func (m *StateMachine) advanceHeight(ctx context.Context, rlc *tsi.RoundLifecycl
 func (m *StateMachine) advanceRound(ctx context.Context, rlc *tsi.RoundLifecycle) (ok bool) {
 	// TODO: do we need to do anything with the finalizations?
 	rlc.Reset(ctx, rlc.H, rlc.R+1)
+
+	if err := m.smStore.SetStateMachineHeightRound(ctx, rlc.H, rlc.R); err != nil {
+		m.log.Error(
+			"Failed to set state machine height/round when advancing round",
+			"h", rlc.H,
+			"r", rlc.R,
+			"err", err,
+		)
+		return false
+	}
 
 	re := tmeil.StateMachineRoundEntrance{
 		H: rlc.H,

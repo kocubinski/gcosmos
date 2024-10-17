@@ -120,6 +120,7 @@ func (f *Fixture) BaseOptionMap() OptionMap {
 		"WithFinalizationStore":    tmengine.WithFinalizationStore(f.FinalizationStore),
 		"WithMirrorStore":          tmengine.WithMirrorStore(f.MirrorStore),
 		"WithRoundStore":           tmengine.WithRoundStore(f.RoundStore),
+		"WithStateMachineStore":    tmengine.WithStateMachineStore(f.StateMachineStore),
 		"WithValidatorStore":       tmengine.WithValidatorStore(f.ValidatorStore),
 
 		"WithHashScheme":                        tmengine.WithHashScheme(f.Fx.HashScheme),
@@ -144,7 +145,6 @@ func (f *Fixture) SigningOptionMap() OptionMap {
 	m := f.BaseOptionMap()
 
 	m["WithActionStore"] = tmengine.WithActionStore(f.ActionStore)
-	m["WithStateMachineStore"] = tmengine.WithStateMachineStore(f.StateMachineStore)
 	m["WithSigner"] = tmengine.WithSigner(tmconsensus.PassthroughSigner{
 		Signer:          f.Fx.PrivVals[0].Signer,
 		SignatureScheme: f.Fx.SignatureScheme,

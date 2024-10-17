@@ -90,6 +90,7 @@ func NewFixture(ctx context.Context, t *testing.T, nVals int) *Fixture {
 
 			ActionStore:       tmmemstore.NewActionStore(),
 			FinalizationStore: tmmemstore.NewFinalizationStore(),
+			StateMachineStore: tmmemstore.NewStateMachineStore(),
 
 			RoundTimer: rt,
 
