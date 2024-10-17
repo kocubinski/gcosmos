@@ -118,15 +118,9 @@ func TestMirror_Initialization(t *testing.T) {
 
 		mfx := tmmirrortest.NewFixture(ctx, t, 2)
 
-		keyHash, err := mfx.Fx.HashScheme.PubKeys(
-			tmconsensus.ValidatorsToPubKeys(mfx.Cfg.InitialValidators),
-		)
-		require.NoError(t, err)
-
-		powHash, err := mfx.Fx.HashScheme.VotePowers(
-			tmconsensus.ValidatorsToVotePowers(mfx.Cfg.InitialValidators),
-		)
-		require.NoError(t, err)
+		valSet := mfx.Fx.ValSet()
+		keyHash := valSet.PubKeyHash
+		powHash := valSet.VotePowerHash
 
 		vs := mfx.ValidatorStore()
 
@@ -145,7 +139,7 @@ func TestMirror_Initialization(t *testing.T) {
 		// After starting, the hashes are added to the validator store.
 		gotVals, err := vs.LoadValidators(ctx, string(keyHash), string(powHash))
 		require.NoError(t, err)
-		require.True(t, tmconsensus.ValidatorSlicesEqual(mfx.Cfg.InitialValidators, gotVals))
+		require.True(t, tmconsensus.ValidatorSlicesEqual(valSet.Validators, gotVals))
 	})
 
 	t.Run("starts correctly if the validator hashes are already in the store", func(t *testing.T) {
@@ -155,16 +149,17 @@ func TestMirror_Initialization(t *testing.T) {
 		defer cancel()
 
 		mfx := tmmirrortest.NewFixture(ctx, t, 2)
+		valSet := mfx.Fx.ValSet()
 
 		vs := mfx.ValidatorStore()
 		_, err := vs.SavePubKeys(
 			ctx,
-			tmconsensus.ValidatorsToPubKeys(mfx.Cfg.InitialValidators),
+			tmconsensus.ValidatorsToPubKeys(valSet.Validators),
 		)
 		require.NoError(t, err)
 		_, err = vs.SaveVotePowers(
 			ctx,
-			tmconsensus.ValidatorsToVotePowers(mfx.Cfg.InitialValidators),
+			tmconsensus.ValidatorsToVotePowers(valSet.Validators),
 		)
 		require.NoError(t, err)
 
@@ -183,6 +178,7 @@ func TestMirror_Initialization(t *testing.T) {
 		defer cancel()
 
 		mfx := tmmirrortest.NewFixture(ctx, t, 2)
+		valSet := mfx.Fx.ValSet()
 
 		m := mfx.NewMirror()
 		defer m.Wait()
@@ -203,11 +199,7 @@ func TestMirror_Initialization(t *testing.T) {
 			require.Equal(t, uint32(1), v.PrecommitVersion)
 
 			// Validator details match.
-			require.True(t, tmconsensus.ValidatorSlicesEqual(mfx.Cfg.InitialValidators, v.ValidatorSet.Validators))
-
-			keyHash, powHash := mfx.Fx.ValidatorHashes()
-			require.Equal(t, keyHash, string(v.ValidatorSet.PubKeyHash))
-			require.Equal(t, powHash, string(v.ValidatorSet.VotePowerHash))
+			require.True(t, valSet.Equal(v.ValidatorSet))
 
 			// Proposed headers are empty, and nil proofs are ready.
 			require.Empty(t, v.ProposedHeaders)
@@ -234,11 +226,7 @@ func TestMirror_Initialization(t *testing.T) {
 			require.Equal(t, uint32(1), v.PrecommitVersion)
 
 			// Validator details match.
-			require.True(t, tmconsensus.ValidatorSlicesEqual(mfx.Cfg.InitialValidators, v.ValidatorSet.Validators))
-
-			keyHash, powHash := mfx.Fx.ValidatorHashes()
-			require.Equal(t, keyHash, string(v.ValidatorSet.PubKeyHash))
-			require.Equal(t, powHash, string(v.ValidatorSet.VotePowerHash))
+			require.True(t, valSet.Equal(v.ValidatorSet))
 
 			// Proposed headers are empty, and nil proofs are ready.
 			require.Empty(t, v.ProposedHeaders)
@@ -1054,7 +1042,7 @@ func TestMirror_pastInitialHeight(t *testing.T) {
 		// Haven't seen anything in the voting round yet,
 		// so we should have no proposed headers,
 		// and we should have empty proofs for nil votes.
-		require.True(t, tmconsensus.ValidatorSlicesEqual(mfx.Cfg.InitialValidators, vv.ValidatorSet.Validators))
+		require.True(t, mfx.Fx.ValSet().Equal(vv.ValidatorSet))
 		require.Empty(t, vv.ProposedHeaders)
 		require.Empty(t, vv.PrevoteProofs)
 		require.Empty(t, vv.PrecommitProofs)

@@ -99,9 +99,9 @@ func New(ctx context.Context, log *slog.Logger, opts ...Opt) (*Engine, error) {
 	// to match the state machine's validators that resulted from the InitChain call.
 	// But if that is nil (probably because we didn't need to InitChain),
 	// then fall back to the configured genesis validators.
-	e.mCfg.InitialValidators = smCfg.Genesis.ValidatorSet.Validators
-	if e.mCfg.InitialValidators == nil {
-		e.mCfg.InitialValidators = e.genesis.GenesisValidatorSet.Validators
+	e.mCfg.InitialValidatorSet = smCfg.Genesis.ValidatorSet
+	if e.mCfg.InitialValidatorSet.Validators == nil {
+		e.mCfg.InitialValidatorSet = e.genesis.GenesisValidatorSet
 	}
 
 	// Set up a cancelable context in case any of the subsystems fail to create.

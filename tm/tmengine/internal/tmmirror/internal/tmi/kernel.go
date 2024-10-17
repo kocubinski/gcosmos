@@ -72,8 +72,8 @@ type KernelConfig struct {
 	SignatureScheme                   tmconsensus.SignatureScheme
 	CommonMessageSignatureProofScheme gcrypto.CommonMessageSignatureProofScheme
 
-	InitialHeight     uint64
-	InitialValidators []tmconsensus.Validator
+	InitialHeight       uint64
+	InitialValidatorSet tmconsensus.ValidatorSet
 
 	ProposedHeaderFetcher tmelink.ProposedHeaderFetcher
 
@@ -154,13 +154,6 @@ func NewKernel(ctx context.Context, log *slog.Logger, cfg KernelConfig) (*Kernel
 		)
 	}
 
-	initialValSet, err := tmconsensus.NewValidatorSet(cfg.InitialValidators, cfg.HashScheme)
-	if err != nil {
-		return nil, fmt.Errorf(
-			"cannot initialize mirror kernel: failed to build initial validator set: %w", err,
-		)
-	}
-
 	k := &Kernel{
 		log: log,
 
@@ -174,7 +167,7 @@ func NewKernel(ctx context.Context, log *slog.Logger, cfg KernelConfig) (*Kernel
 		cmspScheme: cfg.CommonMessageSignatureProofScheme,
 
 		initialHeight: cfg.InitialHeight,
-		initialVals:   initialValSet,
+		initialVals:   cfg.InitialValidatorSet,
 
 		phf: cfg.ProposedHeaderFetcher,
 		mc:  cfg.MetricsCollector,

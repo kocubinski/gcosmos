@@ -78,8 +78,8 @@ func NewFixture(ctx context.Context, t *testing.T, nVals int) *Fixture {
 			RoundStore:           tmmemstore.NewRoundStore(),
 			ValidatorStore:       tmmemstore.NewValidatorStore(fx.HashScheme),
 
-			InitialHeight:     1,
-			InitialValidators: fx.Vals(),
+			InitialHeight:       1,
+			InitialValidatorSet: fx.ValSet(),
 
 			HashScheme:                        fx.HashScheme,
 			SignatureScheme:                   fx.SignatureScheme,

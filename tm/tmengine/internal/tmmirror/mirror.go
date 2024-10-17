@@ -52,8 +52,8 @@ type MirrorConfig struct {
 	RoundStore           tmstore.RoundStore
 	ValidatorStore       tmstore.ValidatorStore
 
-	InitialHeight     uint64
-	InitialValidators []tmconsensus.Validator
+	InitialHeight       uint64
+	InitialValidatorSet tmconsensus.ValidatorSet
 
 	HashScheme                        tmconsensus.HashScheme
 	SignatureScheme                   tmconsensus.SignatureScheme
@@ -87,8 +87,8 @@ func (c MirrorConfig) toKernelConfig() tmi.KernelConfig {
 		SignatureScheme:                   c.SignatureScheme,
 		CommonMessageSignatureProofScheme: c.CommonMessageSignatureProofScheme,
 
-		InitialHeight:     c.InitialHeight,
-		InitialValidators: c.InitialValidators,
+		InitialHeight:       c.InitialHeight,
+		InitialValidatorSet: c.InitialValidatorSet,
 
 		ProposedHeaderFetcher: c.ProposedHeaderFetcher,
 

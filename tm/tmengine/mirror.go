@@ -40,7 +40,7 @@ func NewMirror(ctx context.Context, log *slog.Logger, opts ...Opt) (Mirror, erro
 
 	cfg := e.mCfg
 	cfg.InitialHeight = e.genesis.InitialHeight
-	cfg.InitialValidators = e.genesis.GenesisValidatorSet.Validators
+	cfg.InitialValidatorSet = e.genesis.GenesisValidatorSet
 
 	if err := validateMirrorSettings(cfg); err != nil {
 		return nil, err
