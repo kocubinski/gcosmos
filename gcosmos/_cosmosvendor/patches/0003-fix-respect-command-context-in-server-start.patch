@@ -1,17 +1,17 @@
-From aa593539b1165d636bf33346ea03a75ee7e88f0e Mon Sep 17 00:00:00 2001
+From 49ecc3eeef1e8ca1a6272f98af2aec2888cb3b2b Mon Sep 17 00:00:00 2001
 From: Mark Rushakoff <mark@strange.love>
 Date: Wed, 17 Jul 2024 10:49:18 -0400
-Subject: [PATCH 3/7] fix: respect command context in server start
+Subject: [PATCH 3/6] fix: respect command context in server start
 
 ---
  server/v2/commands.go | 10 +++++++---
  1 file changed, 7 insertions(+), 3 deletions(-)
 
 diff --git a/server/v2/commands.go b/server/v2/commands.go
-index c92bc3e13f..98a01b108e 100644
+index 1a0055b95e..52dc711ab2 100644
 --- a/server/v2/commands.go
 +++ b/server/v2/commands.go
-@@ -121,9 +121,13 @@ func createStartCommand[T transaction.Tx](
+@@ -119,9 +119,13 @@ func createStartCommand[T transaction.Tx](
  			go func() {
  				sigCh := make(chan os.Signal, 1)
  				signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
@@ -25,9 +25,9 @@ index c92bc3e13f..98a01b108e 100644
 +				case <-ctx.Done():
 +					cancelFn()
 +				}
-
+ 
  				if err := server.Stop(ctx); err != nil {
  					cmd.PrintErrln("failed to stop servers:", err)
---
+-- 
 2.44.0
 

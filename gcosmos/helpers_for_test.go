@@ -213,6 +213,10 @@ func ConfigureChain(t *testing.T, ctx context.Context, cfg ChainConfig) Chain {
 		// If we leave them enabled, they will all contend for the same default port.
 		// We are unlikely to need them in the future, so just leave them disabled.
 		c.Run("config", "set", "app", "telemetry.enable", "false", "--skip-validate").NoError(t)
+
+		// We may enable the v2 REST API later,
+		// but disable it for now to get tests passing.
+		c.Run("config", "set", "app", "rest.enable", "false", "--skip-validate").NoError(t)
 	}
 
 	return Chain{
