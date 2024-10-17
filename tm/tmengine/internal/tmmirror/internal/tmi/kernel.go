@@ -39,7 +39,7 @@ type Kernel struct {
 	// Required for certain edge cases.
 	// Usually 1.
 	initialHeight uint64
-	initialVals   tmconsensus.ValidatorSet
+	initialValSet tmconsensus.ValidatorSet
 
 	phf tmelink.ProposedHeaderFetcher
 	mc  *tmemetrics.Collector
@@ -107,6 +107,10 @@ type KernelConfig struct {
 }
 
 func NewKernel(ctx context.Context, log *slog.Logger, cfg KernelConfig) (*Kernel, error) {
+	if len(cfg.InitialValidatorSet.Validators) == 0 {
+		panic(fmt.Errorf("BUG: initial validator set is empty"))
+	}
+
 	nhr, err := NetworkHeightRoundFromStore(cfg.Store.NetworkHeightRound(ctx))
 	if err != nil && err != tmstore.ErrStoreUninitialized {
 		return nil, fmt.Errorf(
@@ -167,7 +171,7 @@ func NewKernel(ctx context.Context, log *slog.Logger, cfg KernelConfig) (*Kernel
 		cmspScheme: cfg.CommonMessageSignatureProofScheme,
 
 		initialHeight: cfg.InitialHeight,
-		initialVals:   cfg.InitialValidatorSet,
+		initialValSet: cfg.InitialValidatorSet,
 
 		phf: cfg.ProposedHeaderFetcher,
 		mc:  cfg.MetricsCollector,
@@ -1880,7 +1884,7 @@ func (k *Kernel) loadInitialCommittingView(ctx context.Context, s *kState) error
 	r := s.Committing.Round
 
 	if h == k.initialHeight || h == k.initialHeight+1 {
-		vs = k.initialVals
+		vs = k.initialValSet
 	} else {
 		panic("TODO: load committing validators beyond initial height")
 	}
@@ -1945,7 +1949,7 @@ func (k *Kernel) loadInitialVotingView(ctx context.Context, s *kState) error {
 	r := s.Voting.Round
 
 	if h == k.initialHeight || h == k.initialHeight+1 {
-		vs = k.initialVals
+		vs = k.initialValSet
 	} else {
 		// During initialization, we have set the committing block on the kState value.
 		vs = s.CommittingHeader.ValidatorSet

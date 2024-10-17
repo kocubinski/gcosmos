@@ -1281,9 +1281,12 @@ func TestEngine_initChain(t *testing.T) {
 
 		efx := tmenginetest.NewFixture(ctx, t, 2)
 
-		// Before starting the engine, set the network height-round.
-		// This will cause the engine to not consult the finalization store.
+		// Before starting the engine, set the network height-round,
+		// and set the finalization so we can re-load the initial validator set.
 		require.NoError(t, efx.MirrorStore.SetNetworkHeightRound(ctx, 1, 0, 0, 0))
+		require.NoError(t, efx.FinalizationStore.SaveFinalization(
+			ctx, 0, 0, "some_block_hash", efx.Fx.ValSet(), "some_initial_app_state_hash",
+		))
 
 		// Still making the engine on a background goroutine,
 		// to avoid halting the test in the event of a failure.
@@ -1324,9 +1327,12 @@ func TestEngine_configuration(t *testing.T) {
 	rs := tmmemstore.NewRoundStore()
 	vs := fx.NewMemValidatorStore()
 
-	// Set a network height-round to trick the engine into thinking
+	// Set a network height-round and a finalization to trick the engine into thinking
 	// the chain has already been initialized.
 	require.NoError(t, ms.SetNetworkHeightRound(context.Background(), 1, 0, 0, 0))
+	require.NoError(t, fs.SaveFinalization(
+		context.Background(), 0, 0, "some_block_hash", fx.ValSet(), "some_initial_app_state_hash",
+	))
 
 	cStrat := tmconsensustest.NewMockConsensusStrategy()
 

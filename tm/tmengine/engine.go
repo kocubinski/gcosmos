@@ -95,13 +95,20 @@ func New(ctx context.Context, log *slog.Logger, opts ...Opt) (*Engine, error) {
 
 	e.mCfg.InitialHeight = e.genesis.InitialHeight
 
-	// Prefer to set the mirror config's validators
-	// to match the state machine's validators that resulted from the InitChain call.
-	// But if that is nil (probably because we didn't need to InitChain),
-	// then fall back to the configured genesis validators.
+	// The mirror needs its initial validator set too.
+	// We only set the state machine genesis if we did initialize the chain.
+	// So if that is empty, populate the mirror's initial validator set
+	// with the finalization for before the initial height (i.e. from initializing the chain).
 	e.mCfg.InitialValidatorSet = smCfg.Genesis.ValidatorSet
 	if e.mCfg.InitialValidatorSet.Validators == nil {
-		e.mCfg.InitialValidatorSet = e.genesis.GenesisValidatorSet
+		_, _, e.mCfg.InitialValidatorSet, _, err = smCfg.FinalizationStore.LoadFinalizationByHeight(
+			ctx, e.genesis.InitialHeight-1,
+		)
+		if err != nil {
+			return nil, fmt.Errorf(
+				"failed to load initial validator set from finalization store: %w", err,
+			)
+		}
 	}
 
 	// Set up a cancelable context in case any of the subsystems fail to create.
