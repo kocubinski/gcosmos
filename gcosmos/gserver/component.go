@@ -116,7 +116,7 @@ func NewComponent(
 ) (*Component, error) {
 	var c Component
 	c.rootCtx, c.cancel = context.WithCancelCause(rootCtx)
-	c.log = log.With("sys", "engine")
+	c.log = log.With("root", "gcosmos")
 	c.txc = txc
 	c.codec = codec
 

@@ -247,6 +247,11 @@ func (e *Engine) maybeInitializeChain(
 	_, _, _, _, err := e.mCfg.Store.NetworkHeightRound(ctx)
 	if err == nil {
 		// Successful load, so we don't need to initialize.
+		// But we do need to close the init chain channel,
+		// to indicate to the driver that there is no initialization necessary.
+		if e.initChainCh != nil {
+			close(e.initChainCh)
+		}
 		return tmconsensus.Genesis{}, nil
 	}
 	if err != tmstore.ErrStoreUninitialized {

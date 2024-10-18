@@ -158,11 +158,31 @@ func (d *Driver) handleInitialization(
 ) bool {
 	defer trace.StartRegion(ctx, "handleInitialization").End()
 
-	req, ok := gchan.RecvC(ctx, d.log, initChainCh, "receiving init chain request")
-	if !ok {
-		d.log.Warn("Context cancelled before receiving init chain message")
+	// Manual select because gchan currently doesn't support detection of closed channels.
+	var req tmdriver.InitChainRequest
+	var ok bool
+	select {
+	case <-ctx.Done():
+		d.log.Info(
+			"Context canceled while waiting for init chain message",
+			"cause", context.Cause(ctx),
+		)
 		return false
+	case req, ok = <-initChainCh:
+		if !ok {
+			// Channel was closed, so we skip the init chain work.
+			// But we do still need to initialize the tx buffer.
+			_, state, err := s.StateLatest()
+			if err != nil {
+				d.log.Error("Failed to get latest state", "err", err)
+				return false
+			}
+			return d.txBuf.Initialize(ctx, state)
+		}
+
+		// Otherwise we handle the request outside this switch.
 	}
+
 	d.log.Info("Got init chain request", "val", req)
 
 	blockReq := &coreserver.BlockRequest[transaction.Tx]{
@@ -211,7 +231,9 @@ func (d *Driver) handleInitialization(
 	}
 
 	// Set the initial state on the transaction buffer.
-	d.txBuf.Initialize(ctx, genesisState)
+	if !d.txBuf.Initialize(ctx, genesisState) {
+		return false
+	}
 
 	// SetInitialVersion followed by WorkingHash,
 	// and passing that hash as the initial app state hash,

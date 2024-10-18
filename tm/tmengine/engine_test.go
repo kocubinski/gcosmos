@@ -5,6 +5,7 @@ import (
 	"context"
 	"sort"
 	"testing"
+	"time"
 
 	"github.com/rollchains/gordian/gwatchdog"
 	"github.com/rollchains/gordian/internal/gtest"
@@ -1310,8 +1311,18 @@ func TestEngine_initChain(t *testing.T) {
 		// The engine is ready more or less immediately.
 		_ = gtest.ReceiveSoon(t, eReady)
 
-		// And there is no init chain request.
-		gtest.NotSending(t, efx.InitChainCh)
+		// Shortly after the engine is ready,
+		// the init chain channel is closed.
+		// This is such a rare setup, that we do not have a gtest helper for it.
+		// We can add one if this comes up more in the future.
+		timer := time.NewTimer(time.Second) // TODO: use gtest timer.
+		defer timer.Stop()
+		select {
+		case _, ok := <-efx.InitChainCh:
+			require.False(t, ok)
+		case <-timer.C:
+			t.Fatal("init chain channel not closed in time")
+		}
 
 		require.NotNil(t, engine)
 	})

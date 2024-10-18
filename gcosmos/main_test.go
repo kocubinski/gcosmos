@@ -307,12 +307,11 @@ func Test_single_restart(t *testing.T) {
 
 		time.Sleep(2 * time.Second)
 
-		_ = expHeight
-
 		// New context and new started instance.
 		ctx2, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		httpAddr = c.Start(t, ctx2, 1).HTTP[0]
+
+		baseURL = "http://" + c.Start(t, ctx2, 1).HTTP[0]
 
 		// c.Start blocks until the HTTP server is available,
 		// so we should be able to access it immediately.
@@ -326,6 +325,26 @@ func Test_single_restart(t *testing.T) {
 		resp.Body.Close()
 
 		maxHeight = m["VotingHeight"]
+		require.GreaterOrEqual(t, maxHeight, expHeight)
+
+		// Now wait for the height to increase by two more.
+		expHeight += 2
+
+		deadline = time.Now().Add(15 * time.Second)
+		for time.Now().Before(deadline) {
+			resp, err := http.Get(baseURL + "/blocks/watermark")
+			require.NoError(t, err)
+			require.Equal(t, http.StatusOK, resp.StatusCode)
+
+			var m map[string]uint
+			require.NoError(t, json.NewDecoder(resp.Body).Decode(&m))
+			resp.Body.Close()
+
+			maxHeight = m["VotingHeight"]
+			if maxHeight >= expHeight {
+				break
+			}
+		}
 		require.GreaterOrEqual(t, maxHeight, expHeight)
 	}
 }
