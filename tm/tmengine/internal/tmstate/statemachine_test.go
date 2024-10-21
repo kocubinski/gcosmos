@@ -292,6 +292,41 @@ func TestStateMachine_initialization(t *testing.T) {
 		erc = gtest.ReceiveSoon(t, enterCh)
 		require.Equal(t, emptyVRV11.RoundView, erc.RV)
 	})
+
+	t.Run("sends missed proposed header to mirror", func(t *testing.T) {
+		t.Parallel()
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		sfx := tmstatetest.NewFixture(ctx, t, 4)
+
+		ph1 := sfx.Fx.NextProposedHeader([]byte("app_data_1"), 0)
+		sfx.Fx.SignProposal(ctx, &ph1, 0)
+
+		require.NoError(t, sfx.Cfg.ActionStore.SaveProposedHeaderAction(ctx, ph1))
+
+		sm := sfx.NewStateMachine()
+		defer sm.Wait()
+		defer cancel()
+
+		re := gtest.ReceiveSoon(t, sfx.RoundEntranceOutCh)
+
+		vrv := sfx.EmptyVRV(1, 0)
+
+		cStrat := sfx.CStrat
+		enterCh := cStrat.ExpectEnterRound(1, 0, nil)
+
+		gtest.SendSoon(t, re.Response, tmeil.RoundEntranceResponse{VRV: vrv})
+
+		// Since we've sent an empty vrv response to the state machine,
+		// it will re-send its proposed header action to the mirror.
+		act := gtest.ReceiveSoon(t, re.Actions)
+		require.Equal(t, ph1, act.PH)
+
+		e := gtest.ReceiveSoon(t, enterCh)
+		require.Nil(t, e.ProposalOut)
+	})
 }
 
 func TestStateMachine_catchup(t *testing.T) {

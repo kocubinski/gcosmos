@@ -360,8 +360,86 @@ func (m *StateMachine) initializeRLC(ctx context.Context) (rlc tsi.RoundLifecycl
 
 	if !su.IsVRV() {
 		// We are replaying, so we don't need special begin round handling.
-		// sendInitialActionSet already made a finalization request.
+		// sendInitialActionSet could already made a finalization request.
 		return rlc, true
+	}
+
+	// But, we do need to make sure we suppress an unnecessary attempt
+	// to propose a header.
+	if m.signer != nil {
+		// Did the mirror already receive a proposed header from us?
+		// We check this first so we don't have to consult a store.
+		for _, ph := range su.VRV.ProposedHeaders {
+			if m.signer.PubKey().Equal(ph.ProposerPubKey) {
+				// Now if the consensus strategy is consulted,
+				// it won't have an outgoing proposal channel for this round.
+				// TODO: this is missing a test
+				rlc.ProposalCh = nil
+				break
+			}
+		}
+
+		// It is remotely possible, at startup,
+		// that we have recorded a proposed header to the action store
+		// but did not successfully send it to the mirror.
+		if rlc.ProposalCh != nil {
+			ra, err := m.aStore.LoadActions(ctx, rlc.H, rlc.R)
+			if err != nil && !errors.Is(err, tmconsensus.RoundUnknownError{
+				WantHeight: rlc.H,
+				WantRound:  rlc.R,
+			}) {
+				m.log.Error(
+					"Failed to load existing actions during startup",
+					"height", rlc.H,
+					"round", rlc.R,
+					"err", err,
+				)
+				return rlc, false
+			}
+
+			if ra.ProposedHeader.Header.Height != 0 {
+				// We had a header in our recorded actions,
+				// but it wasn't part of the round view that the mirror sent us.
+				rlc.ProposalCh = nil
+				if !gchan.SendC(
+					ctx, m.log,
+					rlc.OutgoingActionsCh, tmeil.StateMachineRoundAction{
+						PH: ra.ProposedHeader,
+					},
+					"sending previously recorded proposed header to mirror",
+				) {
+					return rlc, false
+				}
+			}
+		}
+	}
+
+	// The state update was a VRV.
+	// We need to send the enter round request to the consensus strategy,
+	// now that we have potentially modified the proposal out channel.
+	req := tsi.EnterRoundRequest{
+		RV:     su.VRV.RoundView,
+		Result: make(chan error), // Unbuffered since both sides sync on this.
+
+		ProposalOut: rlc.ProposalCh,
+	}
+
+	err, ok := gchan.ReqResp(
+		ctx, m.log,
+		m.cm.EnterRoundRequests, req,
+		req.Result,
+		"entering round on consensus strategy",
+	)
+	if !ok {
+		// Context cancelled, we cannot continue.
+		return rlc, false
+	}
+	if err != nil {
+		m.log.Error(
+			"Error when calling ConsensusStrategy.EnterRound",
+			"err", err,
+		)
+		return rlc, false
 	}
 
 	ok = m.beginRoundLive(ctx, &rlc, su.VRV)
@@ -600,40 +678,13 @@ func (m *StateMachine) sendInitialActionSet(ctx context.Context) (
 			rlc.PrevVRV = &vrvClone
 		}
 
-		// TODO: this should be setting rlc.PrevVRV somewhere.
-		// We need a test in place for that.
-
 		// Overwrite the proposed blocks we present to the consensus strategy,
 		// to exclude any known invalid blocks according to the genesis we just parsed.
 		rer.VRV.RoundView.ProposedHeaders = m.rejectMismatchedProposedHeaders(
 			rer.VRV.RoundView.ProposedHeaders, &rlc,
 		)
 
-		// We have to synchronously enter the round,
-		// but we still enter through the consensus manager for this.
-
-		req := tsi.EnterRoundRequest{
-			RV:     rer.VRV.RoundView,
-			Result: make(chan error), // Unbuffered since both sides sync on this.
-
-			ProposalOut: rlc.ProposalCh,
-		}
-
-		err, ok := gchan.ReqResp(
-			ctx, m.log,
-			m.cm.EnterRoundRequests, req,
-			req.Result,
-			"entering round on consensus strategy",
-		)
-		if !ok {
-			// Context cancelled, we cannot continue.
-			return rlc, rer, false
-		}
-		if err != nil {
-			panic(fmt.Errorf(
-				"FATAL: error when calling ConsensusStrategy.EnterRound: %v", err,
-			))
-		}
+		ok = true
 	} else {
 		// TODO: there should be a different method for resetting
 		// in expectation of handling a replayed block.
