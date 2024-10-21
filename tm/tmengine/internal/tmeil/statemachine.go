@@ -66,6 +66,8 @@ type ScopedSignature struct {
 // following a state machine's updated [StateMachineRoundEntrance],
 // which is the result of the state machine changing rounds.
 //
+// Only one of the VRV or CH fields will be set.
+//
 // After a round sync, the mirror sends [StateMachineRoundView] values.
 type RoundEntranceResponse struct {
 	VRV tmconsensus.VersionedRoundView

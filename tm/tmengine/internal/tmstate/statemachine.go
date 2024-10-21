@@ -515,11 +515,27 @@ func (m *StateMachine) sendInitialActionSet(ctx context.Context) (
 		initRE.PubKey = m.signer.PubKey()
 	}
 
+	isGenesis := h == m.genesis.InitialHeight && r == 0
+
 	// And we only populate the actions channel if we are participating,
 	// i.e. we are a validator in the current set.
 	// Although we set the rest of the rlc values later,
 	// we need the current validator set now to determine participation.
-	rlc.CurValSet = m.genesis.ValidatorSet
+	if isGenesis {
+		rlc.CurValSet = m.genesis.ValidatorSet
+	} else {
+		// If we are past genesis,
+		// it should be safe to assume we have a finalization for two heights back.
+		_, _, rlc.CurValSet, _, err = m.fStore.LoadFinalizationByHeight(ctx, h-2)
+		if err != nil {
+			m.log.Error(
+				"Failed to load finalization for initial validator set",
+				"load_height", h-2,
+				"err", err,
+			)
+			return rlc, rer, false
+		}
+	}
 	if m.isParticipating(&rlc) {
 		initRE.Actions = make(chan tmeil.StateMachineRoundAction, 3)
 	}
@@ -552,19 +568,37 @@ func (m *StateMachine) sendInitialActionSet(ctx context.Context) (
 		// Still assuming we are initializing at the chain's initial height,
 		// which will not always be a correct assumption.
 		// Also assuming it's safe to take the reference of the genesis validators.
-		rlc.PrevFinNextValSet = m.genesis.ValidatorSet
-		rlc.PrevFinAppStateHash = string(m.genesis.CurrentAppStateHash)
+		if isGenesis {
+			rlc.PrevFinNextValSet = m.genesis.ValidatorSet
+			rlc.PrevFinAppStateHash = string(m.genesis.CurrentAppStateHash)
 
-		// For now, set the previous block hash as the genesis pseudo-block's hash.
-		// But maybe it would be better if the mirror generated this
-		// and sent it as part of the state update.
-		b, err := m.genesis.Header(m.hashScheme)
-		if err != nil {
-			panic(fmt.Errorf(
-				"FATAL: failed to generate genesis block hash: %w", err,
-			))
+			// For now, set the previous block hash as the genesis pseudo-block's hash.
+			// But maybe it would be better if the mirror generated this
+			// and sent it as part of the state update.
+			b, err := m.genesis.Header(m.hashScheme)
+			if err != nil {
+				panic(fmt.Errorf(
+					"FATAL: failed to generate genesis block hash: %w", err,
+				))
+			}
+			rlc.PrevBlockHash = string(b.Hash)
+		} else {
+			// TODO: this path does not yet have unit test coverage,
+			// only gcosmos integration test coverage as of writing.
+			_, rlc.PrevBlockHash, rlc.PrevFinNextValSet, rlc.PrevFinAppStateHash, err =
+				m.fStore.LoadFinalizationByHeight(ctx, h)
+			if err != nil {
+				m.log.Error(
+					"Failed to load finalization when initializing round lifecycle",
+					"finalization_height", h,
+					"err", err,
+				)
+				return rlc, rer, false
+			}
+
+			vrvClone := rer.VRV.Clone()
+			rlc.PrevVRV = &vrvClone
 		}
-		rlc.PrevBlockHash = string(b.Hash)
 
 		// TODO: this should be setting rlc.PrevVRV somewhere.
 		// We need a test in place for that.

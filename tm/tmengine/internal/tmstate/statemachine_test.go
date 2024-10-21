@@ -58,6 +58,17 @@ func TestStateMachine_initialization(t *testing.T) {
 
 		require.NoError(t, sfx.Cfg.StateMachineStore.SetStateMachineHeightRound(ctx, 3, 4))
 
+		// The state machine is entering height 3, so it loads the finalization for height 1,
+		// in order to determine the correct validators.
+
+		require.NoError(t, sfx.Cfg.FinalizationStore.SaveFinalization(
+			ctx,
+			1, 0,
+			"some_block_hash",
+			sfx.Fx.ValSet(),
+			"some_app_state_hash",
+		))
+
 		sm := sfx.NewStateMachine()
 		defer sm.Wait()
 		defer cancel()

@@ -133,7 +133,8 @@ func NewKernel(ctx context.Context, log *slog.Logger, cfg KernelConfig) (*Kernel
 	}
 
 	// Load the round state for the committing round,
-	// in order to populate the initial previous commit proof.
+	// in order to populate the initial previous commit proof
+	// on the voting view.
 	var committingProof tmconsensus.CommitProof
 	_, _, precommits, err := cfg.RoundStore.LoadRoundState(ctx, nhr.CommittingHeight, nhr.CommittingRound)
 	if err == nil {
@@ -239,6 +240,7 @@ func NewKernel(ctx context.Context, log *slog.Logger, cfg KernelConfig) (*Kernel
 		return nil, err
 	}
 	initState.Voting.RoundView.PrevCommitProof = committingProof
+	initState.NextRound.RoundView.PrevCommitProof = committingProof
 
 	if err := k.updateObservers(ctx, &initState); err != nil {
 		return nil, err
@@ -1907,6 +1909,16 @@ func (k *Kernel) loadInitialCommittingView(ctx context.Context, s *kState) error
 			"BUG: loading commit view from disk without any precommits, height=%d/round=%d",
 			h, r,
 		))
+	}
+
+	// And we need to set the previous commit proof here.
+	// We'll take it from the committed header store.
+	if h > k.initialHeight {
+		ch, err := k.hStore.LoadCommittedHeader(ctx, h-1)
+		if err != nil {
+			return fmt.Errorf("failed to load committed header for previous commit proof: %w", err)
+		}
+		s.Committing.RoundView.PrevCommitProof = ch.Proof
 	}
 
 	var maxPower uint64

@@ -417,3 +417,161 @@ func TestKernel_lag(t *testing.T) {
 		}, ls)
 	})
 }
+
+func TestKernel_initialViewLoadsPrevCommitProof(t *testing.T) {
+	t.Run("when pointing at voting view", func(t *testing.T) {
+		t.Parallel()
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		kfx := NewKernelFixture(ctx, t, 4)
+
+		// Commit the first height so we can act like the state machine arrives at height 2
+		// with a previous commit proof for 1.
+		require.NoError(t, kfx.Cfg.Store.SetNetworkHeightRound(ctx, 2, 0, 1, 0))
+
+		_, err := kfx.Cfg.ValidatorStore.SavePubKeys(ctx, tmconsensus.ValidatorsToPubKeys(kfx.Fx.ValSet().Validators))
+		require.NoError(t, err)
+
+		_, err = kfx.Cfg.ValidatorStore.SaveVotePowers(ctx, tmconsensus.ValidatorsToVotePowers(kfx.Fx.ValSet().Validators))
+		require.NoError(t, err)
+
+		ph1 := kfx.Fx.NextProposedHeader([]byte("app_data_1"), 0)
+		kfx.Fx.SignProposal(ctx, &ph1, 0)
+
+		vt := tmconsensus.VoteTarget{
+			Height:    1,
+			BlockHash: string(ph1.Header.Hash),
+		}
+		kfx.Fx.CommitBlock(ph1.Header, []byte("app_state_1"), 0, map[string]gcrypto.CommonMessageSignatureProof{
+			string(ph1.Header.Hash): kfx.Fx.PrecommitSignatureProof(ctx, vt, nil, []int{0, 1, 2, 3}),
+		})
+
+		ph2 := kfx.Fx.NextProposedHeader([]byte("app_data_2"), 0)
+
+		require.NoError(t, kfx.Cfg.CommittedHeaderStore.SaveCommittedHeader(ctx, tmconsensus.CommittedHeader{
+			Header: ph1.Header,
+			Proof:  ph2.Header.PrevCommitProof,
+		}))
+
+		require.NoError(t, kfx.Cfg.RoundStore.SaveRoundProposedHeader(ctx, ph1))
+		require.NoError(t, kfx.Cfg.RoundStore.OverwriteRoundPrecommitProofs(
+			ctx,
+			1, 0,
+			tmconsensus.SparseSignatureCollection{
+				PubKeyHash:      []byte(ph2.Header.PrevCommitProof.PubKeyHash),
+				BlockSignatures: ph2.Header.PrevCommitProof.Proofs,
+			},
+		))
+
+		k := kfx.NewKernel()
+		defer k.Wait()
+		defer cancel()
+
+		// Now the kernel should be voting 2/0,
+		// so if the state machine enters 2/0,
+		// it should have the previous commit proof pointing at 1/0.
+
+		rerResp := make(chan tmeil.RoundEntranceResponse, 1)
+		gtest.SendSoon(t, kfx.StateMachineRoundEntranceIn, tmeil.StateMachineRoundEntrance{
+			H:        2,
+			R:        0,
+			Response: rerResp,
+		})
+
+		rer := gtest.ReceiveSoon(t, rerResp)
+		require.Equal(t, ph2.Header.PrevCommitProof, rer.VRV.RoundView.PrevCommitProof)
+	})
+
+	t.Run("when pointing at committing view", func(t *testing.T) {
+		t.Parallel()
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		kfx := NewKernelFixture(ctx, t, 4)
+
+		// This time we are voting on 3/0 and committing 2/0.
+		// Therefore, if the state machine enters 2/0,
+		// it should still have a valid previous commit proof.
+		require.NoError(t, kfx.Cfg.Store.SetNetworkHeightRound(ctx, 3, 0, 2, 0))
+
+		_, err := kfx.Cfg.ValidatorStore.SavePubKeys(ctx, tmconsensus.ValidatorsToPubKeys(kfx.Fx.ValSet().Validators))
+		require.NoError(t, err)
+
+		_, err = kfx.Cfg.ValidatorStore.SaveVotePowers(ctx, tmconsensus.ValidatorsToVotePowers(kfx.Fx.ValSet().Validators))
+		require.NoError(t, err)
+
+		ph1 := kfx.Fx.NextProposedHeader([]byte("app_data_1"), 0)
+		kfx.Fx.SignProposal(ctx, &ph1, 0)
+
+		vt := tmconsensus.VoteTarget{
+			Height:    1,
+			BlockHash: string(ph1.Header.Hash),
+		}
+		kfx.Fx.CommitBlock(ph1.Header, []byte("app_state_1"), 0, map[string]gcrypto.CommonMessageSignatureProof{
+			string(ph1.Header.Hash): kfx.Fx.PrecommitSignatureProof(ctx, vt, nil, []int{0, 1, 2, 3}),
+		})
+
+		ph2 := kfx.Fx.NextProposedHeader([]byte("app_data_2"), 0)
+		kfx.Fx.SignProposal(ctx, &ph2, 0)
+
+		require.NoError(t, kfx.Cfg.CommittedHeaderStore.SaveCommittedHeader(ctx, tmconsensus.CommittedHeader{
+			Header: ph1.Header,
+			Proof:  ph2.Header.PrevCommitProof,
+		}))
+
+		require.NoError(t, kfx.Cfg.RoundStore.SaveRoundProposedHeader(ctx, ph1))
+		require.NoError(t, kfx.Cfg.RoundStore.OverwriteRoundPrecommitProofs(
+			ctx,
+			1, 0,
+			tmconsensus.SparseSignatureCollection{
+				PubKeyHash:      []byte(ph2.Header.PrevCommitProof.PubKeyHash),
+				BlockSignatures: ph2.Header.PrevCommitProof.Proofs,
+			},
+		))
+
+		vt = tmconsensus.VoteTarget{
+			Height:    2,
+			BlockHash: string(ph2.Header.Hash),
+		}
+		kfx.Fx.CommitBlock(ph2.Header, []byte("app_state_2"), 0, map[string]gcrypto.CommonMessageSignatureProof{
+			string(ph2.Header.Hash): kfx.Fx.PrecommitSignatureProof(ctx, vt, nil, []int{0, 1, 2, 3}),
+		})
+
+		ph3 := kfx.Fx.NextProposedHeader([]byte("app_data_3"), 0)
+		require.NoError(t, kfx.Cfg.CommittedHeaderStore.SaveCommittedHeader(ctx, tmconsensus.CommittedHeader{
+			Header: ph2.Header,
+			Proof:  ph3.Header.PrevCommitProof,
+		}))
+
+		require.NoError(t, kfx.Cfg.RoundStore.SaveRoundProposedHeader(ctx, ph2))
+		require.NoError(t, kfx.Cfg.RoundStore.OverwriteRoundPrecommitProofs(
+			ctx,
+			2, 0,
+			tmconsensus.SparseSignatureCollection{
+				PubKeyHash:      []byte(ph3.Header.PrevCommitProof.PubKeyHash),
+				BlockSignatures: ph3.Header.PrevCommitProof.Proofs,
+			},
+		))
+
+		k := kfx.NewKernel()
+		defer k.Wait()
+		defer cancel()
+
+		// Now the kernel should be committing 2/0 and voting 3/0;
+		// so if the state machine enters 2/0,
+		// it should have the previous commit proof pointing at 1/0.
+
+		rerResp := make(chan tmeil.RoundEntranceResponse, 1)
+		gtest.SendSoon(t, kfx.StateMachineRoundEntranceIn, tmeil.StateMachineRoundEntrance{
+			H:        2,
+			R:        0,
+			Response: rerResp,
+		})
+
+		rer := gtest.ReceiveSoon(t, rerResp)
+		require.Equal(t, ph2.Header.PrevCommitProof, rer.VRV.RoundView.PrevCommitProof)
+	})
+}
