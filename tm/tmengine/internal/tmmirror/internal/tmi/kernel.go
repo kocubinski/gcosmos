@@ -1875,6 +1875,8 @@ func (k *Kernel) loadInitialView(
 
 	rv.VoteSummary = tmconsensus.NewVoteSummary()
 	rv.VoteSummary.SetAvailablePower(rv.ValidatorSet.Validators)
+	rv.VoteSummary.SetPrevotePowers(rv.ValidatorSet.Validators, rv.PrevoteProofs)
+	rv.VoteSummary.SetPrecommitPowers(rv.ValidatorSet.Validators, rv.PrecommitProofs)
 
 	return rv, nil
 }

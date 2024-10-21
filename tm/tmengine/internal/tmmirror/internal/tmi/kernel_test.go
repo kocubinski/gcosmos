@@ -482,6 +482,10 @@ func TestKernel_initialViewLoadsPrevCommitProof(t *testing.T) {
 
 		rer := gtest.ReceiveSoon(t, rerResp)
 		require.Equal(t, ph2.Header.PrevCommitProof, rer.VRV.RoundView.PrevCommitProof)
+
+		// Initially loaded vote summary should be correct.
+		require.NotZero(t, rer.VRV.VoteSummary.AvailablePower)
+		require.Zero(t, rer.VRV.VoteSummary.TotalPrecommitPower)
 	})
 
 	t.Run("when pointing at committing view", func(t *testing.T) {
@@ -573,5 +577,9 @@ func TestKernel_initialViewLoadsPrevCommitProof(t *testing.T) {
 
 		rer := gtest.ReceiveSoon(t, rerResp)
 		require.Equal(t, ph2.Header.PrevCommitProof, rer.VRV.RoundView.PrevCommitProof)
+
+		require.NotZero(t, rer.VRV.VoteSummary.AvailablePower)
+		require.Equal(t, rer.VRV.VoteSummary.AvailablePower, rer.VRV.VoteSummary.TotalPrecommitPower)
+		require.Equal(t, rer.VRV.VoteSummary.AvailablePower, rer.VRV.VoteSummary.PrecommitBlockPower[string(ph2.Header.Hash)])
 	})
 }
