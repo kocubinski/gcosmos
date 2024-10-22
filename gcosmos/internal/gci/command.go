@@ -249,7 +249,7 @@ func runDriver(
 	ctx context.Context,
 	log *slog.Logger,
 	genesisPath string,
-	appManager *appmanager.AppManager[transaction.Tx],
+	appManager appmanager.AppManager[transaction.Tx],
 	txCodec transaction.Codec[transaction.Tx],
 	initChainCh <-chan tmdriver.InitChainRequest,
 ) {

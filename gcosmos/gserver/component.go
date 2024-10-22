@@ -405,9 +405,7 @@ func (c *Component) Start(ctx context.Context) error {
 	}
 	c.conn = conn
 
-	am := *(c.app.GetAppManager())
-
-	txm := gsi.TxManager{AppManager: am}
+	txm := gsi.TxManager{AppManager: c.app}
 	txBuf := gtxbuf.New(
 		ctx, c.log.With("d_sys", "tx_buffer"),
 		txm.AddTx, txm.TxDeleterFunc,
@@ -464,9 +462,9 @@ func (c *Component) Start(ctx context.Context) error {
 		gsi.DriverConfig{
 			ChainID: c.chainID,
 
-			AppManager: c.app.GetAppManager(),
+			AppManager: c.app,
 
-			Store: c.app.GetStore(),
+			Store: c.app.Store(),
 
 			InitChainRequests:     initChainCh,
 			FinalizeBlockRequests: blockFinCh,
@@ -501,7 +499,7 @@ func (c *Component) Start(ctx context.Context) error {
 
 	// We needed the driver before we could make the consensus strategy.
 	csCfg := gsi.ConsensusStrategyConfig{
-		AppManager: *(c.app.GetAppManager()),
+		AppManager: c.app,
 		TxBuf:      txBuf,
 		BlockDataProvider: gsbd.NewLibp2pProviderHost(
 			c.log.With("s_sys", "block_provider"), h.Libp2pHost(),
@@ -569,7 +567,7 @@ func (c *Component) Start(ctx context.Context) error {
 
 			CryptoRegistry: c.reg,
 
-			AppManager: am,
+			AppManager: c.app,
 			TxCodec:    c.txc,
 			Codec:      c.codec,
 
@@ -589,7 +587,7 @@ func (c *Component) Start(ctx context.Context) error {
 			Libp2pHost: c.h,
 			Libp2pconn: c.conn,
 
-			AppManager: am,
+			AppManager: c.app,
 			TxCodec:    c.txc,
 			Codec:      c.codec,
 
@@ -660,7 +658,7 @@ func (c *Component) Stop(_ context.Context) error {
 		}
 	}
 
-	if err := c.app.GetStore().Close(); err != nil {
+	if err := c.app.Store().Close(); err != nil {
 		c.log.Warn("Failed to close root store", "err", err)
 	}
 	return nil

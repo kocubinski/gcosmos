@@ -1,4 +1,4 @@
-From b3186d2ced8a7a02c8395e8ba55c26d5ea55ed40 Mon Sep 17 00:00:00 2001
+From 429ef35881427a378ec1067914dc7c2f6bf1deda Mon Sep 17 00:00:00 2001
 From: Mark Rushakoff <mark@strange.love>
 Date: Fri, 16 Aug 2024 10:01:38 -0400
 Subject: [PATCH 5/6] fix: don't directly set viper home

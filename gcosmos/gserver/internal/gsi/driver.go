@@ -38,7 +38,7 @@ import (
 type DriverConfig struct {
 	ChainID string
 
-	AppManager *appmanager.AppManager[transaction.Tx]
+	AppManager appmanager.AppManager[transaction.Tx]
 
 	Store storev2.RootStore
 
@@ -68,7 +68,7 @@ type Driver struct {
 
 	cuClient *gp2papi.CatchupClient
 
-	am       *appmanager.AppManager[transaction.Tx]
+	am       appmanager.AppManager[transaction.Tx]
 	sdkStore storev2.RootStore
 
 	finalizeBlockRequests <-chan tmdriver.FinalizeBlockRequest

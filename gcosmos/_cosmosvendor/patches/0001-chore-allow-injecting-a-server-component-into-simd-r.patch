@@ -1,4 +1,4 @@
-From 0fd9c5fbbdffb7171c3780f5276325b43190ac9c Mon Sep 17 00:00:00 2001
+From 8d92004efb5077f276e1fbb9ffc7bcc356f912dd Mon Sep 17 00:00:00 2001
 From: Mark Rushakoff <mark@strange.love>
 Date: Wed, 17 Jul 2024 10:03:22 -0400
 Subject: [PATCH 1/6] chore: allow injecting a server component into simd root
