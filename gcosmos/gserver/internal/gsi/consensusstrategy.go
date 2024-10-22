@@ -159,6 +159,16 @@ func (c *ConsensusStrategy) EnterRound(
 	}
 
 	if proposalOut == nil {
+		// A nil proposalOut channel is conditionally okay:
+		// if we proposed a header, and then the process was restarted,
+		// the mirror may already have our header.
+		// In this case, stop early because there is nothing new to propose.
+		for _, ph := range rv.ProposedHeaders {
+			if proposingVal.PubKey.Equal(ph.ProposerPubKey) {
+				return nil
+			}
+		}
+
 		panic(errors.New(
 			"BUG: proposalOut channel was nil when we were supposed to propose",
 		))

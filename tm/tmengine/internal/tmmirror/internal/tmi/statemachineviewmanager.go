@@ -170,6 +170,7 @@ func (m *stateMachineViewManager) PubKey() gcrypto.PubKey {
 func (m *stateMachineViewManager) Reset(re tmeil.StateMachineRoundEntrance) {
 	m.roundEntrance = re
 	m.lastSentVersion = 0
+	m.jumpAhead = nil
 }
 
 func (m *stateMachineViewManager) MarkFirstSentVersion(version uint32) {
@@ -183,8 +184,8 @@ func (m *stateMachineViewManager) MarkFirstSentVersion(version uint32) {
 	m.lastSentVersion = version
 }
 
-func (m *stateMachineViewManager) HeightCommittedChan() (height uint64,  ch chan<- struct{}) {
-	return m.roundEntrance.H,  m.roundEntrance.HeightCommitted
+func (m *stateMachineViewManager) HeightCommittedChan() (height uint64, ch chan<- struct{}) {
+	return m.roundEntrance.H, m.roundEntrance.HeightCommitted
 }
 
 // stateMachineOutput contains a channel and a value to send.

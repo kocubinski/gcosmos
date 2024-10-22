@@ -478,8 +478,6 @@ func (d *Driver) handleFinalization(ctx context.Context, req tmdriver.FinalizeBl
 		// without any values populated, is enough to progress past the panic.
 	})
 
-	// The discarded response value appears to include events
-	// which we are not yet using.
 	blockResp, newState, err := d.am.DeliverBlock(ctx, blockReq)
 	if err != nil {
 		d.log.Warn(

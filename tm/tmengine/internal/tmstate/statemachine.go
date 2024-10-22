@@ -410,6 +410,8 @@ func (m *StateMachine) initializeRLC(ctx context.Context) (rlc tsi.RoundLifecycl
 				) {
 					return rlc, false
 				}
+
+				su.VRV.ProposedHeaders = append(su.VRV.ProposedHeaders, ra.ProposedHeader)
 			}
 		}
 	}
@@ -581,6 +583,28 @@ func (m *StateMachine) sendInitialActionSet(ctx context.Context) (
 		}
 	}
 
+	// Before we inform the mirror that we are at a given height and round,
+	// check if we have already stored a finalization for this height.
+	// This could have happened if we applied the finalization,
+	// were in the commit wait timeout,
+	// and then the process ended.
+	//
+	// During normal flow, this is a possible but rare event.
+	// We will simply assume that the commit wait elapsed while we were offline.
+	// At worst, we propose our block early,
+	// but the other validators in the network need to be resilient to that anyway.
+	if _, _, _, _, err := m.fStore.LoadFinalizationByHeight(ctx, h); err == nil {
+		h++
+		r = 0
+
+		// We do have a finalization, so we are entering h+1 instead.
+		// Log at warning level because this is unusual but probably not problematic.
+		m.log.Warn(
+			"During initialization, store reported height that contained finalization",
+			"new_height", h,
+		)
+	}
+
 	initRE := tmeil.StateMachineRoundEntrance{
 		H: h, R: r,
 
@@ -643,10 +667,8 @@ func (m *StateMachine) sendInitialActionSet(ctx context.Context) (
 		rlc.HeightCommitted = hc
 		rlc.OutgoingActionsCh = initRE.Actions // Should this be part of the Reset method instead?
 
-		// Still assuming we are initializing at the chain's initial height,
-		// which will not always be a correct assumption.
-		// Also assuming it's safe to take the reference of the genesis validators.
 		if isGenesis {
+			// Assuming it's safe to take the reference of the genesis validators.
 			rlc.PrevFinNextValSet = m.genesis.ValidatorSet
 			rlc.PrevFinAppStateHash = string(m.genesis.CurrentAppStateHash)
 
@@ -664,7 +686,7 @@ func (m *StateMachine) sendInitialActionSet(ctx context.Context) (
 			// TODO: this path does not yet have unit test coverage,
 			// only gcosmos integration test coverage as of writing.
 			_, rlc.PrevBlockHash, rlc.PrevFinNextValSet, rlc.PrevFinAppStateHash, err =
-				m.fStore.LoadFinalizationByHeight(ctx, h)
+				m.fStore.LoadFinalizationByHeight(ctx, h-1)
 			if err != nil {
 				m.log.Error(
 					"Failed to load finalization when initializing round lifecycle",
@@ -709,6 +731,8 @@ func (m *StateMachine) sendInitialActionSet(ctx context.Context) (
 	return rlc, rer, ok
 }
 
+// handleViewUpdate updates the state machine
+// in response to an updated view from the mirror.
 func (m *StateMachine) handleViewUpdate(
 	ctx context.Context,
 	rlc *tsi.RoundLifecycle,

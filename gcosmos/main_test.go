@@ -29,7 +29,7 @@ import (
 // If both are true, the tests panic (see the following init function).
 const (
 	useMemStore    = false
-	useSQLiteInMem = !false
+	useSQLiteInMem = false
 )
 
 func init() {
@@ -229,6 +229,10 @@ func TestRootCmd_startWithGordian_multipleValidators(t *testing.T) {
 }
 
 func Test_single_restart(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping in short mode")
+	}
+
 	if gci.RunCometInsteadOfGordian {
 		// I mean, we could run it with Comet, but that doesn't seem worth the effort at this point.
 		t.Skip("can only run restart test with Gordian")
@@ -240,8 +244,6 @@ func Test_single_restart(t *testing.T) {
 			useMemStore, useSQLiteInMem,
 		)
 	}
-
-	t.Skip("not ready yet")
 
 	t.Parallel()
 
