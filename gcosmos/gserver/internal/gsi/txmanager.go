@@ -2,6 +2,7 @@ package gsi
 
 import (
 	"context"
+	"fmt"
 
 	corestore "cosmossdk.io/core/store"
 	"cosmossdk.io/core/transaction"
@@ -22,12 +23,18 @@ type TxManager struct {
 
 // AddTx uses m's AppManager to simulate the transaction against the given state.
 // On success, it returns the new state.
-// The only error type it returns is [gtxbuf.TxInvalidError],
-// as there is no returned error from AppManager.SimulateWithState.
+// As of writing, AppManager.SimulateWithState does not return an error,
+// although its signature allows for it.
+// If that error is non-nil, it is returned wrapped.
+// Otherwise, if the transaction result contains an error,
+// AddTx returns that error wrapped in [gtxbuf.TxInvalidError].
 func (m TxManager) AddTx(
 	ctx context.Context, state corestore.ReaderMap, tx transaction.Tx,
 ) (corestore.ReaderMap, error) {
-	txRes, newState := m.AppManager.SimulateWithState(ctx, state, tx)
+	txRes, newState, err := m.AppManager.SimulateWithState(ctx, state, tx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute AppManager.SimulateWithState: %w", err)
+	}
 	if txRes.Error != nil {
 		return nil, gtxbuf.TxInvalidError{Err: txRes.Error}
 	}

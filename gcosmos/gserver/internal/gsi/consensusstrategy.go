@@ -328,19 +328,27 @@ PH_LOOP:
 				c.log.Debug(
 					"Ignoring proposed block due to failure to apply transaction",
 					"tx_hash", glog.Hex(txHash[:]),
-					"err", err,
+					"err", txRes.Error,
 				)
 				continue
 			}
 
 			for _, tx := range txs[1:] {
-				txRes, state = c.am.SimulateWithState(ctx, state, tx)
+				txRes, state, err = c.am.SimulateWithState(ctx, state, tx)
+				if err != nil {
+					c.log.Info(
+						"Failed to run SimulateWithState for incoming transaction; discarding the transaction",
+						"err", err,
+					)
+					continue PH_LOOP
+				}
+
 				if txRes.Error != nil {
 					txHash := tx.Hash()
 					c.log.Debug(
 						"Ignoring proposed block due to failure to apply transaction",
 						"tx_hash", glog.Hex(txHash[:]),
-						"err", err,
+						"err", txRes.Error,
 					)
 					continue PH_LOOP
 				}

@@ -1,7 +1,7 @@
-From a428d48a3b07d8d29316ed70ef0b228abf4d1aa6 Mon Sep 17 00:00:00 2001
+From 2a636654a55bb24a129662ac1ad8b69a07ac0340 Mon Sep 17 00:00:00 2001
 From: Mark Rushakoff <mark@strange.love>
 Date: Wed, 17 Jul 2024 10:49:18 -0400
-Subject: [PATCH 3/6] fix: respect command context in server start
+Subject: [PATCH 3/4] fix: respect command context in server start
 
 ---
  server/v2/commands.go | 10 +++++++---

@@ -1,7 +1,7 @@
-From 429ef35881427a378ec1067914dc7c2f6bf1deda Mon Sep 17 00:00:00 2001
+From 15eadf0b9ce4a9f21f6f280630f37302af7ded2d Mon Sep 17 00:00:00 2001
 From: Mark Rushakoff <mark@strange.love>
 Date: Fri, 16 Aug 2024 10:01:38 -0400
-Subject: [PATCH 5/6] fix: don't directly set viper home
+Subject: [PATCH 4/4] fix: don't directly set viper home
 
 Setting these prevents the --home flag from being respected. The
 inability to set --home in test prevents multiple simapp instances from
