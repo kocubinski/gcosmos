@@ -1,4 +1,4 @@
-From 15eadf0b9ce4a9f21f6f280630f37302af7ded2d Mon Sep 17 00:00:00 2001
+From 30ed434eeef4cd947426f97ab36ae8c4dfc24d02 Mon Sep 17 00:00:00 2001
 From: Mark Rushakoff <mark@strange.love>
 Date: Fri, 16 Aug 2024 10:01:38 -0400
 Subject: [PATCH 4/4] fix: don't directly set viper home
@@ -11,7 +11,7 @@ running in the same process.
  1 file changed, 2 deletions(-)
 
 diff --git a/simapp/v2/simdv2/cmd/commands.go b/simapp/v2/simdv2/cmd/commands.go
-index 2812354554..f9e5544a66 100644
+index f01f5b5d26..53513da8b7 100644
 --- a/simapp/v2/simdv2/cmd/commands.go
 +++ b/simapp/v2/simdv2/cmd/commands.go
 @@ -36,7 +36,6 @@ import (
@@ -22,7 +22,7 @@ index 2812354554..f9e5544a66 100644
  	return serverv2.AppI[T](simapp.NewSimApp[T](logger, viper))
  }
  
-@@ -161,7 +160,6 @@ func appExport[T transaction.Tx](
+@@ -160,7 +159,6 @@ func appExport[T transaction.Tx](
  
  	// overwrite the FlagInvCheckPeriod
  	viper.Set(server.FlagInvCheckPeriod, 1)

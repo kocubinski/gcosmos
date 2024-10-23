@@ -16,11 +16,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
-
 func main() {
 	var rootCmd *cobra.Command
 	if gci.RunCometInsteadOfGordian {
-		rootCmd = simdcmd.NewRootCmd[transaction.Tx]()
+		rootCmd = simdcmd.NewCometBFTRootCmd[transaction.Tx]()
 	} else {
 		rootCmd = gci.NewSimdRootCmdWithGordian(
 			// We should probably use an os.SignalContext for this in order to ^c properly.

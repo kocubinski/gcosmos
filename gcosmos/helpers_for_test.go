@@ -466,7 +466,7 @@ func (e CmdEnv) RunWithInputC(ctx context.Context, in io.Reader, args ...string)
 
 	// Compile-time flag declared near top of this file.
 	if gci.RunCometInsteadOfGordian {
-		cmd = simdcmd.NewRootCmd[transaction.Tx]()
+		cmd = simdcmd.NewCometBFTRootCmd[transaction.Tx]()
 	} else {
 		cmd = gci.NewSimdRootCmdWithGordian(ctx, e.log)
 	}
