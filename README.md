@@ -42,7 +42,7 @@ it should be straightforward to write a shim layer in Go such that
 you can run an external process and have the core engine communicate with your component.
 There is also the option of [CGo](https://pkg.go.dev/cmd/cgo) if you can provide a C ABI.
 
-<!-- TODO: link to docs directory -->
+Refer to the [`_docs` directory](/_docs) for more technical details.
 
 ## Why would I use Gordian?
 
