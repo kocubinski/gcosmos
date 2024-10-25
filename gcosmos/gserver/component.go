@@ -37,7 +37,7 @@ import (
 	"github.com/gordian-engine/gordian/tm/tmp2p/tmlibp2p"
 	"github.com/gordian-engine/gordian/tm/tmstore"
 	"github.com/gordian-engine/gordian/tm/tmstore/tmmemstore"
-	"github.com/gordian-engine/gordian/tmsqlite"
+	"github.com/gordian-engine/tmsqlite"
 	"github.com/libp2p/go-libp2p"
 	libp2pevent "github.com/libp2p/go-libp2p/core/event"
 	libp2pnetwork "github.com/libp2p/go-libp2p/core/network"
