@@ -1,4 +1,4 @@
-name: gcosmos build and verify
+name: build and verify
 
 on:
   pull_request:
@@ -28,13 +28,11 @@ jobs:
         git config --global user.email "abc@example.com"
 
     - name: Clone Cosmos-SDK with patches
-      working-directory: gcosmos
       run: |
         bash _cosmosvendor/sync_sdk.bash
         go build -o gcosmos .
 
     - name: Build, setup, and start background gcosmos
-      working-directory: gcosmos
       run: |
         ./scripts/run_gcosmos.sh &
 
