@@ -123,12 +123,3 @@ $ curl -s http://127.0.0.1:53779/validators | jq
 ```
 
 Refer to the `http*.go` files in [the gserver/internal/gsi directory](gserver/internal/gsi/) for more details on available HTTP paths.
-
-### Known issues
-
-There was (and there may still be) a bug where validator counts were not reported correctly if the validator count was between 2 and 10, inclusive.
-So, the tests in `main_test.go` routinely start 11 validators, but only give meaningful voting power to the first 4.
-Due to the way the proposer selection is currently implemented,
-it is normal to see heights 1, 2, and 3 pass successfully; then heights 4 through 11 go through several timeouts with no proposed blocks;
-then 4 more heights pass on the first round, and the cycle continues.
-We still need to get to the bottom of that bug.

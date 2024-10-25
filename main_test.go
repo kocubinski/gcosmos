@@ -97,8 +97,7 @@ func TestRootCmd_startWithGordian_multipleValidators(t *testing.T) {
 		t.Skip("skipping slow test in short mode")
 	}
 
-	const totalVals = 11
-	const interestingVals = 4
+	const totalVals = 4
 
 	t.Parallel()
 
@@ -117,23 +116,17 @@ func TestRootCmd_startWithGordian_multipleValidators(t *testing.T) {
 		// and the rest get the bare minimum.
 		StakeStrategy: func(idx int) string {
 			const minAmount = "1000000"
-			if idx < interestingVals {
-				// Validators with substantial stake.
-				// Give every validator a slightly different amount,
-				// so that a tracked single vote's power can be distinguished.
-				return minAmount + fmt.Sprintf("%02d000000stake", idx)
-			}
-
-			// Beyond that, give them bare minimum stake.
-			return minAmount + "stake"
+			// Give every validator a slightly different amount,
+			// so that a tracked single vote's power can be distinguished.
+			return minAmount + fmt.Sprintf("%02d000000stake", idx)
 		},
 	})
 
-	ca := c.Start(t, ctx, interestingVals)
+	ca := c.Start(t, ctx, totalVals)
 	httpAddrs := ca.HTTP
 
-	// Each of the interesting validators must report a height beyond the first few blocks.
-	for i := range interestingVals {
+	// Each validator must report a height beyond the first few blocks.
+	for i := range totalVals {
 		if gci.RunCometInsteadOfGordian {
 			// Nothing to check in this mode.
 			break
@@ -147,7 +140,7 @@ func TestRootCmd_startWithGordian_multipleValidators(t *testing.T) {
 		var maxHeight uint
 		for time.Now().Before(deadline) {
 			resp, err := http.Get(u)
-			require.NoErrorf(t, err, "failed to get the watermark for validator %d/%d", i, interestingVals)
+			require.NoErrorf(t, err, "failed to get the watermark for validator %d/%d", i+1, totalVals)
 			require.Equal(t, http.StatusOK, resp.StatusCode)
 
 			var m map[string]uint
@@ -918,8 +911,7 @@ func TestTx_multiple_simpleSend(t *testing.T) {
 		t.Skip("skipping slow test in short mode")
 	}
 
-	const totalVals = 11
-	const interestingVals = 4
+	const totalVals = 4
 
 	t.Parallel()
 
@@ -931,33 +923,22 @@ func TestTx_multiple_simpleSend(t *testing.T) {
 		ID:    chainID,
 		NVals: totalVals,
 
-		// Due to an outstanding and undocumented SDK bug,
-		// we require at least 11 validators.
-		// But, we don't want to run 11 validators.
-		// So put the majority of the stake in the first four validators,
-		// and the rest get the bare minimum.
 		StakeStrategy: func(idx int) string {
 			const minAmount = "1000000"
-			if idx < interestingVals {
-				// Validators with substantial stake.
-				// Give every validator a slightly different amount,
-				// so that a tracked single vote's power can be distinguished.
-				return minAmount + fmt.Sprintf("%02d000000stake", idx)
-			}
-
-			// Beyond that, give them bare minimum stake.
-			return minAmount + "stake"
+			// Give every validator a slightly different amount,
+			// so that a tracked single vote's power can be distinguished.
+			return minAmount + fmt.Sprintf("%02d000000stake", idx)
 		},
 
 		NFixedAccounts:             2,
 		FixedAccountInitialBalance: 10_000,
 	})
 
-	ca := c.Start(t, ctx, interestingVals)
+	ca := c.Start(t, ctx, totalVals)
 	httpAddrs := ca.HTTP
 
-	// Each of the interesting validators must report a height beyond the first few blocks.
-	for i := range interestingVals {
+	// Each validator must report a height beyond the first few blocks.
+	for i := range totalVals {
 		if gci.RunCometInsteadOfGordian {
 			// Nothing to check in this mode.
 			break
@@ -973,7 +954,7 @@ func TestTx_multiple_simpleSend(t *testing.T) {
 		var maxHeight uint
 		for time.Now().Before(deadline) {
 			resp, err := http.Get(u)
-			require.NoErrorf(t, err, "failed to get the watermark for validator %d/%d", i, interestingVals)
+			require.NoErrorf(t, err, "failed to get the watermark for validator %d/%d", i+1, totalVals)
 			require.Equal(t, http.StatusOK, resp.StatusCode)
 
 			var m map[string]uint
