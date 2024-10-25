@@ -69,4 +69,10 @@ Make sure you have [the most recent version of Go installed](https://go.dev/dl/)
 Run `./demo-echo.bash start 4` to start a local network of 4 validators,
 running a toy application where the network participants agree on the current height and round.
 
+## License
+
+The Gordian source code is available under the Apache 2.0 license.
+
+Copyright (c) 2024 Strangelove Crypto, Inc.
+
 [^1]: Tendermint is a registered trademark of All in Bits, Inc.
