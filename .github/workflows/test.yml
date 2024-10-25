@@ -19,5 +19,8 @@ jobs:
       with:
         go-version-file: go.mod # Use whatever version is in the header of go.mod.
 
+    - name: Vendor and patch SDK
+      run: make deps
+
     - name: Test
       run: go test -timeout=5m ./...
