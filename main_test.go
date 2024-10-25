@@ -1183,6 +1183,40 @@ func TestTx_multiple_simpleSend(t *testing.T) {
 		resp.Body.Close()
 		require.Equal(t, "10100", newBalance.Balance.Amount, "validator reported wrong receiver balance") // Was at 10k, added 100.
 	})
+
+	// See the "hacking on a demo" section of the README for details on what we are doing here.
+	defer func() {
+		if os.Getenv("HACK_TEST_DEMO") == "" {
+			t.Log("VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV")
+			t.Log("End of test. Set environment variable HACK_TEST_DEMO=1 to sleep and print out connection details of validators.")
+			t.Log("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^")
+			return
+		}
+
+		deadline, ok := t.Deadline()
+		if ok {
+			t.Logf(">>>>>>>>>>>>> Test will run until %s (%s)", deadline.Add(-time.Second).Format(time.RFC3339), time.Until(deadline))
+			t.Log(">>>>>>>>>>>>> (pass flag -timeout=0 to run forever)")
+		} else {
+			t.Log(">>>>>>>>>>> Test sleeping forever due to -timeout=0 flag; press ^C to stop")
+		}
+
+		t.Log("VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV")
+		t.Log(">                   CONNECTION INFO                   < ")
+		for i, a := range httpAddrs {
+			t.Logf("Validator %d:", i)
+			t.Logf("\tHTTP address: http://%s", a)
+			t.Logf("\tHome directory: %s", c.RootCmds[i].homeDir)
+		}
+		t.Log("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^")
+
+		if ok {
+			time.Sleep(time.Until(deadline) - time.Second) // Allow test to still pass.
+			t.Logf(">>>>>>>>>> Sleep timeout elapsed")
+		} else {
+			select {}
+		}
+	}()
 }
 
 type balance struct {
