@@ -1,6 +1,6 @@
 module github.com/gordian-engine/gordian/gcosmos
 
-go 1.23
+go 1.23.2
 
 require (
 	github.com/cosmos/gogoproto v1.7.0

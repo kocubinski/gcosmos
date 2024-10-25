@@ -1,6 +1,6 @@
 module github.com/gordian-engine/gordian
 
-go 1.23
+go 1.23.2
 
 require (
 	github.com/bits-and-blooms/bitset v1.13.0

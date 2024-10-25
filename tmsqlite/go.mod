@@ -1,6 +1,6 @@
 module github.com/gordian-engine/gordian/tmsqlite
 
-go 1.23.1
+go 1.23.2
 
 require (
 	github.com/gordian-engine/gordian v0.0.0
