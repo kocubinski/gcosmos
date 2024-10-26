@@ -1,6 +1,6 @@
 # gcosmos
 
-This repository for integrates [Gordian](https://github.com/gordian-engine/gordian)
+This repository integrates [Gordian](https://github.com/gordian-engine/gordian)
 with [the Cosmos SDK](https://github.com/cosmos/cosmos-sdk).
 
 ## Setup
