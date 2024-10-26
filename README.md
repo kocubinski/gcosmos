@@ -1,6 +1,6 @@
 # gcosmos
 
-This is a temporary workspace for integrating [Gordian](https://github.com/gordian-engine/gordian)
+This repository for integrates [Gordian](https://github.com/gordian-engine/gordian)
 with [the Cosmos SDK](https://github.com/cosmos/cosmos-sdk).
 
 ## Setup
@@ -9,10 +9,9 @@ We are currently using a local, patched clone of the SDK in tandem with Go works
 It is a bit unconventional to commit a Go workspace file, but while both Gordian and the Cosmos SDK
 are being actively changed, a fixed Go workspace fits well for now.
 
-From the root directory, run `./_cosmosvendor/sync_sdk.bash` to clone or fetch and checkout
+From the root directory, run `make deps` to clone or fetch and checkout
 a "known working" version of the Cosmos SDK compatible with the current gcosmos tree,
 and then apply any currently necessary patches to the SDK.
-You may need to run `go work sync` from the `gcosmos` directory again.
 
 ### New patches
 
@@ -22,7 +21,7 @@ so long as the existing patches are necessary.
 To continue adding patches on top of the existing ones,
 the simplest workflow is:
 
-1. Ensure you are already synced via the `sync_sdk.bash` script.
+1. Ensure you are already synced via `make deps`
 2. Ensure you have the latest SDK commit, typically via `git fetch` inside the `_cosmosvendor/cosmos-sdk` directory.
 3. Rebase the existing patch set onto the latest commit, typically with `git rebase origin/main`. Address conflicts as needed.
 4. Optionally commit new code to your SDK checkout.
