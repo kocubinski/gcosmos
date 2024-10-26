@@ -7,9 +7,6 @@ G_GRPC_ADDR=${G_GRPC_ADDR:-"9092"}
 # cleanup previous run data as gordian can only start from height 0 currently
 rm -rf ~/.simappv2/
 
-echo "Building gcosmos binary..."
-go build -o gcosmos .
-
 ./gcosmos init moniker --chain-id=${CHAIN_ID}
 
 ./gcosmos keys add val --no-backup --keyring-backend=test

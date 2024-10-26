@@ -33,7 +33,8 @@ jobs:
 
     - name: Build, setup, and start background gcosmos
       run: |
-        ./scripts/run_gcosmos.sh &
+        make build
+        make start &
 
     - name: Verify gcosmos is running
       run: |
