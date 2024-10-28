@@ -63,6 +63,8 @@ type Component struct {
 
 	chainID string
 
+	dataDir string
+
 	app   serverv2.AppI[transaction.Tx]
 	txc   transaction.Codec[transaction.Tx]
 	codec codec.Codec
@@ -108,19 +110,29 @@ type Component struct {
 // ready to be supplied to the Cosmos SDK server module.
 //
 // It accepts a *slog.Logger directly to avoid dealing with SDK loggers.
+//
+// The dataDir is the default directory where data goes,
+// so that the component can use a reasonable default for the SQLite storage backend.
 func NewComponent(
 	rootCtx context.Context,
 	log *slog.Logger,
+	dataDir string,
 	txc transaction.Codec[transaction.Tx],
 	codec codec.Codec,
 ) (*Component, error) {
-	var c Component
-	c.rootCtx, c.cancel = context.WithCancelCause(rootCtx)
-	c.log = log.With("root", "gcosmos")
-	c.txc = txc
-	c.codec = codec
+	c := Component{
+		log: log.With("root", "gcosmos"),
 
-	c.reg = new(gcrypto.Registry)
+		dataDir: dataDir,
+
+		txc:   txc,
+		codec: codec,
+
+		reg: new(gcrypto.Registry),
+	}
+
+	c.rootCtx, c.cancel = context.WithCancelCause(rootCtx)
+
 	gcrypto.RegisterEd25519(c.reg)
 
 	return &c, nil
@@ -689,7 +701,8 @@ func (c *Component) StartCmdFlags() *pflag.FlagSet {
 
 	flags.String(seedAddrsFlag, "", "Newline-separated multiaddrs to connect to; if omitted, relies on incoming connections to discover peers")
 
-	flags.String(sqlitePathFlag, "", "Path to Gordian's consensus database; if blank, uses primitive in-memory store; if the exact string :memory:, uses SQLite in-memory database; otherwise path to on-disk SQLite database")
+	defaultSQLitePath := filepath.Join(c.dataDir, "gordian.sqlite")
+	flags.String(sqlitePathFlag, defaultSQLitePath, "Path to Gordian's consensus database; if blank, uses primitive in-memory store; if the exact string :memory:, uses SQLite in-memory database; otherwise path to on-disk SQLite database")
 
 	// Adds --g-assert-rules in debug builds, no-op otherwise.
 	addAssertRuleFlag(flags)

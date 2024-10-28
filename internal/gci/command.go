@@ -48,10 +48,12 @@ func init() {
 
 // NewSimdRootCmdWithGordian calls a simdcmd function we have added
 // in order to get simd start to use Gordian instead of Comet.
-func NewSimdRootCmdWithGordian(lifeCtx context.Context, log *slog.Logger) *cobra.Command {
+func NewSimdRootCmdWithGordian(lifeCtx context.Context, log *slog.Logger, homeDir string) *cobra.Command {
 	cmd := simdcmd.NewRootCmdWithConsensusComponent(func(cc client.Context) serverv2.ServerComponent[transaction.Tx] {
 		codec := gccodec.NewTxDecoder(cc.TxConfig)
-		c, err := gserver.NewComponent(lifeCtx, log, codec, cc.Codec)
+
+		dataDir := filepath.Join(homeDir, "data")
+		c, err := gserver.NewComponent(lifeCtx, log, dataDir, codec, cc.Codec)
 		if err != nil {
 			panic(err)
 		}

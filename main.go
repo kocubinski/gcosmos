@@ -17,6 +17,8 @@ import (
 )
 
 func main() {
+	homeDir := simapp.DefaultNodeHome
+
 	var rootCmd *cobra.Command
 	if gci.RunCometInsteadOfGordian {
 		rootCmd = simdcmd.NewCometBFTRootCmd[transaction.Tx]()
@@ -28,9 +30,10 @@ func main() {
 			// Setting the logger this way is likely to cause interleaved writes
 			// with the SDK logging system, but this is fine as a quick solution.
 			slog.New(slog.NewTextHandler(os.Stderr, nil)),
+			homeDir,
 		)
 	}
-	if err := svrcmd.Execute(rootCmd, "", simapp.DefaultNodeHome); err != nil {
+	if err := svrcmd.Execute(rootCmd, "", homeDir); err != nil {
 		fmt.Fprintln(rootCmd.OutOrStderr(), err)
 		os.Exit(1)
 	}

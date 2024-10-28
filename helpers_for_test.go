@@ -504,7 +504,7 @@ func (e CmdEnv) sqlitePathArgs() []string {
 	case useSQLiteInMem:
 		return []string{"--g-sqlite-path", ":memory:"}
 	case useMemStore:
-		// Force it empty even though that is the current default.
+		// Force it empty regardless of the default.
 		return []string{"--g-sqlite-path="}
 	default:
 		// They can't both be set (because we would have panicked),
