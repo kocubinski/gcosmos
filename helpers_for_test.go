@@ -468,7 +468,7 @@ func (e CmdEnv) RunWithInputC(ctx context.Context, in io.Reader, args ...string)
 	if gci.RunCometInsteadOfGordian {
 		cmd = simdcmd.NewCometBFTRootCmd[transaction.Tx]()
 	} else {
-		cmd = gci.NewSimdRootCmdWithGordian(ctx, e.log)
+		cmd = gci.NewSimdRootCmdWithGordian(ctx, e.log, e.homeDir)
 	}
 
 	// Just add the home flag directly instead of
