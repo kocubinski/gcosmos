@@ -73,6 +73,8 @@ func newSeedCommand() *cobra.Command {
 
 			fmt.Fprintf(cmd.ErrOrStderr(), "Seed running at multiaddrs: %s\n", joinedAddrs)
 
+			<-ctx.Done()
+
 			return nil
 		},
 	}
