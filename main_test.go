@@ -47,6 +47,18 @@ func TestRootCmd(t *testing.T) {
 	e := NewRootCmd(t, gtest.NewLogger(t))
 
 	e.Run("init", "defaultmoniker").NoError(t)
+
+	t.Skip("this is failing due an upstream SDK issue")
+	var err error
+	require.NotPanics(t, func() {
+		res := e.Run("--help")
+		t.Log(res.Stdout.String())
+		t.Log("------")
+		t.Log(res.Stderr.String())
+		err = res.Err
+	})
+
+	require.NoError(t, err)
 }
 
 func TestRootCmd_startWithGordian_singleValidator(t *testing.T) {

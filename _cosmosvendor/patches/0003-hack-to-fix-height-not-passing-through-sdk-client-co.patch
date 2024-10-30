@@ -1,7 +1,7 @@
-From abcb8e5e1c3c37d7a11ad4a5555cf2948d397831 Mon Sep 17 00:00:00 2001
+From 377b560898e5c2a536187b20207dec08f7526187 Mon Sep 17 00:00:00 2001
 From: Andrew Gouin <andrew@gouin.io>
 Date: Sat, 26 Oct 2024 11:18:57 -0600
-Subject: [PATCH 3/3] hack to fix height not passing through sdk client context
+Subject: [PATCH 3/4] hack to fix height not passing through sdk client context
 
 ---
  x/auth/types/account_retriever.go | 8 +++++++-

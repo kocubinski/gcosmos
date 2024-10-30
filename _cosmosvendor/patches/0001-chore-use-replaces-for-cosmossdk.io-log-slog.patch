@@ -1,0 +1,39 @@
+From 6c19c8bd34f5b742aa2207f2b4e52867ff745a4a Mon Sep 17 00:00:00 2001
+From: Mark Rushakoff <mark@strange.love>
+Date: Fri, 25 Oct 2024 15:35:39 -0400
+Subject: [PATCH 1/4] chore: use replaces for cosmossdk.io/log/slog
+
+We will have to try removing these in the future, but they shouldn't
+hurt for now.
+---
+ server/v2/go.mod | 1 +
+ simapp/v2/go.mod | 1 +
+ 2 files changed, 2 insertions(+)
+
+diff --git a/server/v2/go.mod b/server/v2/go.mod
+index 1e2e763424..ad92f6dd06 100644
+--- a/server/v2/go.mod
++++ b/server/v2/go.mod
+@@ -4,6 +4,7 @@ go 1.23
+ 
+ replace (
+ 	cosmossdk.io/api => ../../api
++	cosmossdk.io/log => ../../log
+ 	cosmossdk.io/server/v2/appmanager => ./appmanager
+ 	cosmossdk.io/server/v2/stf => ./stf
+ 	cosmossdk.io/store/v2 => ../../store/v2
+diff --git a/simapp/v2/go.mod b/simapp/v2/go.mod
+index 0e803ed0f8..49a516519b 100644
+--- a/simapp/v2/go.mod
++++ b/simapp/v2/go.mod
+@@ -250,6 +250,7 @@ require (
+ replace (
+ 	cosmossdk.io/client/v2 => ../../client/v2
+ 	cosmossdk.io/collections => ../../collections
++	cosmossdk.io/log => ../../log
+ 	cosmossdk.io/tools/confix => ../../tools/confix
+ 	cosmossdk.io/x/accounts => ../../x/accounts
+ 	cosmossdk.io/x/accounts/defaults/base => ../../x/accounts/defaults/base
+-- 
+2.47.0
+

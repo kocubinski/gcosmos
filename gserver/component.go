@@ -12,9 +12,12 @@ import (
 	"path/filepath"
 	"strings"
 
+	coreserver "cosmossdk.io/core/server"
 	"cosmossdk.io/core/transaction"
 	cosmoslog "cosmossdk.io/log"
 	serverv2 "cosmossdk.io/server/v2"
+	"cosmossdk.io/server/v2/appmanager"
+	"cosmossdk.io/store/v2"
 	cometconfig "github.com/cometbft/cometbft/config"
 	"github.com/cometbft/cometbft/privval"
 	"github.com/cosmos/cosmos-sdk/codec"
@@ -52,6 +55,7 @@ import (
 var (
 	_ serverv2.ServerComponent[transaction.Tx] = (*Component)(nil)
 	_ serverv2.HasStartFlags                   = (*Component)(nil)
+	_ serverv2.HasCLICommands                  = (*Component)(nil)
 )
 
 // Component is a server component to be injected into the Cosmos SDK server module.
@@ -63,9 +67,8 @@ type Component struct {
 
 	chainID string
 
-	dataDir string
+	homeDir string
 
-	app   serverv2.AppI[transaction.Tx]
 	txc   transaction.Codec[transaction.Tx]
 	codec codec.Codec
 
@@ -104,31 +107,41 @@ type Component struct {
 
 	httpServer *gsi.HTTPServer
 	grpcServer *ggrpc.GordianGRPC
+
+	config           Config
+	genesisForDriver string
+}
+
+type Config struct {
+	RootStore  store.RootStore
+	AppManager appmanager.AppManager[transaction.Tx]
+
+	ConfigMap coreserver.ConfigMap
 }
 
 // NewComponent returns a new server component
 // ready to be supplied to the Cosmos SDK server module.
 //
 // It accepts a *slog.Logger directly to avoid dealing with SDK loggers.
-//
-// The dataDir is the default directory where data goes,
-// so that the component can use a reasonable default for the SQLite storage backend.
 func NewComponent(
 	rootCtx context.Context,
 	log *slog.Logger,
-	dataDir string,
+	homeDir string,
 	txc transaction.Codec[transaction.Tx],
 	codec codec.Codec,
+	cfg Config,
 ) (*Component, error) {
 	c := Component{
 		log: log.With("root", "gcosmos"),
 
-		dataDir: dataDir,
+		homeDir: homeDir,
 
 		txc:   txc,
 		codec: codec,
 
 		reg: new(gcrypto.Registry),
+
+		config: cfg,
 	}
 
 	c.rootCtx, c.cancel = context.WithCancelCause(rootCtx)
@@ -146,8 +159,9 @@ func (c *Component) Name() string {
 // Atomic counter for this.
 var memDBNameCounter uint32
 
-// Init is called early in the SDK server component lifecycle, before Start.
-func (c *Component) Init(app serverv2.AppI[transaction.Tx], cfg map[string]any, log cosmoslog.Logger) error {
+// init used to be part of the serverv2 component interface.
+// (It might be better to inline this all into Start.)
+func (c *Component) init(cfg map[string]any, log cosmoslog.Logger) error {
 	if c.log == nil {
 		l, ok := log.Impl().(*slog.Logger)
 		if !ok {
@@ -198,18 +212,17 @@ func (c *Component) Init(app serverv2.AppI[transaction.Tx], cfg map[string]any, 
 		c.log.Warn("No seed addresses provided; relying on incoming connections to discover peers")
 	}
 
-	c.app = app
-
 	// Load the comet config, in order to read the privval key from disk.
 	// We don't really care about the state file,
 	// but we need to to call LoadFilePV,
 	// to get to the FilePVKey,
 	// which gives us the PrivKey.
-	homeDir := cfg["home"].(string)
-	cometConfig := cometconfig.DefaultConfig().SetRoot(homeDir)
+	cometConfig := cometconfig.DefaultConfig().SetRoot(c.homeDir)
 	if err := serverv2.UnmarshalSubConfig(cfg, "", &cometConfig); err != nil {
 		return fmt.Errorf("failed to unmarshal comet config (to get private key info): %w", err)
 	}
+
+	c.genesisForDriver = filepath.Join(c.homeDir, cometConfig.Genesis)
 
 	fpv := privval.LoadFilePV(cometConfig.PrivValidatorKeyFile(), cometConfig.PrivValidatorStateFile())
 	privKey := fpv.Key.PrivKey
@@ -260,7 +273,7 @@ func (c *Component) Init(app serverv2.AppI[transaction.Tx], cfg map[string]any, 
 	}
 
 	// Is it possible for the genesis path to ever be rooted somewhere else?
-	genesisPath := filepath.Join(homeDir, "config", "genesis.json")
+	genesisPath := filepath.Join(c.homeDir, "config", "genesis.json")
 	gf, err := os.Open(genesisPath)
 	if err != nil {
 		return fmt.Errorf("failed to open genesis file to extract chain ID: %w", err)
@@ -354,6 +367,10 @@ func (c *Component) initializeSQLite(sqlitePath string) error {
 
 // Start is called when the SDK is starting server components.
 func (c *Component) Start(ctx context.Context) error {
+	if err := c.init(c.config.ConfigMap, nil); err != nil {
+		return fmt.Errorf("failed to initialize gcosmos server component: %w", err)
+	}
+
 	h, err := tmlibp2p.NewHost(
 		c.rootCtx,
 		tmlibp2p.HostOptions{
@@ -417,7 +434,7 @@ func (c *Component) Start(ctx context.Context) error {
 	}
 	c.conn = conn
 
-	txm := gsi.TxManager{AppManager: c.app}
+	txm := gsi.TxManager{AppManager: c.config.AppManager}
 	txBuf := gtxbuf.New(
 		ctx, c.log.With("d_sys", "tx_buffer"),
 		txm.AddTx, txm.TxDeleterFunc,
@@ -474,9 +491,11 @@ func (c *Component) Start(ctx context.Context) error {
 		gsi.DriverConfig{
 			ChainID: c.chainID,
 
-			AppManager: c.app,
+			GenesisPath: c.genesisForDriver,
 
-			Store: c.app.Store(),
+			AppManager: c.config.AppManager,
+
+			Store: c.config.RootStore,
 
 			InitChainRequests:     initChainCh,
 			FinalizeBlockRequests: blockFinCh,
@@ -511,7 +530,7 @@ func (c *Component) Start(ctx context.Context) error {
 
 	// We needed the driver before we could make the consensus strategy.
 	csCfg := gsi.ConsensusStrategyConfig{
-		AppManager: c.app,
+		AppManager: c.config.AppManager,
 		TxBuf:      txBuf,
 		BlockDataProvider: gsbd.NewLibp2pProviderHost(
 			c.log.With("s_sys", "block_provider"), h.Libp2pHost(),
@@ -579,7 +598,7 @@ func (c *Component) Start(ctx context.Context) error {
 
 			CryptoRegistry: c.reg,
 
-			AppManager: c.app,
+			AppManager: c.config.AppManager,
 			TxCodec:    c.txc,
 			Codec:      c.codec,
 
@@ -599,7 +618,7 @@ func (c *Component) Start(ctx context.Context) error {
 			Libp2pHost: c.h,
 			Libp2pconn: c.conn,
 
-			AppManager: c.app,
+			AppManager: c.config.AppManager,
 			TxCodec:    c.txc,
 			Codec:      c.codec,
 
@@ -670,7 +689,7 @@ func (c *Component) Stop(_ context.Context) error {
 		}
 	}
 
-	if err := c.app.Store().Close(); err != nil {
+	if err := c.config.RootStore.Close(); err != nil {
 		c.log.Warn("Failed to close root store", "err", err)
 	}
 	return nil
@@ -701,7 +720,7 @@ func (c *Component) StartCmdFlags() *pflag.FlagSet {
 
 	flags.String(seedAddrsFlag, "", "Newline-separated multiaddrs to connect to; if omitted, relies on incoming connections to discover peers")
 
-	defaultSQLitePath := filepath.Join(c.dataDir, "gordian.sqlite")
+	defaultSQLitePath := filepath.Join(c.homeDir, "data", "gordian.sqlite")
 	flags.String(sqlitePathFlag, defaultSQLitePath, "Path to Gordian's consensus database; if blank, uses primitive in-memory store; if the exact string :memory:, uses SQLite in-memory database; otherwise path to on-disk SQLite database")
 
 	// Adds --g-assert-rules in debug builds, no-op otherwise.

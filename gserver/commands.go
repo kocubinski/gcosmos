@@ -88,6 +88,16 @@ func newPrintValPubKeyCommand() *cobra.Command {
 
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cometConfig := client.GetConfigFromCmd(cmd)
+
+			// For some reason, the wiring for the home directory isn't being set directly.
+			if cometConfig.RootDir == "" {
+				var err error
+				cometConfig.RootDir, err = cmd.Flags().GetString("home")
+				if err != nil {
+					panic(err)
+				}
+			}
+
 			fpv := privval.LoadFilePV(cometConfig.PrivValidatorKeyFile(), cometConfig.PrivValidatorStateFile())
 
 			sdkPK, err := cryptocodec.FromCmtPubKeyInterface(fpv.Key.PubKey)

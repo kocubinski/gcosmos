@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
-	"path/filepath"
 	"runtime/trace"
 	"slices"
 	"time"
@@ -21,7 +20,6 @@ import (
 	consensustypes "cosmossdk.io/x/consensus/types"
 	cometapitypes "github.com/cometbft/cometbft/api/cometbft/types/v1"
 	"github.com/cosmos/cosmos-sdk/client"
-	"github.com/cosmos/cosmos-sdk/server"
 	genutiltypes "github.com/cosmos/cosmos-sdk/x/genutil/types"
 	"github.com/gordian-engine/gcosmos/gccodec"
 	"github.com/gordian-engine/gcosmos/gcstore"
@@ -37,6 +35,8 @@ import (
 
 type DriverConfig struct {
 	ChainID string
+
+	GenesisPath string
 
 	AppManager appmanager.AppManager[transaction.Tx]
 
@@ -84,13 +84,10 @@ func NewDriver(
 	cfg DriverConfig,
 ) (*Driver, error) {
 	cc := valCtx.Value(client.ClientContextKey).(*client.Context)
-	serverCtx := valCtx.Value(server.ServerContextKey).(*server.Context)
 
-	genesisPath := filepath.Join(cc.HomeDir, serverCtx.Config.Genesis)
-
-	ag, err := genutiltypes.AppGenesisFromFile(genesisPath)
+	ag, err := genutiltypes.AppGenesisFromFile(cfg.GenesisPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to run AppGenesisFromFile(%s): %w", genesisPath, err)
+		return nil, fmt.Errorf("failed to run AppGenesisFromFile(%s): %w", cfg.GenesisPath, err)
 	}
 
 	d := &Driver{

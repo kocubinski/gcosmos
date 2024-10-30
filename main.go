@@ -10,9 +10,7 @@ import (
 	"os/signal"
 	"strings"
 
-	"cosmossdk.io/core/transaction"
-	"cosmossdk.io/simapp/v2"
-	simdcmd "cosmossdk.io/simapp/v2/simdv2/cmd"
+	clienthelpers "cosmossdk.io/client/v2/helpers"
 	sdkflags "github.com/cosmos/cosmos-sdk/client/flags"
 	"github.com/cosmos/cosmos-sdk/server"
 	svrcmd "github.com/cosmos/cosmos-sdk/server/cmd"
@@ -23,21 +21,23 @@ import (
 )
 
 func main() {
-	homeDir := simapp.DefaultNodeHome
+	homeDir, err := clienthelpers.GetNodeHomeDirectory(".gcosmos")
+	if err != nil {
+		panic(fmt.Errorf("failed to get user home directory; use environment file or provide --home flag: %w", err))
+	}
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
 
 	var rootCmd *cobra.Command
 	if gci.RunCometInsteadOfGordian {
-		rootCmd = simdcmd.NewCometBFTRootCmd[transaction.Tx]()
+		panic(fmt.Errorf("TODO: re-enable starting with comet (this simplifies cross-checking behavior"))
 	} else {
-		rootCmd = gci.NewSimdRootCmdWithGordian(
+		rootCmd = gci.NewGcosmosCommand(
 			ctx,
-			// Setting the logger this way is likely to cause interleaved writes
-			// with the SDK logging system, but this is fine as a quick solution.
 			slog.New(slog.NewTextHandler(os.Stderr, nil)),
 			homeDir,
+			os.Args[1:],
 		)
 	}
 	if err := Execute(ctx, rootCmd, "", homeDir); err != nil {
@@ -53,11 +53,23 @@ func main() {
 func Execute(ctx context.Context, rootCmd *cobra.Command, envPrefix, defaultHome string) error {
 	ctx = svrcmd.CreateExecuteContext(ctx)
 
-	rootCmd.PersistentFlags().String(sdkflags.FlagLogLevel, zerolog.InfoLevel.String(), "The logging level (trace|debug|info|warn|error|fatal|panic|disabled or '*:<level>,<key>:<level>')")
-	rootCmd.PersistentFlags().String(sdkflags.FlagLogFormat, "plain", "The logging format (json|plain)")
-	rootCmd.PersistentFlags().Bool(sdkflags.FlagLogNoColor, false, "Disable colored logs")
-	rootCmd.PersistentFlags().StringP(sdkflags.FlagHome, "", defaultHome, "directory for config and data")
-	rootCmd.PersistentFlags().Bool(server.FlagTrace, false, "print out full stack trace on errors")
+	pFlags := rootCmd.PersistentFlags()
+
+	if pFlags.Lookup(sdkflags.FlagLogLevel) == nil {
+		pFlags.String(sdkflags.FlagLogLevel, zerolog.InfoLevel.String(), "The logging level (trace|debug|info|warn|error|fatal|panic|disabled or '*:<level>,<key>:<level>')")
+	}
+	if pFlags.Lookup(sdkflags.FlagLogFormat) == nil {
+		pFlags.String(sdkflags.FlagLogFormat, "plain", "The logging format (json|plain)")
+	}
+	if pFlags.Lookup(sdkflags.FlagLogNoColor) == nil {
+		pFlags.Bool(sdkflags.FlagLogNoColor, false, "Disable colored logs")
+	}
+	if pFlags.Lookup(sdkflags.FlagHome) == nil {
+		pFlags.StringP(sdkflags.FlagHome, "", defaultHome, "directory for config and data")
+	}
+	if pFlags.Lookup(server.FlagTrace) == nil {
+		pFlags.Bool(server.FlagTrace, false, "print out full stack trace on errors")
+	}
 
 	// update the global viper with the root command's configuration
 	viper.SetEnvPrefix(envPrefix)

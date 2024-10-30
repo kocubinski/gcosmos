@@ -16,8 +16,6 @@ import (
 	"testing"
 	"time"
 
-	"cosmossdk.io/core/transaction"
-	simdcmd "cosmossdk.io/simapp/v2/simdv2/cmd"
 	svrcmd "github.com/cosmos/cosmos-sdk/server/cmd"
 	"github.com/gordian-engine/gcosmos/internal/copy/gtest"
 	"github.com/gordian-engine/gcosmos/internal/gci"
@@ -464,20 +462,6 @@ func (e CmdEnv) RunWithInputC(ctx context.Context, in io.Reader, args ...string)
 
 	var cmd *cobra.Command
 
-	// Compile-time flag declared near top of this file.
-	if gci.RunCometInsteadOfGordian {
-		cmd = simdcmd.NewCometBFTRootCmd[transaction.Tx]()
-	} else {
-		cmd = gci.NewSimdRootCmdWithGordian(ctx, e.log, e.homeDir)
-	}
-
-	// Just add the home flag directly instead of
-	// relying on the comet CLI integration in the SDK.
-	// Might be brittle, but should also be a little simpler.
-	cmd.PersistentFlags().StringP("home", "", e.homeDir, "default test dir home, do not change")
-
-	ctx = svrcmd.CreateExecuteContext(ctx)
-
 	args = append(
 		slices.Clone(args),
 		// Putting --home before the args would probably work,
@@ -485,7 +469,16 @@ func (e CmdEnv) RunWithInputC(ctx context.Context, in io.Reader, args ...string)
 		// that it won't get ignored due to being parsed before the subcommand name.
 		"--home", e.homeDir,
 	)
-	cmd.SetArgs(args)
+
+	// Compile-time flag declared near top of this file.
+	if gci.RunCometInsteadOfGordian {
+		panic(fmt.Errorf("TODO: re-enable starting with comet (this simplifies cross-checking behavior"))
+	} else {
+		cmd = gci.NewGcosmosCommand(ctx, e.log, e.homeDir, args)
+		cmd.SetArgs(args)
+	}
+
+	ctx = svrcmd.CreateExecuteContext(ctx)
 
 	var res RunResult
 	cmd.SetOut(&res.Stdout)

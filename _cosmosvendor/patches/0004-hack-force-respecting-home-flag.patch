@@ -1,0 +1,76 @@
+From 5524d63cfd1bb4e0aa2c48c75a6be9723fa31aa1 Mon Sep 17 00:00:00 2001
+From: Mark Rushakoff <mark@strange.love>
+Date: Wed, 30 Oct 2024 11:24:17 -0400
+Subject: [PATCH 4/4] hack: force respecting home flag
+
+For some unclear reason, the wiring with gcosmos is not allowing the
+flags to be respected in at least these three commands, and they try to
+look for the config directory relative to the current working directory,
+which will never work when we are starting multiple app instances.
+---
+ x/genutil/client/cli/collect.go    | 8 ++++++++
+ x/genutil/client/cli/genaccount.go | 8 ++++++++
+ x/genutil/client/cli/gentx.go      | 9 +++++++++
+ 3 files changed, 25 insertions(+)
+
+diff --git a/x/genutil/client/cli/collect.go b/x/genutil/client/cli/collect.go
+index 10d9db0cdc..9e8b3a0672 100644
+--- a/x/genutil/client/cli/collect.go
++++ b/x/genutil/client/cli/collect.go
+@@ -24,6 +24,14 @@ func CollectGenTxsCmd(validator func([]transaction.Msg) error) *cobra.Command {
+ 		RunE: func(cmd *cobra.Command, _ []string) error {
+ 			config := client.GetConfigFromCmd(cmd)
+
++			if config.RootDir == "" {
++				var err error
++				config.RootDir, err = cmd.Flags().GetString("home")
++				if err != nil {
++					panic(err)
++				}
++			}
++
+ 			clientCtx := client.GetClientContextFromCmd(cmd)
+ 			cdc := clientCtx.Codec
+
+diff --git a/x/genutil/client/cli/genaccount.go b/x/genutil/client/cli/genaccount.go
+index 938e711b3a..300ba9e207 100644
+--- a/x/genutil/client/cli/genaccount.go
++++ b/x/genutil/client/cli/genaccount.go
+@@ -39,6 +39,14 @@ contain valid denominations. Accounts may optionally be supplied with vesting pa
+ 			clientCtx := client.GetClientContextFromCmd(cmd)
+ 			config := client.GetConfigFromCmd(cmd)
+
++			if config.RootDir == "" {
++				var err error
++				config.RootDir, err = cmd.Flags().GetString("home")
++				if err != nil {
++					panic(err)
++				}
++			}
++
+ 			addressCodec := clientCtx.TxConfig.SigningContext().AddressCodec()
+ 			var kr keyring.Keyring
+ 			addr, err := addressCodec.StringToBytes(args[0])
+diff --git a/x/genutil/client/cli/gentx.go b/x/genutil/client/cli/gentx.go
+index c56c772afc..8958c74d48 100644
+--- a/x/genutil/client/cli/gentx.go
++++ b/x/genutil/client/cli/gentx.go
+@@ -54,6 +54,15 @@ $ %s gentx my-key-name 1000000stake --home=/path/to/home/dir --keyring-backend=o
+ 		),
+ 		RunE: func(cmd *cobra.Command, args []string) error {
+ 			config := client.GetConfigFromCmd(cmd)
++
++			if config.RootDir == "" {
++				var err error
++				config.RootDir, err = cmd.Flags().GetString("home")
++				if err != nil {
++					panic(err)
++				}
++			}
++
+ 			clientCtx, err := client.GetClientTxContext(cmd)
+ 			if err != nil {
+ 				return err
+--
+2.47.0
+
