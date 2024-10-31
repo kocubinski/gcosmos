@@ -44,8 +44,12 @@ func NewGcosmosCommand(
 		Use: "gcosmos",
 	}
 
-	// TODO: this is not supposed to be a full component.
-	// See NewWithConfigOptions ins server/v2/cometbft/server.go.
+	// NOTE: this is not supposed to be a full component.
+	// This is used to set up the initial command structure,
+	// and we can be assured that the returned gserver.Component
+	// will not have its Start method called.
+	//
+	// See NewWithConfigOptions in server/v2/cometbft/server.go.
 	// "It is *not* a fully functional server (since it has been created without dependencies)
 	// The returned server should only be used to get and set configuration."
 	component, err := gserver.NewComponent(lifeCtx, log, homeDir, nil, nil, gserver.Config{})
@@ -151,7 +155,9 @@ func NewGcosmosCommand(
 
 	commandDeps.ModuleManager = moduleManager
 
-	// Not sure why we are overwriting rootCmd here.
+	// We have to overwrite the previously use rootCmd here,
+	// because the old value is now associated with potentially invalid values,
+	// and we have updated depinject values that correlate to the command being invoked.
 	rootCmd = &cobra.Command{
 		Use:               "gcosmos",
 		PersistentPreRunE: cmd.RootCommandPersistentPreRun(clientCtx),

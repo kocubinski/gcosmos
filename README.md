@@ -3,6 +3,9 @@
 This repository integrates [Gordian](https://github.com/gordian-engine/gordian)
 with [the Cosmos SDK](https://github.com/cosmos/cosmos-sdk).
 
+Refer to the [`_docs` directory](/docs)
+for more technical details about how gcosmos works.
+
 ## Quickstart
 
 Start the example Gordian-backed Cosmos SDK chain with four validators
