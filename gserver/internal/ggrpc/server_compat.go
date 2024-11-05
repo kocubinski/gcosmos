@@ -10,6 +10,9 @@ import (
 	banktypes "cosmossdk.io/x/bank/types"
 )
 
+// This file contains methods on GordianGRPC that satisfy
+// the server interfaces to meet SDK CLI expectations.
+
 // SubmitTransaction implements GordianGRPCServer.
 func (g *GordianGRPC) SubmitTransaction(ctx context.Context, req *SubmitTransactionRequest) (*TxResultResponse, error) {
 	b := req.Tx
