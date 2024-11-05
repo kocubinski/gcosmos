@@ -13,7 +13,7 @@ if ! test -d "$SDK_DIR"; then
 
   # Clone over HTTPS, but try to borrow objects from the two most likely locations
   # where a user may have an existing clone.
-  # 1. GOPATH style, assuming we are in GOPATH/src/github.com/rollchains/gordian/gcosmos/_cosmosvendor
+  # 1. GOPATH style, assuming we are in GOPATH/src/github.com/gordian-engine/gordian/gcosmos/_cosmosvendor
   #    and the other repo is GOPATH/src/github.com/cosmos/cosmos-sdk
   # 2. Go module style, where we are in $X/gordian/gcosmos
   #    and the other repo is in $X/cosmos-sdk

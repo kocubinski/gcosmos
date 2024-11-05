@@ -10,5 +10,5 @@ protoc --go_out=. --go-grpc_out=. $(find proto -iname '*.proto')
 # Copies the files from the termporary `github.com/**` directory to the `gcosmos` directory.
 # Given the go_package path matches gordian's directory structure, only changed files are copied.
 # Then, the temporary `github.com/` directory is cleaned up.
-cp -r ./github.com/rollchains/gordian/gcosmos/* .
+cp -r ./github.com/gordian-engine/gordian/gcosmos/* .
 rm -rf ./github.com
