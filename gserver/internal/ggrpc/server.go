@@ -20,6 +20,7 @@ var _ GordianGRPCServer = (*GordianGRPC)(nil)
 
 type GordianGRPC struct {
 	UnimplementedGordianGRPCServer
+
 	log *slog.Logger
 
 	fs tmstore.FinalizationStore

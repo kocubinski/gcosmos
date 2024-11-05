@@ -175,11 +175,11 @@ func NewGcosmosCommand(
 		panic(fmt.Errorf("failed to enhance root command: %w", err))
 	}
 
+	shimGordianClient(rootCmd)
+
 	return rootCmd
 }
 
-// shimGordianClient used to be part of the old gcosmos command,
-// and we probably need to use this in NewGcosmosCommand.
 func shimGordianClient(cmd *cobra.Command) {
 	origPersistentPreRunE := cmd.PersistentPreRunE
 
