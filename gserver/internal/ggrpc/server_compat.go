@@ -127,6 +127,26 @@ func (g *GordianGRPC) QueryAccountBalance(ctx context.Context, req *QueryAccount
 	return &val, nil
 }
 
+func (g *GordianGRPC) QueryTx(ctx context.Context, req *SDKQueryTxRequest) (*SDKQueryTxResponse, error) {
+	height, txBytes, txResult, err := g.txs.LoadTxByHash(ctx, req.TxHash)
+	if err != nil {
+		// TODO: check special error values to indicate internal error vs bad request.
+		panic(err)
+	}
+
+	return &SDKQueryTxResponse{
+		TxHash: req.TxHash,
+
+		Height: int64(height),
+
+		// TODO: what do we use for the Index field?
+
+		Result: getGordianResponseFromSDKResult(txResult),
+
+		TxBytes: txBytes,
+	}, nil
+}
+
 // getGordianResponseFromSDKResult converts an app manager TxResult to the gRPC proto result.
 func getGordianResponseFromSDKResult(res coreserver.TxResult) *TxResultResponse {
 	events, err := convertEvent(res.Events)

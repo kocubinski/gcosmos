@@ -27,6 +27,8 @@ import (
 	"github.com/gordian-engine/gcosmos/gserver/internal/gp2papi"
 	"github.com/gordian-engine/gcosmos/gserver/internal/gsbd"
 	"github.com/gordian-engine/gcosmos/gserver/internal/gsi"
+	"github.com/gordian-engine/gcosmos/txstore"
+	"github.com/gordian-engine/gcosmos/txstore/txmemstore"
 	"github.com/gordian-engine/gordian/gcrypto"
 	"github.com/gordian-engine/gordian/gdriver/gtxbuf"
 	"github.com/gordian-engine/gordian/gwatchdog"
@@ -105,6 +107,10 @@ type Component struct {
 	fs  tmstore.FinalizationStore
 	ms  tmstore.MirrorStore
 
+	// This is always separate from the consensus-layer store,
+	// as it is unique to the gcosmos integration.
+	txs txstore.Store
+
 	httpServer *gsi.HTTPServer
 	grpcServer *ggrpc.GordianGRPC
 
@@ -142,6 +148,10 @@ func NewComponent(
 		reg: new(gcrypto.Registry),
 
 		config: cfg,
+
+		// For now, just set this at initialization
+		// because we are currently hardcoded to the in-memory implementation.
+		txs: txmemstore.NewStore(log.With("sys", "txstore")),
 	}
 
 	c.rootCtx, c.cancel = context.WithCancelCause(rootCtx)
@@ -496,6 +506,8 @@ func (c *Component) Start(ctx context.Context) error {
 			AppManager: c.config.AppManager,
 
 			Store: c.config.RootStore,
+
+			TxStore: c.txs,
 
 			InitChainRequests:     initChainCh,
 			FinalizeBlockRequests: blockFinCh,

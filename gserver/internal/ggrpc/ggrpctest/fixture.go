@@ -7,6 +7,7 @@ import (
 
 	"github.com/gordian-engine/gcosmos/gserver/internal/ggrpc"
 	"github.com/gordian-engine/gcosmos/internal/copy/gtest"
+	"github.com/gordian-engine/gcosmos/txstore/txmemstore"
 	"github.com/gordian-engine/gordian/tm/tmstore/tmmemstore"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
@@ -22,6 +23,7 @@ type Fixture struct {
 	// or just outright expose GRPCServerConfig.
 	FinalizationStore *tmmemstore.FinalizationStore
 	MirrorStore       *tmmemstore.MirrorStore
+	TxStore           *txmemstore.Store
 }
 
 // NewFixture returns a new fixture whose lifecycle is associated
@@ -42,6 +44,7 @@ func NewFixture(t *testing.T, ctx context.Context) Fixture {
 
 	fs := tmmemstore.NewFinalizationStore()
 	ms := tmmemstore.NewMirrorStore()
+	txs := txmemstore.NewStore(log)
 
 	srv := ggrpc.NewGordianGRPCServer(
 		ctx,
@@ -51,6 +54,7 @@ func NewFixture(t *testing.T, ctx context.Context) Fixture {
 
 			FinalizationStore: fs,
 			MirrorStore:       ms,
+			TxStore:           txs,
 		},
 	)
 	t.Cleanup(srv.Wait)
@@ -68,5 +72,6 @@ func NewFixture(t *testing.T, ctx context.Context) Fixture {
 
 		FinalizationStore: fs,
 		MirrorStore:       ms,
+		TxStore:           txs,
 	}
 }

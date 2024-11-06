@@ -27,6 +27,7 @@ import (
 	"github.com/gordian-engine/gcosmos/gserver/internal/gsbd"
 	"github.com/gordian-engine/gcosmos/internal/copy/gchan"
 	"github.com/gordian-engine/gcosmos/internal/copy/glog"
+	"github.com/gordian-engine/gcosmos/txstore"
 	"github.com/gordian-engine/gordian/gcrypto"
 	"github.com/gordian-engine/gordian/tm/tmconsensus"
 	"github.com/gordian-engine/gordian/tm/tmdriver"
@@ -41,6 +42,8 @@ type DriverConfig struct {
 	AppManager appmanager.AppManager[transaction.Tx]
 
 	Store storev2.RootStore
+
+	TxStore txstore.Store
 
 	InitChainRequests     <-chan tmdriver.InitChainRequest
 	FinalizeBlockRequests <-chan tmdriver.FinalizeBlockRequest
@@ -67,6 +70,8 @@ type Driver struct {
 	bdrCache *gsbd.RequestCache
 
 	cuClient *gp2papi.CatchupClient
+
+	txStore txstore.Store
 
 	am       appmanager.AppManager[transaction.Tx]
 	sdkStore storev2.RootStore
@@ -102,6 +107,8 @@ func NewDriver(
 		bdrCache: cfg.BlockDataRequestCache,
 
 		cuClient: cfg.CatchupClient,
+
+		txStore: cfg.TxStore,
 
 		finalizeBlockRequests: cfg.FinalizeBlockRequests,
 		lagStateUpdates:       cfg.LagStateUpdates,
@@ -605,6 +612,15 @@ func (d *Driver) handleFinalization(ctx context.Context, req tmdriver.FinalizeBl
 		"sending finalize block response back to engine",
 	) {
 		// Context was cancelled and we already logged, so we're done.
+		return false
+	}
+
+	// Finally, now that all the handling is done,
+	// update the tx store.
+	// (It might be better to push this into a separate goroutine
+	// to be more sure we do not block here.)
+	if err := d.txStore.SaveBlockResult(ctx, *blockReq, *blockResp); err != nil {
+		d.log.Warn("Failed to store block result", "err", err)
 		return false
 	}
 

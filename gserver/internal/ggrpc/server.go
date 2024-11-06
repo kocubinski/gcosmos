@@ -10,6 +10,7 @@ import (
 	"cosmossdk.io/server/v2/appmanager"
 	"github.com/cosmos/cosmos-sdk/codec"
 	"github.com/gordian-engine/gcosmos/gserver/internal/gsi"
+	"github.com/gordian-engine/gcosmos/txstore"
 	"github.com/gordian-engine/gordian/gcrypto"
 	"github.com/gordian-engine/gordian/tm/tmstore"
 	grpc "google.golang.org/grpc"
@@ -23,8 +24,9 @@ type GordianGRPC struct {
 
 	log *slog.Logger
 
-	fs tmstore.FinalizationStore
-	ms tmstore.MirrorStore
+	fs  tmstore.FinalizationStore
+	ms  tmstore.MirrorStore
+	txs txstore.Store
 
 	reg *gcrypto.Registry
 
@@ -42,6 +44,7 @@ type GRPCServerConfig struct {
 
 	FinalizationStore tmstore.FinalizationStore
 	MirrorStore       tmstore.MirrorStore
+	TxStore           txstore.Store
 
 	CryptoRegistry *gcrypto.Registry
 
@@ -60,8 +63,10 @@ func NewGordianGRPCServer(ctx context.Context, log *slog.Logger, cfg GRPCServerC
 	srv := &GordianGRPC{
 		log: log,
 
-		fs:    cfg.FinalizationStore,
-		ms:    cfg.MirrorStore,
+		fs:  cfg.FinalizationStore,
+		ms:  cfg.MirrorStore,
+		txs: cfg.TxStore,
+
 		reg:   cfg.CryptoRegistry,
 		txc:   cfg.TxCodec,
 		am:    cfg.AppManager,
