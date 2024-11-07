@@ -288,22 +288,27 @@ func (c Chain) Start(t *testing.T, ctx context.Context, nVals int) ChainAddresse
 
 	// Now we start the validators.
 	httpAddrFiles := make([]string, nVals)
+	grpcAddrFiles := make([]string, nVals)
 
 	var wg sync.WaitGroup
 	wg.Add(nVals)
 	for i := range nVals {
 		httpAddrFiles[i] = filepath.Join(addrDir, fmt.Sprintf("http_addr_%d.txt", i))
+		grpcAddrFiles[i] = filepath.Join(addrDir, fmt.Sprintf("grpc_addr_%d.txt", i))
 
 		go func(i int) {
 			defer wg.Done()
 
 			startCmd := []string{"start"}
 			if !gci.RunCometInsteadOfGordian {
-				// Then include the HTTP server flags.
+				// Then include the HTTP and gRPC server flags.
 				startCmd = append(
 					startCmd,
 					"--g-http-addr", "127.0.0.1:0",
 					"--g-http-addr-file", httpAddrFiles[i],
+
+					"--g-grpc-addr", "127.0.0.1:0",
+					"--g-grpc-addr-file", grpcAddrFiles[i],
 				)
 
 				if nVals > 1 {

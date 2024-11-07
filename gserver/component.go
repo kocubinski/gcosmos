@@ -212,6 +212,14 @@ func (c *Component) init(cfg map[string]any, log cosmoslog.Logger) error {
 			return fmt.Errorf("failed to listen for gRPC on %q: %w", grpcAddrFlag, err)
 		}
 
+		if f, ok := cfg[grpcAddrFileFlag].(string); ok && f != "" {
+			// TODO: we should probably track this file and delete it on shutdown.
+			addr := ln.Addr().String() + "\n"
+			if err := os.WriteFile(f, []byte(addr), 0600); err != nil {
+				return fmt.Errorf("failed to write gRPC address to file %q: %w", f, err)
+			}
+		}
+
 		c.grpcLn = ln
 	}
 
@@ -709,8 +717,9 @@ func (c *Component) Stop(_ context.Context) error {
 
 const (
 	httpAddrFlag     = "g-http-addr"
-	grpcAddrFlag     = "g-grpc-addr"
 	httpAddrFileFlag = "g-http-addr-file"
+	grpcAddrFlag     = "g-grpc-addr"
+	grpcAddrFileFlag = "g-grpc-addr-file"
 
 	seedAddrsFlag = "g-seed-addrs"
 
@@ -727,8 +736,9 @@ func (c *Component) StartCmdFlags() *pflag.FlagSet {
 	flags := pflag.NewFlagSet("gserver", pflag.ExitOnError)
 
 	flags.String(httpAddrFlag, "", "TCP address of Gordian's introspective HTTP server; if blank, server will not be started")
-	flags.String(grpcAddrFlag, "", "TCP address of Gordian's introspective GRPC server; if blank, server will not be started")
 	flags.String(httpAddrFileFlag, "", "Write the actual Gordian HTTP listen address to the given file (useful for tests when configured to listen on :0)")
+	flags.String(grpcAddrFlag, "", "TCP address of Gordian's introspective gRPC server; if blank, server will not be started")
+	flags.String(grpcAddrFileFlag, "", "Write the actual Gordian gRPC listen address to the given file (useful for tests when configured to listen on :0)")
 
 	flags.String(seedAddrsFlag, "", "Newline-separated multiaddrs to connect to; if omitted, relies on incoming connections to discover peers")
 
