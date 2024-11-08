@@ -1,7 +1,7 @@
-From 5524d63cfd1bb4e0aa2c48c75a6be9723fa31aa1 Mon Sep 17 00:00:00 2001
+From 3628bbde49acdb13b28a7e7f60c0d485f77bf5be Mon Sep 17 00:00:00 2001
 From: Mark Rushakoff <mark@strange.love>
 Date: Wed, 30 Oct 2024 11:24:17 -0400
-Subject: [PATCH 4/4] hack: force respecting home flag
+Subject: [PATCH 4/5] hack: force respecting home flag
 
 For some unclear reason, the wiring with gcosmos is not allowing the
 flags to be respected in at least these three commands, and they try to
@@ -20,7 +20,7 @@ index 10d9db0cdc..9e8b3a0672 100644
 @@ -24,6 +24,14 @@ func CollectGenTxsCmd(validator func([]transaction.Msg) error) *cobra.Command {
  		RunE: func(cmd *cobra.Command, _ []string) error {
  			config := client.GetConfigFromCmd(cmd)
-
+ 
 +			if config.RootDir == "" {
 +				var err error
 +				config.RootDir, err = cmd.Flags().GetString("home")
@@ -31,7 +31,7 @@ index 10d9db0cdc..9e8b3a0672 100644
 +
  			clientCtx := client.GetClientContextFromCmd(cmd)
  			cdc := clientCtx.Codec
-
+ 
 diff --git a/x/genutil/client/cli/genaccount.go b/x/genutil/client/cli/genaccount.go
 index 938e711b3a..300ba9e207 100644
 --- a/x/genutil/client/cli/genaccount.go
@@ -39,7 +39,7 @@ index 938e711b3a..300ba9e207 100644
 @@ -39,6 +39,14 @@ contain valid denominations. Accounts may optionally be supplied with vesting pa
  			clientCtx := client.GetClientContextFromCmd(cmd)
  			config := client.GetConfigFromCmd(cmd)
-
+ 
 +			if config.RootDir == "" {
 +				var err error
 +				config.RootDir, err = cmd.Flags().GetString("home")
@@ -71,6 +71,6 @@ index c56c772afc..8958c74d48 100644
  			clientCtx, err := client.GetClientTxContext(cmd)
  			if err != nil {
  				return err
---
+-- 
 2.47.0
 

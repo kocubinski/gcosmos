@@ -239,10 +239,10 @@ func (d *Driver) handleInitialization(
 		return false
 	}
 
-	// SetInitialVersion followed by WorkingHash,
+	// SetInitialVersion(initialHeight - 1) followed by Commit,
 	// and passing that hash as the initial app state hash,
 	// is what the comet server code does.
-	if err := s.SetInitialVersion(req.Genesis.InitialHeight); err != nil {
+	if err := s.SetInitialVersion(req.Genesis.InitialHeight - 1); err != nil {
 		d.log.Warn("Failed to set initial version", "err", err)
 		return false
 	}
@@ -252,7 +252,8 @@ func (d *Driver) handleInitialization(
 		d.log.Warn("Failed to set get state changes from genesis state", "err", err)
 		return false
 	}
-	stateRoot, err := s.WorkingHash(&store.Changeset{
+	stateRoot, err := s.Commit(&store.Changeset{
+		Version: req.Genesis.InitialHeight - 1,
 		Changes: stateChanges,
 	})
 	if err != nil {
@@ -345,7 +346,7 @@ func (d *Driver) handleFinalization(ctx context.Context, req tmdriver.FinalizeBl
 	// TODO: don't hardcode the initial height.
 	const initialHeight = 1
 	if req.Header.Height == initialHeight {
-		appHash, err := d.sdkStore.Commit(store.NewChangeset())
+		appHash, err := d.sdkStore.Commit(store.NewChangeset(initialHeight))
 		if err != nil {
 			d.log.Warn("Failed to commit new changeset for initial height", "err", err)
 			return false
@@ -588,7 +589,10 @@ func (d *Driver) handleFinalization(ctx context.Context, req tmdriver.FinalizeBl
 		d.log.Warn("Failed to get state changes", "err", err)
 		return false
 	}
-	appHash, err := d.sdkStore.Commit(&store.Changeset{Changes: stateChanges})
+	appHash, err := d.sdkStore.Commit(&store.Changeset{
+		Version: req.Header.Height,
+		Changes: stateChanges,
+	})
 	if err != nil {
 		d.log.Warn("Failed to commit state changes", "err", err)
 		return false

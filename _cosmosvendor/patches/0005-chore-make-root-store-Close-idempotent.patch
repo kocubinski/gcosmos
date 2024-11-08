@@ -1,0 +1,34 @@
+From 2e9d9df5993e2f4b48815b9e5af67fb7964080b8 Mon Sep 17 00:00:00 2001
+From: Mark Rushakoff <mark.rushakoff@gmail.com>
+Date: Fri, 8 Nov 2024 11:29:19 -0500
+Subject: [PATCH 5/5] chore: make root store Close idempotent
+
+We will see about removing this later, but currently is it necessary to
+get gcosmos to shut down properly.
+---
+ store/v2/root/store.go | 9 +++++++--
+ 1 file changed, 7 insertions(+), 2 deletions(-)
+
+diff --git a/store/v2/root/store.go b/store/v2/root/store.go
+index 59363e2fb3..bc7139a8d7 100644
+--- a/store/v2/root/store.go
++++ b/store/v2/root/store.go
+@@ -88,8 +88,13 @@ func New(
+ // Close closes the store and resets all internal fields. Note, Close() is NOT
+ // idempotent and should only be called once.
+ func (s *Store) Close() (err error) {
+-	err = errors.Join(err, s.stateStorage.Close())
+-	err = errors.Join(err, s.stateCommitment.Close())
++	if s.stateStorage != nil {
++		err = errors.Join(err, s.stateStorage.Close())
++	}
++	if s.stateCommitment != nil {
++		err = errors.Join(err, s.stateCommitment.Close())
++	}
++
+ 	err = errors.Join(err, s.dbCloser.Close())
+ 
+ 	s.stateStorage = nil
+-- 
+2.47.0
+
