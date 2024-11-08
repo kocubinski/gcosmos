@@ -83,6 +83,9 @@ func NewGcosmosCommand(
 	rootCmd.PersistentFlags().String("from", "", "TODO: don't set this in internal/gci/command.go")
 	rootCmd.PersistentFlags().Bool("generate-only", false, "TODO: don't set this in internal/gci/command.go")
 
+	rootCmd.PersistentFlags().String("grpc-addr", "", "TODO: don't set this in internal/gci/command.go")
+	rootCmd.PersistentFlags().String("grpc-insecure", "", "TODO: don't set this in internal/gci/command.go")
+
 	subCommand, configMap, logger, err := factory.ParseCommand(rootCmd, args)
 	if err != nil {
 		panic(fmt.Errorf("failed to parse command [args=%#v]: %w", args, err))

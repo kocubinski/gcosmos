@@ -228,7 +228,7 @@ func ConfigureChain(t *testing.T, ctx context.Context, cfg ChainConfig) Chain {
 
 type ChainAddresses struct {
 	HTTP []string
-	// TODO: this can also include GRPC when we need it.
+	GRPC []string
 
 	// File containing the address of the seed node.
 	// Only populated for chains with multiple validators.
@@ -240,6 +240,7 @@ func (c Chain) Start(t *testing.T, ctx context.Context, nVals int) ChainAddresse
 
 	ca := ChainAddresses{
 		HTTP: make([]string, nVals),
+		GRPC: make([]string, nVals),
 	}
 
 	addrDir := t.TempDir()
@@ -356,6 +357,31 @@ func (c Chain) Start(t *testing.T, ctx context.Context, nVals int) ChainAddresse
 		}
 
 		ca.HTTP[i] = httpAddr
+
+		var grpcAddr string
+		deadline = time.Now().Add(5 * time.Second)
+		for time.Now().Before(deadline) {
+			a, err := os.ReadFile(grpcAddrFiles[i])
+			if err != nil {
+				// Swallow the error and delay.
+				time.Sleep(25 * time.Millisecond)
+				continue
+			}
+			if !bytes.HasSuffix(a, []byte("\n")) {
+				// Very unlikely incomplete write/read.
+				time.Sleep(25 * time.Millisecond)
+				continue
+			}
+
+			grpcAddr = strings.TrimSuffix(string(a), "\n")
+			break
+		}
+
+		if grpcAddr == "" {
+			t.Fatalf("did not read grpc address from %s in time", grpcAddrFiles[i])
+		}
+
+		ca.GRPC[i] = grpcAddr
 	}
 
 	return ca
