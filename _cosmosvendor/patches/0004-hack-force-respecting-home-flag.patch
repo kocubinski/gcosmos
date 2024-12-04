@@ -1,7 +1,7 @@
-From 3628bbde49acdb13b28a7e7f60c0d485f77bf5be Mon Sep 17 00:00:00 2001
+From 5e2c0d6d2df1e8f0cf14980144fcc3f7bdfe91ff Mon Sep 17 00:00:00 2001
 From: Mark Rushakoff <mark@strange.love>
 Date: Wed, 30 Oct 2024 11:24:17 -0400
-Subject: [PATCH 4/5] hack: force respecting home flag
+Subject: [PATCH 4/6] hack: force respecting home flag
 
 For some unclear reason, the wiring with gcosmos is not allowing the
 flags to be respected in at least these three commands, and they try to

@@ -1,7 +1,7 @@
-From 7b41d5b9894c41f90be0709a774595fa7a77ebbc Mon Sep 17 00:00:00 2001
+From 3c64061fd97e0ef79075528ad9411cdfbefde4fe Mon Sep 17 00:00:00 2001
 From: Mark Rushakoff <mark@strange.love>
 Date: Fri, 25 Oct 2024 15:35:39 -0400
-Subject: [PATCH 1/5] chore: use replaces for cosmossdk.io/log/slog
+Subject: [PATCH 1/6] chore: use replaces for cosmossdk.io/log/slog
 
 We will have to try removing these in the future, but they shouldn't
 hurt for now.
@@ -11,25 +11,25 @@ hurt for now.
  2 files changed, 2 insertions(+)
 
 diff --git a/server/v2/go.mod b/server/v2/go.mod
-index 94631d1bc3..ed2b129a6e 100644
+index c781f224a6..27a80a60ab 100644
 --- a/server/v2/go.mod
 +++ b/server/v2/go.mod
-@@ -4,6 +4,7 @@ go 1.23
+@@ -3,6 +3,7 @@ module cosmossdk.io/server/v2
+ go 1.23
  
  replace (
- 	cosmossdk.io/api => ../../api
 +	cosmossdk.io/log => ../../log
  	cosmossdk.io/server/v2/appmanager => ./appmanager
  	cosmossdk.io/server/v2/stf => ./stf
  	cosmossdk.io/store/v2 => ../../store/v2
 diff --git a/simapp/v2/go.mod b/simapp/v2/go.mod
-index 7c9beaf117..f3320f7dfe 100644
+index 1d95f5af33..44dc96a6cb 100644
 --- a/simapp/v2/go.mod
 +++ b/simapp/v2/go.mod
-@@ -250,6 +250,7 @@ require (
+@@ -259,6 +259,7 @@ require (
  replace (
  	cosmossdk.io/client/v2 => ../../client/v2
- 	cosmossdk.io/collections => ../../collections
+ 	cosmossdk.io/tools/benchmark => ../../tools/benchmark
 +	cosmossdk.io/log => ../../log
  	cosmossdk.io/tools/confix => ../../tools/confix
  	cosmossdk.io/x/accounts => ../../x/accounts

@@ -1,7 +1,7 @@
-From f7ccdda96cbe6d7c6879c81b7319c0edee853ad9 Mon Sep 17 00:00:00 2001
+From 3575c3c9f7064aff04649b7e1b339636d58e1ee9 Mon Sep 17 00:00:00 2001
 From: Andrew Gouin <andrew@gouin.io>
 Date: Fri, 25 Oct 2024 16:25:31 -0600
-Subject: [PATCH 2/5] fix: allow customizing query and tx flags
+Subject: [PATCH 2/6] fix: allow customizing query and tx flags
 
 ---
  client/flags/flags.go | 90 ++++++++++++++++++++++++++++++++++++++++---
