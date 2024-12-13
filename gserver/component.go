@@ -709,9 +709,6 @@ func (c *Component) Stop(_ context.Context) error {
 		}
 	}
 
-	if err := c.config.RootStore.Close(); err != nil {
-		c.log.Warn("Failed to close root store", "err", err)
-	}
 	return nil
 }
 
