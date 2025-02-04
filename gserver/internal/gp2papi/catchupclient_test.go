@@ -24,7 +24,7 @@ func TestCatchupClient_fullBlock_zeroData(t *testing.T) {
 
 	dhfx := NewFixture(t, ctx)
 
-	fx := tmconsensustest.NewStandardFixture(4)
+	fx := tmconsensustest.NewEd25519Fixture(4)
 	dataID := gsbd.DataID(1, 0, 0, nil) // Zero data ID
 	ph1 := fx.NextProposedHeader([]byte(dataID), 0)
 	fx.SignProposal(ctx, &ph1, 0)
@@ -89,7 +89,7 @@ func TestCatchupClient_fullBlock_withData_correct(t *testing.T) {
 
 	dhfx := NewFixture(t, ctx)
 
-	fx := tmconsensustest.NewStandardFixture(4)
+	fx := tmconsensustest.NewEd25519Fixture(4)
 	tx := gservertest.NewHashOnlyTransaction(1)
 	txs := []transaction.Tx{tx}
 
@@ -164,7 +164,7 @@ func TestCatchupClient_fullBlock_withData_badHash(t *testing.T) {
 
 	dhfx := NewFixture(t, ctx)
 
-	fx := tmconsensustest.NewStandardFixture(4)
+	fx := tmconsensustest.NewEd25519Fixture(4)
 	tx1 := gservertest.NewHashOnlyTransaction(1)
 	tx2 := gservertest.NewHashOnlyTransaction(2)
 

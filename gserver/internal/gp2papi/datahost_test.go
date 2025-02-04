@@ -23,7 +23,7 @@ func TestDataHost_serveCommittedHeader(t *testing.T) {
 
 	dhfx := NewFixture(t, ctx)
 
-	fx := tmconsensustest.NewStandardFixture(4)
+	fx := tmconsensustest.NewEd25519Fixture(4)
 	ph1 := fx.NextProposedHeader([]byte("app_data_1"), 0)
 	fx.SignProposal(ctx, &ph1, 0)
 
@@ -87,7 +87,7 @@ func TestDataHost_fullBlock(t *testing.T) {
 
 		dhfx := NewFixture(t, ctx)
 
-		fx := tmconsensustest.NewStandardFixture(4)
+		fx := tmconsensustest.NewEd25519Fixture(4)
 		ph1 := fx.NextProposedHeader([]byte("app_data_1"), 0)
 		fx.SignProposal(ctx, &ph1, 0)
 
@@ -143,7 +143,7 @@ func TestDataHost_fullBlock(t *testing.T) {
 
 		dhfx := NewFixture(t, ctx)
 
-		fx := tmconsensustest.NewStandardFixture(4)
+		fx := tmconsensustest.NewEd25519Fixture(4)
 		dataID := gsbd.DataID(1, 0, 0, nil) // Zero data ID
 		ph1 := fx.NextProposedHeader([]byte(dataID), 0)
 		fx.SignProposal(ctx, &ph1, 0)

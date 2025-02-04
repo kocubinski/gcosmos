@@ -330,7 +330,7 @@ func (c *Component) init(cfg map[string]any, log cosmoslog.Logger) error {
 
 		tmengine.WithHashScheme(tmconsensustest.SimpleHashScheme{}),
 		tmengine.WithSignatureScheme(tmconsensustest.SimpleSignatureScheme{}),
-		tmengine.WithCommonMessageSignatureProofScheme(gcrypto.SimpleCommonMessageSignatureProofScheme),
+		tmengine.WithCommonMessageSignatureProofScheme(gcrypto.SimpleCommonMessageSignatureProofScheme{}),
 
 		tmengine.WithGenesis(genesis),
 
