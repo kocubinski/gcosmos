@@ -103,5 +103,7 @@ require (
 	modernc.org/token v1.1.0 // indirect
 )
 
-// replace github.com/bvinc/go-sqlite-lite => ../go-sqlite-lite
+// this version of iavl/v2 contains of subset of the work in https://github.com/cosmos/iavl/pull/1043
+// and a refactor to use database/sql and mattn/go-sqlite3 insteado of bvinc/go-sqlite-lite
 replace github.com/cosmos/iavl/v2 => github.com/kocubinski/iavl/v2 9757260a4538f456df8a388d3317e4dbf9ce4610
+
