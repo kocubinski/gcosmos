@@ -1,4 +1,4 @@
-From 96b785539d0bf93cdfeb3fe78e793b984bcf0776 Mon Sep 17 00:00:00 2001
+From 1bac71933e4315a8b1035636ae207e5f8105f5cb Mon Sep 17 00:00:00 2001
 From: Mark Rushakoff <mark@strange.love>
 Date: Fri, 8 Nov 2024 11:29:19 -0500
 Subject: [PATCH 5/6] chore: make root store Close idempotent
@@ -10,10 +10,10 @@ get gcosmos to shut down properly.
  1 file changed, 4 insertions(+), 1 deletion(-)
 
 diff --git a/store/v2/root/store.go b/store/v2/root/store.go
-index ab22d3f901..92e964c190 100644
+index e11d59a153..69ca8004cb 100644
 --- a/store/v2/root/store.go
 +++ b/store/v2/root/store.go
-@@ -81,7 +81,10 @@ func New(
+@@ -65,7 +65,10 @@ func New(
  // Close closes the store and resets all internal fields. Note, Close() is NOT
  // idempotent and should only be called once.
  func (s *Store) Close() (err error) {
@@ -23,8 +23,8 @@ index ab22d3f901..92e964c190 100644
 +	}
 +
  	err = errors.Join(err, s.dbCloser.Close())
-
+ 
  	s.stateCommitment = nil
---
-2.47.0
+-- 
+2.39.5 (Apple Git-154)
 

@@ -1,4 +1,4 @@
-From 3575c3c9f7064aff04649b7e1b339636d58e1ee9 Mon Sep 17 00:00:00 2001
+From b3ec78dcbfdd6daacc947982f6b21947973ac730 Mon Sep 17 00:00:00 2001
 From: Andrew Gouin <andrew@gouin.io>
 Date: Fri, 25 Oct 2024 16:25:31 -0600
 Subject: [PATCH 2/6] fix: allow customizing query and tx flags
@@ -8,7 +8,7 @@ Subject: [PATCH 2/6] fix: allow customizing query and tx flags
  1 file changed, 84 insertions(+), 6 deletions(-)
 
 diff --git a/client/flags/flags.go b/client/flags/flags.go
-index d44ed31679..14c798329e 100644
+index a001f7cda0..11ce566c85 100644
 --- a/client/flags/flags.go
 +++ b/client/flags/flags.go
 @@ -49,6 +49,8 @@ const (
@@ -20,7 +20,7 @@ index d44ed31679..14c798329e 100644
  	FlagHeight           = "height"
  	FlagGasAdjustment    = "gas-adjustment"
  	FlagFrom             = "from"
-@@ -90,6 +92,10 @@ const (
+@@ -91,6 +93,10 @@ const (
  	FlagLogLevel   = "log_level"
  	FlagLogFormat  = "log_format"
  	FlagLogNoColor = "log_no_color"
@@ -28,10 +28,10 @@ index d44ed31679..14c798329e 100644
 +	FlagNodeDesc         = "<host>:<port> to CometBFT RPC interface for this chain"
 +	FlagGRPCDesc         = "the gRPC endpoint to use for this chain"
 +	FlagGRPCInsecureDesc = "allow gRPC over insecure channels, if not the server must use TLS"
+ 	FlagTrace      = "trace"
  )
  
- // List of supported output formats
-@@ -98,23 +104,93 @@ const (
+@@ -100,23 +106,93 @@ const (
  	OutputFormatText = "text"
  )
  
@@ -130,7 +130,7 @@ index d44ed31679..14c798329e 100644
  // AddTxFlagsToCmd adds common flags to a module tx command.
  func AddTxFlagsToCmd(cmd *cobra.Command) {
  	f := cmd.Flags()
-@@ -127,7 +203,9 @@ func AddTxFlagsToCmd(cmd *cobra.Command) {
+@@ -129,7 +205,9 @@ func AddTxFlagsToCmd(cmd *cobra.Command) {
  	f.String(FlagNote, "", "Note to add a description to the transaction (previously --memo)")
  	f.String(FlagFees, "", "Fees to pay along with transaction; eg: 10uatom")
  	f.String(FlagGasPrices, "", "Determine the transaction fee by multiplying max gas units by gas prices (e.g. 0.1uatom), rounding up to nearest denom unit")
@@ -142,5 +142,5 @@ index d44ed31679..14c798329e 100644
  	f.Float64(FlagGasAdjustment, DefaultGasAdjustment, "adjustment factor to be multiplied against the estimate returned by the tx simulation; if the gas limit is set manually this flag is ignored ")
  	f.StringP(FlagBroadcastMode, "b", BroadcastSync, "Transaction broadcasting mode (sync|async)")
 -- 
-2.47.0
+2.39.5 (Apple Git-154)
 

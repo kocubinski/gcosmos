@@ -1,4 +1,4 @@
-From 16c5d8cd2190ca4233392096d9efb349f7f1dc5f Mon Sep 17 00:00:00 2001
+From c192181111eaedb39747a8f5562eeffc7ba4ea90 Mon Sep 17 00:00:00 2001
 From: Mark Rushakoff <mark@strange.love>
 Date: Fri, 13 Dec 2024 11:09:26 -0500
 Subject: [PATCH 6/6] chore: temporarily disable server v2 rest and grpc
@@ -17,7 +17,7 @@ index 5775a6fd0e..bdb4c50374 100644
 +++ b/server/v2/api/grpc/server.go
 @@ -227,6 +227,11 @@ func (s *Server[T]) Config() any {
  }
-
+ 
  func (s *Server[T]) Start(ctx context.Context) error {
 +	const temporarilyDisable = true
 +	if temporarilyDisable {
@@ -33,7 +33,7 @@ index 1ea098c6dc..9356dde616 100644
 +++ b/server/v2/api/rest/server.go
 @@ -67,6 +67,11 @@ func (s *Server[T]) Name() string {
  }
-
+ 
  func (s *Server[T]) Start(ctx context.Context) error {
 +	const temporarilyDisable = true
 +	if temporarilyDisable {
@@ -43,6 +43,6 @@ index 1ea098c6dc..9356dde616 100644
  	if !s.config.Enable {
  		s.logger.Info(fmt.Sprintf("%s server is disabled via config", s.Name()))
  		return nil
---
-2.47.0
+-- 
+2.39.5 (Apple Git-154)
 

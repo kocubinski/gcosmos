@@ -1,4 +1,4 @@
-From 5e2c0d6d2df1e8f0cf14980144fcc3f7bdfe91ff Mon Sep 17 00:00:00 2001
+From f4aa2248e2ddd223049dbfd2b9a7d9943ed1bd55 Mon Sep 17 00:00:00 2001
 From: Mark Rushakoff <mark@strange.love>
 Date: Wed, 30 Oct 2024 11:24:17 -0400
 Subject: [PATCH 4/6] hack: force respecting home flag
@@ -52,10 +52,10 @@ index 938e711b3a..300ba9e207 100644
  			var kr keyring.Keyring
  			addr, err := addressCodec.StringToBytes(args[0])
 diff --git a/x/genutil/client/cli/gentx.go b/x/genutil/client/cli/gentx.go
-index c56c772afc..8958c74d48 100644
+index a3b3146fae..5fee5ba14c 100644
 --- a/x/genutil/client/cli/gentx.go
 +++ b/x/genutil/client/cli/gentx.go
-@@ -54,6 +54,15 @@ $ %s gentx my-key-name 1000000stake --home=/path/to/home/dir --keyring-backend=o
+@@ -58,6 +58,15 @@ $ %s gentx my-key-name 1000000stake --home=/path/to/home/dir --keyring-backend=o
  		),
  		RunE: func(cmd *cobra.Command, args []string) error {
  			config := client.GetConfigFromCmd(cmd)
@@ -72,5 +72,5 @@ index c56c772afc..8958c74d48 100644
  			if err != nil {
  				return err
 -- 
-2.47.0
+2.39.5 (Apple Git-154)
 
