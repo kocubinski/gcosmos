@@ -150,7 +150,7 @@ func initRootCommandFull(
 		return nil, fmt.Errorf("failed to create rest server: %w", err)
 	}
 
-	telemetryServer, err := telemetry.New[transaction.Tx](fullCfg.GlobalConfig, logger, sdktelemetry.EnableTelemetry)
+	telemetryServer, err := telemetry.New[transaction.Tx](logger, sdktelemetry.EnableTelemetry, fullCfg.GlobalConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create telemetry server: %w", err)
 	}

@@ -26,6 +26,7 @@ require (
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/gordian-engine/gordian v0.0.0-20250204185913-63a5211894fd // indirect
 	github.com/gordian-engine/tmsqlite v0.0.0-20250203205009-ed3f83d21782 // indirect
+	github.com/gorilla/mux v1.8.1 // indirect
 	github.com/hashicorp/errwrap v1.1.0 // indirect
 	github.com/hashicorp/go-multierror v1.1.1 // indirect
 	github.com/hashicorp/golang-lru v1.0.2 // indirect
@@ -101,3 +102,6 @@ require (
 	modernc.org/strutil v1.2.0 // indirect
 	modernc.org/token v1.1.0 // indirect
 )
+
+// replace github.com/bvinc/go-sqlite-lite => ../go-sqlite-lite
+replace github.com/cosmos/iavl/v2 => github.com/kocubinski/iavl/v2 9757260a4538f456df8a388d3317e4dbf9ce4610

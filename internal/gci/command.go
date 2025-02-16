@@ -157,6 +157,7 @@ func NewGcosmosCommand(
 		fullRootCommandConfig{
 			App:                gcApp,
 			ConsensusComponent: component,
+			GlobalConfig:       configMap,
 		},
 	); err != nil {
 		panic(fmt.Errorf("failed to initialize full root command: %w", err))

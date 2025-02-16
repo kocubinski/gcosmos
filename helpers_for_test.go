@@ -16,7 +16,6 @@ import (
 	"testing"
 	"time"
 
-	svrcmd "github.com/cosmos/cosmos-sdk/server/cmd"
 	"github.com/gordian-engine/gcosmos/internal/copy/gtest"
 	"github.com/gordian-engine/gcosmos/internal/gci"
 	"github.com/spf13/cobra"
@@ -512,8 +511,6 @@ func (e CmdEnv) RunWithInputC(ctx context.Context, in io.Reader, args ...string)
 		cmd = gci.NewGcosmosCommand(ctx, e.log, e.homeDir, args)
 		cmd.SetArgs(args)
 	}
-
-	ctx = svrcmd.CreateExecuteContext(ctx)
 
 	var res RunResult
 	cmd.SetOut(&res.Stdout)

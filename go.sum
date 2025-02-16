@@ -84,6 +84,8 @@ github.com/gordian-engine/tmsqlite v0.0.0-20241025142426-72fc096766f0 h1:Vg3bv/B
 github.com/gordian-engine/tmsqlite v0.0.0-20241025142426-72fc096766f0/go.mod h1:+C8HIdAKMG/77WHk2MbifZVcbXd6ibeCf9hokgqSs+Y=
 github.com/gordian-engine/tmsqlite v0.0.0-20250203205009-ed3f83d21782 h1:dfyJYp6yYOpdlcqtKHoCoEe52cqYk5vvf/sKWA7q5fQ=
 github.com/gordian-engine/tmsqlite v0.0.0-20250203205009-ed3f83d21782/go.mod h1:ADHKYMqCcA+cHVQlf5+uql2qOuBjEk+gV52tNREdYiM=
+github.com/gorilla/mux v1.8.1 h1:TuBL49tXwgrFYWhqrNgrUNEY92u81SPhu7sTdzQEiWY=
+github.com/gorilla/mux v1.8.1/go.mod h1:AKf9I4AEqPTmMytcMc0KkNouC66V3BtZ4qD5fmWSiMQ=
 github.com/hashicorp/errwrap v1.0.0/go.mod h1:YH+1FKiLXxHSkmPseP+kNlulaMuP3n2brvKWEqk/Jc4=
 github.com/hashicorp/errwrap v1.1.0 h1:OxrOeh75EUXMY8TBjag2fzXGZ40LB6IKw45YeGUDY2I=
 github.com/hashicorp/errwrap v1.1.0/go.mod h1:YH+1FKiLXxHSkmPseP+kNlulaMuP3n2brvKWEqk/Jc4=

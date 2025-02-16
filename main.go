@@ -8,16 +8,11 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
-	"strings"
 
 	clienthelpers "cosmossdk.io/client/v2/helpers"
 	sdkflags "github.com/cosmos/cosmos-sdk/client/flags"
-	"github.com/cosmos/cosmos-sdk/server"
-	svrcmd "github.com/cosmos/cosmos-sdk/server/cmd"
 	"github.com/gordian-engine/gcosmos/internal/gci"
-	"github.com/rs/zerolog"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 )
 
 func main() {
@@ -51,30 +46,10 @@ func main() {
 // into the underlying stdlib Context. It also handles adding core CLI flags,
 // specifically the logging flags. It returns an error upon execution failure.
 func Execute(ctx context.Context, rootCmd *cobra.Command, envPrefix, defaultHome string) error {
-	ctx = svrcmd.CreateExecuteContext(ctx)
-
 	pFlags := rootCmd.PersistentFlags()
-
-	if pFlags.Lookup(sdkflags.FlagLogLevel) == nil {
-		pFlags.String(sdkflags.FlagLogLevel, zerolog.InfoLevel.String(), "The logging level (trace|debug|info|warn|error|fatal|panic|disabled or '*:<level>,<key>:<level>')")
+	if pFlags.Lookup(sdkflags.FlagTrace) == nil {
+		pFlags.Bool(sdkflags.FlagTrace, false, "print out full stack trace on errors")
 	}
-	if pFlags.Lookup(sdkflags.FlagLogFormat) == nil {
-		pFlags.String(sdkflags.FlagLogFormat, "plain", "The logging format (json|plain)")
-	}
-	if pFlags.Lookup(sdkflags.FlagLogNoColor) == nil {
-		pFlags.Bool(sdkflags.FlagLogNoColor, false, "Disable colored logs")
-	}
-	if pFlags.Lookup(sdkflags.FlagHome) == nil {
-		pFlags.StringP(sdkflags.FlagHome, "", defaultHome, "directory for config and data")
-	}
-	if pFlags.Lookup(server.FlagTrace) == nil {
-		pFlags.Bool(server.FlagTrace, false, "print out full stack trace on errors")
-	}
-
-	// update the global viper with the root command's configuration
-	viper.SetEnvPrefix(envPrefix)
-	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_", "-", "_"))
-	viper.AutomaticEnv()
 
 	return rootCmd.ExecuteContext(ctx)
 }
