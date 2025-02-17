@@ -23,7 +23,6 @@ import (
 	_ "cosmossdk.io/x/authz"
 	_ "cosmossdk.io/x/authz/module"
 	_ "cosmossdk.io/x/bank"
-	_ "cosmossdk.io/x/bank/v2"
 	_ "cosmossdk.io/x/circuit"
 	_ "cosmossdk.io/x/consensus"
 	_ "cosmossdk.io/x/distribution"

@@ -31,8 +31,6 @@ import (
 	"cosmossdk.io/x/accounts"
 	"cosmossdk.io/x/authz"
 	banktypes "cosmossdk.io/x/bank/types"
-	bankv2types "cosmossdk.io/x/bank/v2/types"
-	bankmodulev2 "cosmossdk.io/x/bank/v2/types/module"
 	circuittypes "cosmossdk.io/x/circuit/types"
 	consensustypes "cosmossdk.io/x/consensus/types"
 	distrtypes "cosmossdk.io/x/distribution/types"
@@ -140,7 +138,6 @@ var moduleConfig = appconfig.Compose(&appv1alpha1.Config{
 					accounts.ModuleName,
 					authtypes.ModuleName,
 					banktypes.ModuleName,
-					bankv2types.ModuleName,
 					distrtypes.ModuleName,
 					stakingtypes.ModuleName,
 					slashingtypes.ModuleName,
@@ -280,10 +277,6 @@ var moduleConfig = appconfig.Compose(&appv1alpha1.Config{
 		{
 			Name:   epochstypes.ModuleName,
 			Config: appconfig.WrapAny(&epochsmodulev1.Module{}),
-		},
-		{
-			Name:   bankv2types.ModuleName,
-			Config: appconfig.WrapAny(&bankmodulev2.Module{}),
 		},
 	},
 })
