@@ -467,14 +467,9 @@ func NewRootCmd(
 ) CmdEnv {
 	t.Helper()
 
-	// tmpDir := "/tmp/gcosmos-tests"
-	// os.RemoveAll(tmpDir)
-	// os.MkdirAll(tmpDir, 0o700)
-	tmpDir := t.TempDir()
-
 	return CmdEnv{
 		log:     log,
-		homeDir: tmpDir,
+		homeDir: t.TempDir(),
 	}
 }
 
