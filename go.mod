@@ -19,7 +19,6 @@ replace (
 	// use cosmos fork of keyring
 	github.com/99designs/keyring => github.com/cosmos/keyring v1.2.0
 	github.com/cosmos/cosmos-sdk => ./_cosmosvendor/cosmos-sdk
-	github.com/cosmos/iavl => github.com/cosmos/iavl v1.3.4
 	// this version of iavl/v2 contains of subset of the work in https://github.com/cosmos/iavl/pull/1043
 	// and a refactor to use database/sql and mattn/go-sqlite3 insteado of bvinc/go-sqlite-lite
 	github.com/cosmos/iavl/v2 => github.com/kocubinski/iavl/v2 v2.0.0-20250215223623-9757260a4538
